@@ -61,4 +61,7 @@ cmake -S "${repo_root}/deps" -B "${build_dir}" -G Ninja \
     -DDESTDIR="${prefix}" \
     -DORCA_SOURCE_DIR="${ORCA_SOURCE_DIR:-${repo_root}/third_party/OrcaSlicer}"
 
-cmake --build "${build_dir}" --target deps
+# One dependency at a time (-j1 at the superbuild level); each one still
+# compiles in parallel internally. This keeps peak memory bounded and each
+# dependency's output contiguous, so a failure's log reads cleanly.
+cmake --build "${build_dir}" --target deps -- -j1

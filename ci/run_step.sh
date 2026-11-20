@@ -18,8 +18,10 @@ status=${PIPESTATUS[0]}
 if (( status != 0 )); then
     # GitHub keeps at most 10 error annotations per step; spend up to 8 on
     # distinct error lines and one on the log tail.
-    grep -nE "(error:|Error:|ERROR|CMake Error|FAILED:|fatal error|undefined reference|e: )" "${log}" \
-        | grep -vE "^\S+:\s*-- " | awk '!seen[$0]++' | head -n 8 \
+    {
+        grep -nE "FAILED: " "${log}"
+        grep -nE "(error:|CMake Error|fatal error|undefined reference|^e: |configure: error)" "${log}"
+    } | awk '!seen[$0]++' | head -n 8 \
         | while IFS= read -r line; do
             msg="${line//'%'/'%25'}"
             echo "::error title=${name}: error line::${msg:0:900}"
