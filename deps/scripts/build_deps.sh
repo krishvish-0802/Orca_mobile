@@ -9,6 +9,10 @@
 # use `git apply`, which resolves paths against an enclosing repository).
 set -euo pipefail
 
+# Autotools packages read these from the environment (GMP's ABI=32|64), so a
+# variable with the same name set by a caller would break their configure step.
+unset ABI API
+
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 abi="arm64-v8a"
 api="29"

@@ -21,11 +21,12 @@ concurrency:
 permissions:
   contents: read
 
+# Not named ABI/API: autotools packages (GMP) read an ABI environment variable.
 env:
-  ABI: arm64-v8a
-  API: "29"
-  DEPS_BUILD_DIR: ${{ github.workspace }}/../orca-deps-build
-  DEPS_PREFIX: ${{ github.workspace }}/../orca-deps-prefix
+  ORCA_ABI: arm64-v8a
+  ORCA_API: "29"
+  DEPS_BUILD_DIR: /home/runner/orca-deps-build
+  DEPS_PREFIX: /home/runner/orca-deps-prefix
 
 jobs:
   engine:
@@ -38,7 +39,7 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
           df -h "${GITHUB_WORKSPACE}"
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: true
           fetch-depth: 1
@@ -61,28 +62,28 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.DEPS_PREFIX }}
-          key: deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
+          key: deps-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
           # Any earlier prefix for this ABI, NDK and engine pin: per-dependency
           # markers decide what is still current.
           restore-keys: |
-            deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-
+            deps-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-
 
       - name: Build dependencies
         run: >
           ci/run_step.sh deps deps/scripts/build_deps.sh
-          --abi "${ABI}" --api "${API}" --build-dir "${DEPS_BUILD_DIR}" --prefix "${DEPS_PREFIX}"
+          --abi "${ORCA_ABI}" --api "${ORCA_API}" --build-dir "${DEPS_BUILD_DIR}" --prefix "${DEPS_PREFIX}"
 
       - name: Save dependency prefix
         if: always()
         uses: actions/cache/save@v4
         with:
           path: ${{ env.DEPS_PREFIX }}
-          key: deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
+          key: deps-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
 
       - name: Free dependency build tree
         run: rm -rf "${DEPS_BUILD_DIR}"
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 17
@@ -92,7 +93,7 @@ jobs:
       - name: Build APK with the native engine
         run: >
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
-          -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ABI}"
+          -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
           -Porca.ndkVersion="${NDK_REVISION}"
 
       - name: Build the on-device CLI harness
@@ -101,7 +102,7 @@ jobs:
             cmake -S native -B "${RUNNER_TEMP}/native-cli" -G Ninja \
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
-              -DANDROID_ABI="${ABI}" -DANDROID_PLATFORM="android-${API}" -DANDROID_STL=c++_shared \
+              -DANDROID_ABI="${ORCA_ABI}" -DANDROID_PLATFORM="android-${ORCA_API}" -DANDROID_STL=c++_shared \
               -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" &&
             cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
 
@@ -114,11 +115,11 @@ jobs:
       - name: Upload APK with engine
         uses: actions/upload-artifact@v4
         with:
-          name: orca-mobile-debug-${{ env.ABI }}
+          name: orca-mobile-debug-${{ env.ORCA_ABI }}
           path: app/build/outputs/apk/debug/*.apk
 
       - name: Upload CLI harness
         uses: actions/upload-artifact@v4
         with:
-          name: orca_slice_cli-${{ env.ABI }}
+          name: orca_slice_cli-${{ env.ORCA_ABI }}
           path: ${{ runner.temp }}/native-cli/bridge/orca_slice_cli
