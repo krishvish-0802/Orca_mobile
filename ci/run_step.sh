@@ -26,6 +26,15 @@ if (( status != 0 )); then
             msg="${line//'%'/'%25'}"
             echo "::error title=${name}: error line::${msg:0:900}"
         done
+    # Ninja prints the failing command's output right after its FAILED: line.
+    first_failed="$(grep -nm1 "FAILED: " "${log}" | cut -d: -f1)"
+    if [[ -n "${first_failed}" ]]; then
+        context="$(sed -n "${first_failed},$((first_failed + 60))p" "${log}")"
+        context="${context//'%'/'%25'}"
+        context="${context//$'\r'/}"
+        context="${context//$'\n'/'%0A'}"
+        echo "::error title=${name}: first failure::${context:0:60000}"
+    fi
     tail_text="$(tail -n 60 "${log}")"
     tail_text="${tail_text//'%'/'%25'}"
     tail_text="${tail_text//$'\r'/}"

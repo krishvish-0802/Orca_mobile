@@ -7,7 +7,8 @@ ExternalProject_Add(dep_MPFR
     URL_HASH SHA256=9ad62c7dc910303cd384ff8f1f4767a655124980bb6d8650fe62c815a231bb7b
     DOWNLOAD_DIR ${DEP_DOWNLOAD_DIR}/MPFR
     BUILD_IN_SOURCE ON
-    CONFIGURE_COMMAND env ${ORCA_ANDROID_ENV} ./configure
+    # Like upstream: regenerate the build system so its libtool matches the host's.
+    CONFIGURE_COMMAND autoreconf -f -i && env ${ORCA_ANDROID_ENV} ./configure
         --host=${TOOLCHAIN_PREFIX}
         --enable-shared=no --enable-static=yes
         --with-pic
