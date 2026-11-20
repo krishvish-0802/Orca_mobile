@@ -88,6 +88,8 @@ foreach (_dir IN LISTS _orca_deps_src)
     add_subdirectory("${ORCA_SOURCE_DIR}/deps_src/${_dir}" "${CMAKE_BINARY_DIR}/deps_src/${_dir}")
 endforeach ()
 
+# Upstream's src/CMakeLists.txt looks this up right before adding libslic3r.
+find_package(libnoise REQUIRED)
 add_subdirectory("${ORCA_SOURCE_DIR}/src/libslic3r" "${CMAKE_BINARY_DIR}/src/libslic3r")
 
 # Commit of the pinned engine, reported in the app's About screen.
