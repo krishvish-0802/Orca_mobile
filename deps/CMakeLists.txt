@@ -173,6 +173,12 @@ set(ORCA_DEP_EXTRA_ARGS_OpenCV
     -DWITH_CAROTENE=OFF
     -DBUILD_KOTLIN_EXTENSIONS=OFF
     -DOPENCV_INSTALL_BINARIES_PREFIX=)
+# oneTBB 2021.5 copies libc++_shared.so from the pre-r23 NDK layout when
+# ANDROID_STL is c++_shared, and that path no longer exists. TBB is linked
+# statically, and both runtimes share the same headers, so the static runtime is
+# safe here; the final .so still links c++_shared.
+set(ORCA_DEP_EXTRA_ARGS_TBB
+    -DANDROID_STL=c++_static)
 
 # Variables some recipes reference for their DEPENDS lists.
 set(ZLIB_PKG dep_ZLIB)
