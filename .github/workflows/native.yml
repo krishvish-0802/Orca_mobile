@@ -83,20 +83,7 @@ jobs:
       - name: Free dependency build tree
         run: rm -rf "${DEPS_BUILD_DIR}"
 
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Build APK with the native engine
-        run: >
-          ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
-          -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
-          -Porca.ndkVersion="${NDK_REVISION}"
-
-      - name: Build the on-device CLI harness
+      - name: Build the engine and the on-device CLI harness (plain CMake)
         run: |
           ci/run_step.sh engine-cli bash -c '
             cmake -S native -B "${RUNNER_TEMP}/native-cli" -G Ninja \
@@ -105,6 +92,24 @@ jobs:
               -DANDROID_ABI="${ORCA_ABI}" -DANDROID_PLATFORM="android-${ORCA_API}" -DANDROID_STL=c++_shared \
               -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" &&
             cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # AGP's bundled CMake is older than the one the dependencies were built
+      # with; point it at the runner's CMake so their package configs load.
+      - name: Use the runner's CMake for Gradle
+        run: echo "cmake.dir=$(dirname "$(dirname "$(command -v cmake)")")" >> local.properties
+
+      - name: Build APK with the native engine
+        run: >
+          ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
+          -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
+          -Porca.ndkVersion="${NDK_REVISION}"
 
       - name: Check 16 KB page alignment
         run: |
