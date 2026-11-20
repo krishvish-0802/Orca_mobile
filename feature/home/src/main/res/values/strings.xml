@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_title">Orca Mobile</string>
+    <string name="home_engine_title">Slicing engine</string>
+    <string name="home_engine_loading">Loading the engine…</string>
+    <string name="home_engine_commit">Upstream commit %1$s</string>
+    <string name="home_engine_unavailable">Engine unavailable: %1$s</string>
+    <string name="home_slice_title">Engine check</string>
+    <string name="home_slice_description">Slices a 20 mm calibration cube on this phone with the engine defaults.</string>
+    <string name="home_slice_action">Slice test cube</string>
+    <string name="home_slice_cancel">Cancel</string>
+    <string name="home_slice_canceled">Slicing canceled.</string>
+    <string name="home_stats_time">Estimated print time: %1$d h %2$02d min</string>
+    <string name="home_stats_filament">Filament: %1$s m (%2$s g)</string>
+    <string name="home_stats_layers">Layers: %1$d</string>
+    <string name="home_stats_size">G-code size: %1$d KB</string>
+</resources>

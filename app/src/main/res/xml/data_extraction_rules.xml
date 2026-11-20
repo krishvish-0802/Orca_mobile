@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Generated G-code and unpacked engine resources are re-creatable; skip them in backups. -->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="file" path="gcode/" />
+        <exclude domain="file" path="engine/" />
+        <exclude domain="file" path="samples/" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="file" path="gcode/" />
+        <exclude domain="file" path="engine/" />
+    </device-transfer>
+</data-extraction-rules>

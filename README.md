@@ -2,102 +2,85 @@
 
 A full 3D-printing slicer for **Android**, built on the slicing engine from [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer).
 
-The goal is to slice on the phone itself: load a model, pick printer, filament, and process profiles, slice it, preview the toolpaths, and export or send the G-code. No desktop or cloud service is needed.
+The goal is to slice on the phone itself: load a model, pick printer, filament and process profiles, slice it, preview the toolpaths, and send the G-code to the printer. No desktop or cloud service is needed.
 
-> **Status: pre-alpha / planning.** This repository has no code yet. The build steps and structure below describe the planned design and will change.
+> **Status: M0 (foundation) in progress.** The repository has the module skeleton, the Android dependency build, the native bridge and CI. See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
 
----
-
-## Why
-
-Today you need a desktop to slice for most printers. Orca Mobile aims to:
-
-- Run OrcaSlicer's `libslic3r` engine on-device through the Android NDK
-- Reuse OrcaSlicer's printer, filament, and process profiles, so results match the desktop app
-- Give you a touch-first UI for the common workflow, not a port of the full desktop UI
-
-## Planned architecture
+## How it fits together
 
 ```
-┌──────────────────────────────────────────┐
-│  Android UI layer   (stack: TBD)         │  model view, profiles, settings,
-│                                          │  G-code preview, export/send
-├──────────────────────────────────────────┤
-│  Native bridge      (JNI / FFI)          │  thin C API over the engine
-├──────────────────────────────────────────┤
-│  Slicing core       (C++17, NDK)         │  libslic3r from OrcaSlicer,
-│                                          │  built for arm64-v8a
-└──────────────────────────────────────────┘
+Android app (Kotlin, Jetpack Compose)        app/, feature/*, core/*
+        │  JNI: a few functions, JSON results
+native/bridge (C++17): orca_engine facade    native/
+        │
+OrcaSlicer libslic3r, unmodified             third_party/OrcaSlicer (git submodule, pinned)
+        │
+Boost, TBB, CGAL, OCCT, OpenCV, …            deps/ (built with the Android NDK)
 ```
 
-| Layer | Responsibility | Notes |
-|---|---|---|
-| **Slicing core** | Mesh loading (STL/3MF/OBJ), slicing, G-code generation | Built from OrcaSlicer's `src/libslic3r`. The desktop GUI (`src/slic3r`, wxWidgets) is **not** used. |
-| **Native bridge** | A small, stable C API: load model → apply config → slice → get G-code and preview data | Keeps the UI stack swappable |
-| **UI** | Android app | Framework not chosen yet: Kotlin/Compose, Flutter, or React Native |
+- **The engine is OrcaSlicer's own code**, built for `arm64-v8a`. Nothing is re-implemented, so G-code matches the desktop app.
+- **The bridge is the only C++ the app calls.** It hides libslic3r types behind `orca_engine/*.hpp` and returns JSON across JNI.
+- **The UI is Kotlin + Compose**, structured as Clean Architecture with MVI view models. See [CONTRIBUTING.md](CONTRIBUTING.md) for the module rules.
 
-### Main technical challenges
+## Repository layout
 
-- **Cross-compiling dependencies for Android.** `libslic3r` depends on Boost, TBB, CGAL (with GMP/MPFR), Eigen, OpenVDB, Clipper, Qhull, NLopt, cereal, expat, zlib, PNG/JPEG, and others. Some, such as OCCT for STEP import and OpenVDB, are heavy, so they may be dropped or made optional at first.
-- **Memory and CPU limits.** Large or multi-plate projects need to fit in mobile RAM, and long slices must survive the app going to the background (e.g. run in a foreground service).
-- **Toolpath preview.** Desktop preview uses OpenGL through `libvgcode`. Mobile needs OpenGL ES or Vulkan.
-- **Profiles.** OrcaSlicer's `resources/profiles` must be bundled or downloaded, then kept in sync with upstream.
+```
+Orca_mobile/
+├── app/                  composition root: Activity, Application, Hilt wiring
+├── core/
+│   ├── common/           coroutine dispatchers and other plain-Kotlin helpers
+│   ├── model/            domain types (EngineInfo, SliceRequest, SliceResult, …)
+│   ├── domain/           use cases + interfaces (SlicingEngine, repositories)
+│   ├── data/             repository implementations (files, bundled samples)
+│   ├── engine/           SlicingEngine backed by the native engine (JNI)
+│   └── designsystem/     theme and shared Compose components
+├── feature/
+│   └── home/             start screen; currently the on-device engine check
+├── native/
+│   ├── CMakeLists.txt    builds libslic3r without the desktop top-level project
+│   ├── cmake/            upstream compatibility layer
+│   └── bridge/           orca_engine facade, JNI glue, orca_slice_cli harness
+├── deps/                 Android superbuild reusing upstream dependency recipes
+├── third_party/OrcaSlicer   pinned upstream sources (submodule)
+├── build-logic/          Gradle convention plugins
+├── tools/                generators (settings layout extraction, …)
+├── ci/                   CI helper scripts
+└── docs/                 analysis, proposal, architecture decision records
+```
 
-## Roadmap
+## Building
 
-- [ ] Choose the UI stack
-- [ ] Cross-compile `libslic3r` and its minimum dependency set for `arm64-v8a`
-- [ ] Write a native CLI/test harness that slices an STL to G-code on a device or emulator
-- [ ] Define the C bridge API
-- [ ] Build an MVP app: import STL → pick bundled profile → slice → save G-code
-- [ ] Add a 3D model viewer and a layer-by-layer G-code preview
-- [ ] Support 3MF projects and multiple plates
-- [ ] Send to printer (OctoPrint / Moonraker / vendor protocols)
-- [ ] Add profile management and import from OrcaSlicer desktop
+### Kotlin layers only (fast)
 
-## Prerequisites (expected)
-
-These will be pinned once the build exists:
-
-- Android Studio and Android SDK
-- Android NDK (r26+), CMake 3.13+, and Ninja
-- A Git checkout of [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) (reference: `2.6.0-dev`)
-- A host machine with enough disk space and RAM to build Boost, CGAL, and TBB from source
-
-## Getting started
-
-There's nothing to build yet. To follow along or contribute:
+Needs JDK 17 and the Android SDK (Android Studio installs both).
 
 ```bash
 git clone https://github.com/krishvish-0802/Orca_mobile.git
 cd Orca_mobile
+./gradlew assembleDebug test
 ```
 
-Build instructions will go here when the native core compiles.
+This build reports the engine as unavailable, because it does not include the native library.
 
-## Project layout (planned)
+### With the native engine
 
+Also needs Android NDK r28 or newer, CMake 3.22+, Ninja, and autoconf/automake/libtool (for GMP/MPFR). The dependency build takes a few hours the first time.
+
+```bash
+git submodule update --init --depth 1 third_party/OrcaSlicer
+export ANDROID_NDK_HOME=/path/to/ndk/28.x
+deps/scripts/build_deps.sh --abi arm64-v8a --prefix "$HOME/orca-deps/arm64-v8a"
+./gradlew :app:assembleDebug -Porca.native=true -Porca.depsPrefix="$HOME/orca-deps/arm64-v8a"
 ```
-Orca_mobile/
-├── core/        # CMake project wrapping OrcaSlicer's libslic3r for Android
-├── deps/        # Android cross-compile scripts for third-party libraries
-├── bridge/      # C API + JNI/FFI bindings
-├── app/         # Android application
-├── profiles/    # Bundled printer / filament / process profiles
-└── docs/        # Design notes
-```
 
-## Contributing
-
-The project is at an early stage, and design discussion is welcome. Open an issue before starting large changes. Most early work will be in the native build: getting dependencies to cross-compile is the first milestone.
+The `Native engine` GitHub workflow runs the same steps, caches the dependency prefix between runs, and uploads an APK with the engine. To try it on a phone, download the `orca-mobile-debug-arm64-v8a` artifact from the workflow run and install it. Then tap **Slice test cube** on the start screen.
 
 ## License
 
-OrcaSlicer is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)**. This project builds on its code, so it is a derivative work and must also be distributed under **AGPL-3.0**. That means full corresponding source must be available to anyone who receives the app. A `LICENSE` file will be added with the first code commit.
+OrcaSlicer is licensed under the **GNU Affero General Public License v3.0**. This project builds on its code, so it is a derivative work and is distributed under the same license: see [LICENSE](LICENSE). Anyone who receives the app must be able to get its full source.
 
 ## Acknowledgements
 
-- [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) by SoftFever and contributors
-- It builds on Bambu Studio, PrusaSlicer, and Slic3r. Thanks to those projects and their communities.
+- [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) by SoftFever and contributors, which builds on Bambu Studio, PrusaSlicer and Slic3r.
 
 *Orca Mobile is an independent project and is not affiliated with or endorsed by the OrcaSlicer team.*

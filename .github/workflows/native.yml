@@ -1,0 +1,124 @@
+# Native engine: Android dependency superbuild (cached and resumable),
+# libslic3r + orca_engine, and an APK that bundles the engine.
+name: Native engine
+
+on:
+  push:
+    paths:
+      - deps/**
+      - native/**
+      - third_party/**
+      - .gitmodules
+      - core/engine/**
+      - .github/workflows/native.yml
+      - ci/**
+  workflow_dispatch:
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  ABI: arm64-v8a
+  API: "29"
+  DEPS_BUILD_DIR: ${{ github.workspace }}/../orca-deps-build
+  DEPS_PREFIX: ${{ github.workspace }}/../orca-deps-prefix
+
+jobs:
+  engine:
+    name: Dependencies, engine and APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
+          df -h "${GITHUB_WORKSPACE}"
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool
+
+      - name: Select NDK and engine pin
+        run: |
+          ndk="${ANDROID_NDK_LATEST_HOME}"
+          rev="$(sed -n 's/^Pkg.Revision *= *//p' "${ndk}/source.properties")"
+          echo "Using NDK ${rev} at ${ndk}"
+          echo "ANDROID_NDK_HOME=${ndk}" >> "${GITHUB_ENV}"
+          echo "NDK_REVISION=${rev}" >> "${GITHUB_ENV}"
+          echo "ORCA_PIN=$(git rev-parse --short=12 HEAD:third_party/OrcaSlicer)" >> "${GITHUB_ENV}"
+
+      # The prefix is restored from the newest matching cache, even one saved by a
+      # run that failed half-way: finished dependencies carry markers and are skipped.
+      - name: Restore dependency prefix
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
+          # Any earlier prefix for this ABI, NDK and engine pin: per-dependency
+          # markers decide what is still current.
+          restore-keys: |
+            deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-
+
+      - name: Build dependencies
+        run: >
+          ci/run_step.sh deps deps/scripts/build_deps.sh
+          --abi "${ABI}" --api "${API}" --build-dir "${DEPS_BUILD_DIR}" --prefix "${DEPS_PREFIX}"
+
+      - name: Save dependency prefix
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.DEPS_PREFIX }}
+          key: deps-${{ env.ABI }}-${{ env.NDK_REVISION }}-${{ env.ORCA_PIN }}-${{ hashFiles('deps/**') }}-${{ github.sha }}
+
+      - name: Free dependency build tree
+        run: rm -rf "${DEPS_BUILD_DIR}"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK with the native engine
+        run: >
+          ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
+          -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ABI}"
+          -Porca.ndkVersion="${NDK_REVISION}"
+
+      - name: Build the on-device CLI harness
+        run: |
+          ci/run_step.sh engine-cli bash -c '
+            cmake -S native -B "${RUNNER_TEMP}/native-cli" -G Ninja \
+              -DCMAKE_BUILD_TYPE=Release \
+              -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
+              -DANDROID_ABI="${ABI}" -DANDROID_PLATFORM="android-${API}" -DANDROID_STL=c++_shared \
+              -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" &&
+            cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
+
+      - name: Check 16 KB page alignment
+        run: |
+          so="$(find app/build -name liborca_engine.so | head -n1)"
+          echo "Checking ${so}"
+          "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-readelf" -lW "${so}" | awk '/LOAD/ {print; if ($NF != "0x4000") bad=1} END {exit bad}'
+
+      - name: Upload APK with engine
+        uses: actions/upload-artifact@v4
+        with:
+          name: orca-mobile-debug-${{ env.ABI }}
+          path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload CLI harness
+        uses: actions/upload-artifact@v4
+        with:
+          name: orca_slice_cli-${{ env.ABI }}
+          path: ${{ runner.temp }}/native-cli/bridge/orca_slice_cli
