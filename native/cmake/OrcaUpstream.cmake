@@ -92,6 +92,12 @@ endforeach ()
 find_package(libnoise REQUIRED)
 add_subdirectory("${ORCA_SOURCE_DIR}/src/libslic3r" "${CMAKE_BINARY_DIR}/src/libslic3r")
 
+# Implementations libslic3r depends on that the desktop build compiles into its
+# GUI. See native/upstream_glue/ for why each one is needed.
+target_sources(libslic3r PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/NanoSvgImplementation.cpp")
+target_link_libraries(libslic3r PRIVATE nanosvg)
+
 # Commit of the pinned engine, reported in the app's About screen.
 execute_process(
     COMMAND git -C "${ORCA_SOURCE_DIR}" rev-parse --short=12 HEAD
