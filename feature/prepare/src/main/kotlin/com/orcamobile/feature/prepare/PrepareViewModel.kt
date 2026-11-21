@@ -11,6 +11,7 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceResult
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -48,6 +49,8 @@ class PrepareViewModel @Inject constructor(
             settings.printHost()?.let { host ->
                 updateHost { copy(type = host.type, address = host.baseUrl, apiKey = host.apiKey.orEmpty()) }
             }
+            val options = settings.printStartOptions()
+            updateHost { copy(startOptions = options) }
         }
     }
 
@@ -66,6 +69,9 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SetHostAddress -> updateHost { copy(address = intent.address, status = PrintHostStatus.Idle) }
             is PrepareIntent.SetHostApiKey -> updateHost { copy(apiKey = intent.apiKey, status = PrintHostStatus.Idle) }
             is PrepareIntent.SetStartPrint -> updateHost { copy(startPrint = intent.startPrint) }
+            is PrepareIntent.SetTimeLapse -> updateStartOptions { copy(timeLapse = intent.enabled) }
+            is PrepareIntent.SetHeatedBedLeveling -> updateStartOptions { copy(heatedBedLeveling = intent.enabled) }
+            is PrepareIntent.SetBuildPlate -> updateStartOptions { copy(plate = intent.side) }
             PrepareIntent.TestPrintHost -> testHost()
             PrepareIntent.SendToPrinter -> sendToPrinter()
         }
@@ -198,8 +204,9 @@ class PrepareViewModel @Inject constructor(
         val host = _state.value.printHost.config ?: return
         val gcode = (_state.value.slice as? SliceUiState.Done)?.gcodePath ?: return
         val startPrint = _state.value.printHost.startPrint
+        val options = _state.value.printHost.startOptions
         runHostTask(PrintHostStatus.Sending(0)) {
-            sendGcode(host, gcode, startPrint) { sent, total ->
+            sendGcode(host, gcode, startPrint, options) { sent, total ->
                 val percent = if (total > 0) (sent * 100 / total).toInt() else 0
                 updateHost { if (status is PrintHostStatus.Sending) copy(status = PrintHostStatus.Sending(percent)) else this }
             }.fold(
@@ -219,6 +226,12 @@ class PrepareViewModel @Inject constructor(
             val result = task()
             updateHost { copy(status = result) }
         }
+    }
+
+    private fun updateStartOptions(transform: PrintStartOptions.() -> PrintStartOptions) {
+        val options = _state.value.printHost.startOptions.transform()
+        updateHost { copy(startOptions = options) }
+        viewModelScope.launch { settings.savePrintStartOptions(options) }
     }
 
     private fun updateHost(transform: PrintHostUiState.() -> PrintHostUiState) {

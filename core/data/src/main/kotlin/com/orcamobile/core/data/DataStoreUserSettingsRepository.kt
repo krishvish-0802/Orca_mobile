@@ -2,12 +2,15 @@ package com.orcamobile.core.data
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -57,6 +60,24 @@ class DataStoreUserSettingsRepository @Inject constructor(
         }
     }
 
+    override suspend fun printStartOptions(): PrintStartOptions {
+        val prefs = store.data.first()
+        val defaults = PrintStartOptions()
+        return PrintStartOptions(
+            timeLapse = prefs[START_TIME_LAPSE] ?: defaults.timeLapse,
+            heatedBedLeveling = prefs[START_BED_LEVELING] ?: defaults.heatedBedLeveling,
+            plate = prefs[START_PLATE]?.let { name -> BuildPlateSide.entries.firstOrNull { it.name == name } } ?: defaults.plate,
+        )
+    }
+
+    override suspend fun savePrintStartOptions(options: PrintStartOptions) {
+        store.edit {
+            it[START_TIME_LAPSE] = options.timeLapse
+            it[START_BED_LEVELING] = options.heatedBedLeveling
+            it[START_PLATE] = options.plate.name
+        }
+    }
+
     private companion object {
         // Preset names may contain commas and spaces, never this control character.
         const val LIST_SEPARATOR = "\u001F"
@@ -67,5 +88,8 @@ class DataStoreUserSettingsRepository @Inject constructor(
         val HOST_TYPE = stringPreferencesKey("host_type")
         val HOST_ADDRESS = stringPreferencesKey("host_address")
         val HOST_API_KEY = stringPreferencesKey("host_api_key")
+        val START_TIME_LAPSE = booleanPreferencesKey("start_time_lapse")
+        val START_BED_LEVELING = booleanPreferencesKey("start_bed_leveling")
+        val START_PLATE = stringPreferencesKey("start_plate")
     }
 }

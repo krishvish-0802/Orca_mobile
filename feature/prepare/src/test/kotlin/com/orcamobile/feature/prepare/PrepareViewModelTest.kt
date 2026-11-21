@@ -13,15 +13,18 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PreviewId
+import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostInfo
+import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SliceEvent
@@ -75,6 +78,9 @@ class PrepareViewModelTest {
         override suspend fun savePresetSelection(selection: PresetSelection) = Unit
         override suspend fun printHost() = host
         override suspend fun savePrintHost(host: PrintHostConfig) { this.host = host }
+        var startOptions = PrintStartOptions()
+        override suspend fun printStartOptions() = startOptions
+        override suspend fun savePrintStartOptions(options: PrintStartOptions) { startOptions = options }
     }
 
     private class RecordingEngine : SlicingEngine {
@@ -92,15 +98,18 @@ class PrepareViewModelTest {
 
     private class FakeHosts : PrintHostClientFactory {
         val uploads = mutableListOf<String>()
+        val options = mutableListOf<PrintStartOptions>()
         override fun create(config: PrintHostConfig) = object : PrintHostClient {
             override suspend fun testConnection() = Result.success(PrintHostInfo("Klipper ready"))
             override suspend fun upload(
                 localPath: String,
                 remoteName: String,
                 startPrint: Boolean,
+                options: PrintStartOptions,
                 onProgress: (sent: Long, total: Long) -> Unit,
             ): Result<Unit> {
                 uploads += localPath
+                this@FakeHosts.options += options
                 return Result.success(Unit)
             }
         }
@@ -239,5 +248,24 @@ class PrepareViewModelTest {
         assertEquals(PreviewUiState.None, state.preview)
         assertEquals(listOf(PreviewId("preview1")), previews.released)
         assertEquals(InstanceRef(0, 0), state.selection)
+    }
+
+    @Test
+    fun `start options are remembered and sent with the print`() {
+        val settings = FakeSettings(selection).apply { startOptions = PrintStartOptions(timeLapse = true) }
+        val vm = viewModel(FakeProjects(Result.success(project)), settings)
+        assertEquals(PrintStartOptions(timeLapse = true), vm.state.value.printHost.startOptions)
+
+        vm.onIntent(PrepareIntent.Slice)
+        vm.onIntent(PrepareIntent.SetHostType(PrintHostType.ELEGOO_LINK))
+        vm.onIntent(PrepareIntent.SetHostAddress("192.168.1.64"))
+        vm.onIntent(PrepareIntent.SetStartPrint(true))
+        vm.onIntent(PrepareIntent.SetHeatedBedLeveling(true))
+        vm.onIntent(PrepareIntent.SetBuildPlate(BuildPlateSide.SMOOTH))
+        vm.onIntent(PrepareIntent.SendToPrinter)
+
+        val expected = PrintStartOptions(timeLapse = true, heatedBedLeveling = true, plate = BuildPlateSide.SMOOTH)
+        assertEquals(listOf(expected), hosts.options)
+        assertEquals(expected, settings.startOptions)
     }
 }

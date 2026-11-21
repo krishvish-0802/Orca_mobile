@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,6 +23,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
@@ -35,6 +37,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
@@ -42,7 +45,9 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.StatusCard
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
 import com.orcamobile.core.viewport.PlateViewport
@@ -249,6 +254,49 @@ private fun SliceStatisticsView(statistics: SliceStatistics) {
     Text(stringResource(R.string.prepare_stats_layers, statistics.layerCount))
 }
 
+/** How the printer starts the print: the choices desktop OrcaSlicer offers for ElegooLink. */
+@Composable
+private fun StartOptions(options: PrintStartOptions, enabled: Boolean, onIntent: (PrepareIntent) -> Unit) {
+    Column(Modifier.padding(start = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LabeledSwitch(stringResource(R.string.prepare_start_bed_leveling), options.heatedBedLeveling, enabled) {
+            onIntent(PrepareIntent.SetHeatedBedLeveling(it))
+        }
+        LabeledSwitch(stringResource(R.string.prepare_start_time_lapse), options.timeLapse, enabled) {
+            onIntent(PrepareIntent.SetTimeLapse(it))
+        }
+        Text(stringResource(R.string.prepare_start_plate), style = MaterialTheme.typography.labelLarge)
+        BuildPlateSide.entries.forEach { side ->
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .selectable(selected = options.plate == side, enabled = enabled, role = Role.RadioButton) {
+                        onIntent(PrepareIntent.SetBuildPlate(side))
+                    },
+            ) {
+                RadioButton(selected = options.plate == side, onClick = null, enabled = enabled)
+                Text(
+                    stringResource(
+                        when (side) {
+                            BuildPlateSide.TEXTURED -> R.string.prepare_start_plate_textured
+                            BuildPlateSide.SMOOTH -> R.string.prepare_start_plate_smooth
+                        },
+                    ),
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LabeledSwitch(label: String, checked: Boolean, enabled: Boolean, onChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Switch(checked = checked, onCheckedChange = onChange, enabled = enabled)
+        Text(label)
+    }
+}
+
 @Composable
 private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> Unit) {
     val busy = host.status is PrintHostStatus.Testing || host.status is PrintHostStatus.Sending
@@ -286,6 +334,7 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
             Switch(checked = host.startPrint, onCheckedChange = { onIntent(PrepareIntent.SetStartPrint(it)) }, enabled = !busy)
             Text(stringResource(R.string.prepare_host_start_print))
         }
+        if (host.startPrint && host.type.supportsStartOptions) StartOptions(host.startOptions, enabled = !busy, onIntent)
         when (val status = host.status) {
             PrintHostStatus.Idle -> Unit
             PrintHostStatus.Testing -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())

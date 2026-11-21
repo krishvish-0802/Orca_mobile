@@ -1,7 +1,9 @@
 package com.orcamobile.core.printer
 
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.printer.elegoo.ElegooLinkClient
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
@@ -102,12 +104,16 @@ class ElegooLinkClientTest {
         server.enqueue(uploadOk)
         server.enqueue(MockResponse().withWebSocketUpgrade(printer))
 
-        client().upload(gcode(100).path, "cube.gcode", startPrint = true).getOrThrow()
+        val options = PrintStartOptions(timeLapse = true, heatedBedLeveling = false, plate = BuildPlateSide.SMOOTH)
+        client().upload(gcode(100).path, "cube.gcode", startPrint = true, options = options).getOrThrow()
 
         assertEquals(3, printer.statusRequests)
         val start = printer.startRequests.single()
         assertEquals("/local/cube.gcode", start["Filename"]?.jsonPrimitive?.content)
         assertEquals(0, start["StartLayer"]?.jsonPrimitive?.int)
+        assertEquals(1, start["Tlp_Switch"]?.jsonPrimitive?.int)
+        assertEquals(0, start["Calibration_switch"]?.jsonPrimitive?.int)
+        assertEquals(1, start["PrintPlatformType"]?.jsonPrimitive?.int)
     }
 
     @Test

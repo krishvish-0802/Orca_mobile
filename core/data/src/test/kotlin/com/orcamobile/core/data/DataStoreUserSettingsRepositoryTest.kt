@@ -2,8 +2,10 @@ package com.orcamobile.core.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.Rule
@@ -45,5 +47,14 @@ class DataStoreUserSettingsRepositoryTest {
 
         repository.savePrintHost(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125", ""))
         assertEquals(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125", null), repository.printHost())
+    }
+
+    @Test
+    fun `remembers the start-print options`() = runTest {
+        val repository = repository()
+        assertEquals(PrintStartOptions(), repository.printStartOptions())
+        val options = PrintStartOptions(timeLapse = true, heatedBedLeveling = true, plate = BuildPlateSide.SMOOTH)
+        repository.savePrintStartOptions(options)
+        assertEquals(options, repository.printStartOptions())
     }
 }

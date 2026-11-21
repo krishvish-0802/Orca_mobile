@@ -3,6 +3,7 @@ package com.orcamobile.core.printer.elegoo
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostInfo
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.printer.http.apiKey
 import com.orcamobile.core.printer.http.await
 import com.orcamobile.core.printer.http.bodyOrThrow
@@ -59,6 +60,7 @@ internal class ElegooLinkClient(
         localPath: String,
         remoteName: String,
         startPrint: Boolean,
+        options: PrintStartOptions,
         onProgress: (sent: Long, total: Long) -> Unit,
     ): Result<Unit> = runCatching {
         val file = File(localPath)
@@ -78,7 +80,7 @@ internal class ElegooLinkClient(
             } while (offset < total)
         }
         if (startPrint) {
-            SdcpSession(http, baseUrl.host, sdcpPort).use { it.startPrint(remoteName, sdcpSettleMillis) }
+            SdcpSession(http, baseUrl.host, sdcpPort).use { it.startPrint(remoteName, options, sdcpSettleMillis) }
         }
     }
 

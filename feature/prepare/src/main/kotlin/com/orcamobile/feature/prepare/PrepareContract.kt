@@ -1,11 +1,13 @@
 package com.orcamobile.feature.prepare
 
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
@@ -64,6 +66,8 @@ data class PrintHostUiState(
     val address: String = "",
     val apiKey: String = "",
     val startPrint: Boolean = false,
+    /** For hosts that take them ([PrintHostType.supportsStartOptions]); remembered between sends. */
+    val startOptions: PrintStartOptions = PrintStartOptions(),
     val status: PrintHostStatus = PrintHostStatus.Idle,
 ) {
     val config: PrintHostConfig?
@@ -108,6 +112,12 @@ sealed interface PrepareIntent {
     data class SetHostApiKey(val apiKey: String) : PrepareIntent
 
     data class SetStartPrint(val startPrint: Boolean) : PrepareIntent
+
+    data class SetTimeLapse(val enabled: Boolean) : PrepareIntent
+
+    data class SetHeatedBedLeveling(val enabled: Boolean) : PrepareIntent
+
+    data class SetBuildPlate(val side: BuildPlateSide) : PrepareIntent
 
     data object TestPrintHost : PrepareIntent
 

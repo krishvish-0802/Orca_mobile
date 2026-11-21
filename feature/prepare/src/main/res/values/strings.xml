@@ -38,5 +38,10 @@
     <string name="prepare_coloring_flow">Volumetric flow rate</string>
     <string name="prepare_coloring_layer_time">Layer time</string>
     <string name="prepare_coloring_filament">Filament</string>
+    <string name="prepare_start_bed_leveling">Heated bed leveling</string>
+    <string name="prepare_start_time_lapse">Time-lapse</string>
+    <string name="prepare_start_plate">Build plate</string>
+    <string name="prepare_start_plate_textured">Textured Build Plate (Side A)</string>
+    <string name="prepare_start_plate_smooth">Smooth Build Plate (Side B)</string>
     <string name="prepare_selection_hint">%1$s selected · drag it to move, twist two fingers to turn it</string>
 </resources>

@@ -2,6 +2,7 @@ package com.orcamobile.core.domain.usecase
 
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.model.PrintHostConfig
+import com.orcamobile.core.model.PrintStartOptions
 import java.io.File
 import javax.inject.Inject
 
@@ -13,6 +14,7 @@ class SendGcodeUseCase @Inject constructor(
         host: PrintHostConfig,
         gcodePath: String,
         startPrint: Boolean,
+        options: PrintStartOptions = PrintStartOptions(),
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
-    ): Result<Unit> = clients.create(host).upload(gcodePath, File(gcodePath).name, startPrint, onProgress)
+    ): Result<Unit> = clients.create(host).upload(gcodePath, File(gcodePath).name, startPrint, options, onProgress)
 }

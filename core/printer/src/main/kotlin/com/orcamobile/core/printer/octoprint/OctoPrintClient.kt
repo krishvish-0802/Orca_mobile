@@ -3,6 +3,7 @@ package com.orcamobile.core.printer.octoprint
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostInfo
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.printer.http.ProgressRequestBody
 import com.orcamobile.core.printer.http.apiKey
 import com.orcamobile.core.printer.http.await
@@ -44,6 +45,7 @@ internal class OctoPrintClient(
         localPath: String,
         remoteName: String,
         startPrint: Boolean,
+        options: PrintStartOptions,
         onProgress: (sent: Long, total: Long) -> Unit,
     ): Result<Unit> = runCatching {
         val file = File(localPath)

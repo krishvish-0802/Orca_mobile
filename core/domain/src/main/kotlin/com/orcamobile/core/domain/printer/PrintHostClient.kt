@@ -2,6 +2,7 @@ package com.orcamobile.core.domain.printer
 
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostInfo
+import com.orcamobile.core.model.PrintStartOptions
 
 /** Talks to one printer host (Moonraker, OctoPrint, ...). Failures come back as a failed [Result]. */
 interface PrintHostClient {
@@ -9,13 +10,15 @@ interface PrintHostClient {
     suspend fun testConnection(): Result<PrintHostInfo>
 
     /**
-     * Uploads the G-code at [localPath] as [remoteName], optionally starting the print.
-     * [onProgress] receives bytes sent and the total, on a background thread.
+     * Uploads the G-code at [localPath] as [remoteName], optionally starting the print
+     * with [options] (for hosts that take them). [onProgress] receives bytes sent and
+     * the total, on a background thread.
      */
     suspend fun upload(
         localPath: String,
         remoteName: String,
         startPrint: Boolean,
+        options: PrintStartOptions = PrintStartOptions(),
         onProgress: (sent: Long, total: Long) -> Unit = { _, _ -> },
     ): Result<Unit>
 }

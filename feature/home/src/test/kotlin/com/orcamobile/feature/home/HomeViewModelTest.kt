@@ -12,6 +12,7 @@ import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
+import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import kotlinx.coroutines.Dispatchers
@@ -53,6 +54,8 @@ class HomeViewModelTest {
         override suspend fun savePresetSelection(selection: PresetSelection) { this.selection = selection }
         override suspend fun printHost(): PrintHostConfig? = null
         override suspend fun savePrintHost(host: PrintHostConfig) = Unit
+        override suspend fun printStartOptions() = PrintStartOptions()
+        override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
     }
 
     private class FakeImports(private val result: Result<String>) : ModelImportRepository {

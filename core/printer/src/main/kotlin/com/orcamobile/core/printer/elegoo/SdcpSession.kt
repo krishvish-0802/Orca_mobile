@@ -1,5 +1,7 @@
 package com.orcamobile.core.printer.elegoo
 
+import com.orcamobile.core.model.BuildPlateSide
+import com.orcamobile.core.model.PrintStartOptions
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
@@ -58,7 +60,7 @@ internal class SdcpSession(http: OkHttpClient, host: String, port: Int) : Closea
     )
 
     /** Starts printing the uploaded file [fileName] (as uploaded, without a folder). */
-    suspend fun startPrint(fileName: String, settleMillis: Long = SETTLE_MILLIS) {
+    suspend fun startPrint(fileName: String, options: PrintStartOptions, settleMillis: Long = SETTLE_MILLIS) {
         val connection = withTimeoutOrNull(CONNECT_MILLIS) { opened.receive() }
         if (connection == null || connection.isFailure) {
             throw IOException(
@@ -72,9 +74,10 @@ internal class SdcpSession(http: OkHttpClient, host: String, port: Int) : Closea
         send(command(CMD_START_PRINT) {
             put("Filename", "/local/$fileName")
             put("StartLayer", 0)
-            put("Calibration_switch", 0)
-            put("PrintPlatformType", 0)
-            put("Tlp_Switch", 0)
+            put("Calibration_switch", if (options.heatedBedLeveling) 1 else 0)
+            // 0 textured (PTE), 1 smooth (PC), as desktop OrcaSlicer maps its bed types.
+            put("PrintPlatformType", if (options.plate == BuildPlateSide.SMOOTH) 1 else 0)
+            put("Tlp_Switch", if (options.timeLapse) 1 else 0)
         })
         val ack = withTimeoutOrNull(START_TIMEOUT_MILLIS) {
             var ack: Int? = null
