@@ -17,6 +17,8 @@ get_filename_component(ORCA_SOURCE_DIR "${ORCA_SOURCE_DIR}" ABSOLUTE)
 set(ORCA_DEPS_PREFIX "" CACHE PATH "Prefix of the Android dependency build")
 option(ORCA_BUILD_CLI "Build the orca_slice_cli harness" ON)
 option(SLIC3R_CAD "Build the parametric Design/CAD engine parts (needs OCCT CAD toolkits)" ON)
+set(ORCA_MAX_COMPILE_JOBS "" CACHE STRING
+    "Cap on parallel compile jobs (Ninja). Some engine sources (CGAL) need 2-3 GB each to compile.")
 
 if (NOT EXISTS "${ORCA_SOURCE_DIR}/src/libslic3r/CMakeLists.txt")
     message(FATAL_ERROR "OrcaSlicer sources not found at ${ORCA_SOURCE_DIR}. "
@@ -45,6 +47,11 @@ list(APPEND CMAKE_MODULE_PATH "${ORCA_SOURCE_DIR}/cmake/modules")
 if (ANDROID)
     string(APPEND CMAKE_SHARED_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
     string(APPEND CMAKE_EXE_LINKER_FLAGS " -Wl,-z,max-page-size=16384")
+endif ()
+
+if (ORCA_MAX_COMPILE_JOBS)
+    set_property(GLOBAL APPEND PROPERTY JOB_POOLS orca_compile=${ORCA_MAX_COMPILE_JOBS})
+    set(CMAKE_JOB_POOL_COMPILE orca_compile)
 endif ()
 
 include(cmake/OrcaUpstream.cmake)

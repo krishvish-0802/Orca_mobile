@@ -11,6 +11,7 @@ plugins {
 val nativeEnabled = providers.gradleProperty("orca.native").map(String::toBoolean).getOrElse(false)
 val depsPrefix = providers.gradleProperty("orca.depsPrefix")
     .orElse(providers.environmentVariable("ORCA_DEPS_PREFIX"))
+val maxCompileJobs = providers.gradleProperty("orca.maxCompileJobs").orNull
 val useCcache = providers.gradleProperty("orca.ccache").map(String::toBoolean).getOrElse(false)
 val abis = providers.gradleProperty("orca.abis").getOrElse("arm64-v8a").split(',').map(String::trim)
 
@@ -31,6 +32,7 @@ android {
                         "-DANDROID_STL=c++_shared",
                         "-DORCA_BUILD_CLI=OFF",
                     )
+                    if (maxCompileJobs != null) arguments += "-DORCA_MAX_COMPILE_JOBS=$maxCompileJobs"
                     if (useCcache) {
                         arguments += listOf("-DCMAKE_C_COMPILER_LAUNCHER=ccache", "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache")
                     }

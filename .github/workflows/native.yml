@@ -45,6 +45,17 @@ jobs:
           sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/share/swift
           df -h "${GITHUB_WORKSPACE}"
 
+      # Headroom for the heaviest engine sources; a runner that runs out of
+      # memory is killed without a log.
+      - name: Add swap
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 12G /mnt/orca-swap
+          sudo chmod 600 /mnt/orca-swap
+          sudo mkswap /mnt/orca-swap
+          sudo swapon /mnt/orca-swap
+          free -h
+
       - uses: actions/checkout@v5
         with:
           submodules: true
@@ -114,7 +125,8 @@ jobs:
               -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="${ORCA_ABI}" -DANDROID_PLATFORM="android-${ORCA_API}" -DANDROID_STL=c++_shared \
               -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" \
-              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache &&
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+              -DORCA_MAX_COMPILE_JOBS=3 &&
             cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
 
       - uses: actions/setup-java@v5
@@ -133,7 +145,7 @@ jobs:
         run: >
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
-          -Porca.ndkVersion="${NDK_REVISION}" -Porca.ccache=true
+          -Porca.ndkVersion="${NDK_REVISION}" -Porca.ccache=true -Porca.maxCompileJobs=3
 
       - name: Save compiler cache
         if: always()
