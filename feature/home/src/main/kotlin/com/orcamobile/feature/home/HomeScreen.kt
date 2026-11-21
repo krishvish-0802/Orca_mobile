@@ -198,7 +198,7 @@ private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -
     }
     when {
         setup.loading -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-        setup.error != null -> Text(setup.error, color = MaterialTheme.colorScheme.error)
+        setup.error != null -> Text(setup.error.orEmpty(), color = MaterialTheme.colorScheme.error)
         setup.selection == null -> Text(
             stringResource(R.string.home_printer_hint),
             style = MaterialTheme.typography.bodySmall,
