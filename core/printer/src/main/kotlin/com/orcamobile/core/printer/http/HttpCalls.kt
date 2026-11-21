@@ -39,5 +39,12 @@ internal fun normalizeBaseUrl(raw: String): HttpUrl {
     return "$withScheme/".toHttpUrl()
 }
 
+/** Whether the user typed a port: `host:7125` or `http://host:80/`, not `host` or `http://host/`. */
+internal fun hasExplicitPort(raw: String): Boolean {
+    val authority = raw.trim().substringAfter("://").substringBefore('/')
+    // An IPv6 literal keeps its colons inside brackets.
+    return authority.substringAfterLast(']').contains(':')
+}
+
 internal fun Request.Builder.apiKey(key: String?): Request.Builder =
     if (key.isNullOrBlank()) this else header("X-Api-Key", key)

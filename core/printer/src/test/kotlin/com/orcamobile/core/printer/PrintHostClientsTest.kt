@@ -4,6 +4,7 @@ import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.printer.http.PrintHostHttpException
 import com.orcamobile.core.printer.moonraker.MoonrakerClient
+import com.orcamobile.core.printer.moonraker.moonrakerCandidates
 import com.orcamobile.core.printer.octoprint.OctoPrintClient
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
@@ -53,6 +54,44 @@ class PrintHostClientsTest {
     }
 
     @Test
+    fun `an address without a port is tried as typed, then on moonraker's port`() {
+        assertEquals(
+            listOf("http://192.168.1.64/", "http://192.168.1.64:7125/"),
+            moonrakerCandidates("192.168.1.64").map { it.toString() },
+        )
+        assertEquals(listOf("http://192.168.1.64:7125/"), moonrakerCandidates("192.168.1.64:7125").map { it.toString() })
+        // An explicit port 80 is the user's choice: no fallback.
+        assertEquals(listOf("http://printer.local/"), moonrakerCandidates("http://printer.local:80").map { it.toString() })
+    }
+
+    @Test
+    fun `moonraker falls back to the next address when the first serves only a web page`() = runTest {
+        // Like port 80 on an Elegoo Neptune 4: Fluidd, which answers the API with 404.
+        server.enqueue(MockResponse().setResponseCode(404).setBody("Not found"))
+        MockWebServer().use { moonraker ->
+            moonraker.enqueue(MockResponse().setBody("""{"result":{"klippy_state":"ready"}}"""))
+            moonraker.enqueue(MockResponse().setBody("""{"result":{"item":{"path":"cube.gcode","root":"gcodes"}}}"""))
+            val client = MoonrakerClient(listOf(server.url("/"), moonraker.url("/")), null, http)
+
+            assertEquals("Klipper ready", client.testConnection().getOrThrow().description)
+            assertTrue(client.upload(gcode(), "cube.gcode", startPrint = false) { _, _ -> }.isSuccess)
+
+            assertEquals(1, server.requestCount)
+            assertEquals("/server/info", moonraker.takeRequest().path)
+            assertEquals("/server/files/upload", moonraker.takeRequest().path)
+        }
+    }
+
+    @Test
+    fun `moonraker reports every address it tried when none answers`() = runTest {
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(MockResponse().setResponseCode(404))
+        val client = MoonrakerClient(listOf(server.url("/"), server.url("/")), null, http)
+        val error = client.testConnection().exceptionOrNull()
+        assertTrue(error?.message.orEmpty().startsWith("No Moonraker found"), error?.message)
+    }
+
+    @Test
     fun `moonraker connection test rejects a host that is not moonraker`() = runTest {
         server.enqueue(MockResponse().setBody("""{"hello":"world"}"""))
         assertTrue(MoonrakerClient(config(PrintHostType.MOONRAKER), http).testConnection().isFailure)
@@ -60,6 +99,7 @@ class PrintHostClientsTest {
 
     @Test
     fun `moonraker upload posts the file to the gcodes root and can start the print`() = runTest {
+        server.enqueue(MockResponse().setBody("""{"result":{"klippy_state":"ready"}}"""))
         server.enqueue(MockResponse().setBody("""{"result":{"item":{"path":"cube.gcode","root":"gcodes"}}}"""))
         var lastProgress = 0L to 0L
 
@@ -67,6 +107,7 @@ class PrintHostClientsTest {
             .upload(gcode(), "cube.gcode", startPrint = true) { sent, total -> lastProgress = sent to total }
 
         assertTrue(result.isSuccess)
+        assertEquals("/server/info", server.takeRequest().path)
         val request = server.takeRequest()
         assertEquals("POST", request.method)
         assertEquals("/server/files/upload", request.path)
