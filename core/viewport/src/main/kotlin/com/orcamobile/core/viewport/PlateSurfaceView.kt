@@ -1,0 +1,195 @@
+package com.orcamobile.core.viewport
+
+import android.annotation.SuppressLint
+import android.content.Context
+import android.opengl.GLSurfaceView
+import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.viewport.jni.NativeViewport
+import javax.microedition.khronos.egl.EGL10
+import javax.microedition.khronos.egl.EGLConfig
+import javax.microedition.khronos.egl.EGLDisplay
+import javax.microedition.khronos.opengles.GL10
+
+/**
+ * The GL surface the native viewport draws into. Renders only when something
+ * changed (a gesture, a new scene). Gestures are handled by the Compose layer
+ * above it (see PlateViewport).
+ *
+ * The native viewport exists while the view is attached: it is created on
+ * attach and destroyed on detach, after GLSurfaceView has stopped its render
+ * thread, so no frame can touch a destroyed viewport.
+ */
+@SuppressLint("ViewConstructor")
+internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
+
+    /** Native viewport handle; 0 while detached. Read on the GL thread. */
+    @Volatile
+    private var handle = 0L
+
+    private var bed: FloatArray? = null
+    private var bedHeight = 0f
+    private var projectHandle = 0L
+    private var previewHandle = 0L
+    private var layerRange: IntRange? = null
+    private var coloring = 0
+    private var selection: InstanceRef? = null
+
+    init {
+        setEGLContextClientVersion(3)
+        setEGLConfigChooser(MultisampleConfigChooser())
+        preserveEGLContextOnPause = true
+        setRenderer(Renderer())
+        renderMode = RENDERMODE_WHEN_DIRTY
+    }
+
+    override fun onAttachedToWindow() {
+        if (handle == 0L) {
+            handle = NativeViewport.nativeCreate()
+            bed?.let { NativeViewport.nativeSetBed(handle, it, bedHeight) }
+            if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
+            if (previewHandle != 0L) applyPreview()
+            selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
+        }
+        super.onAttachedToWindow()
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow() // stops and joins the GL thread
+        if (handle != 0L) {
+            NativeViewport.nativeDestroy(handle)
+            handle = 0L
+        }
+    }
+
+    fun setBed(outline: FloatArray?, maxHeight: Float) {
+        if (outline.contentEquals(bed) && maxHeight == bedHeight) return
+        bed = outline
+        bedHeight = maxHeight
+        if (handle != 0L && outline != null) {
+            NativeViewport.nativeSetBed(handle, outline, maxHeight)
+            requestRender()
+        }
+    }
+
+    /** Shows the project with native handle [project], or clears the plate for 0. */
+    fun setProject(project: Long) {
+        if (project == projectHandle) return
+        projectHandle = project
+        if (handle != 0L) showProjectOnGlThread(project)
+    }
+
+    /** Shows the toolpaths of the preview with native handle [preview] instead of the model; 0 hides them. */
+    fun setPreview(preview: Long, layers: IntRange?, coloring: Int) {
+        val previewChanged = preview != previewHandle
+        if (!previewChanged && layers == layerRange && coloring == this.coloring) return
+        previewHandle = preview
+        layerRange = layers
+        this.coloring = coloring
+        if (handle != 0L) applyPreview(showToolpaths = previewChanged)
+    }
+
+    private fun applyPreview(showToolpaths: Boolean = true) {
+        val h = handle
+        if (showToolpaths) {
+            if (previewHandle == 0L) NativeViewport.nativeClearToolpaths(h) else NativeViewport.nativeShowPreview(h, previewHandle)
+        }
+        NativeViewport.nativeSetColoring(h, coloring)
+        layerRange?.let { NativeViewport.nativeSetLayerRange(h, it.first, it.last) }
+        requestRender()
+    }
+
+    /** The instance under a screen point, if any. */
+    fun pick(x: Float, y: Float): InstanceRef? {
+        val h = handle
+        if (h == 0L) return null
+        val packed = NativeViewport.nativePick(h, x, y)
+        if (packed < 0) return null
+        return InstanceRef((packed ushr 32).toInt(), (packed and 0xFFFFFFFFL).toInt())
+    }
+
+    fun setSelection(ref: InstanceRef?) {
+        if (ref == selection) return
+        selection = ref
+        gesture { NativeViewport.nativeSetSelection(it, ref?.objectIndex ?: -1, ref?.instanceIndex ?: 0) }
+    }
+
+    /** Drags the selected instance with a finger moving between two screen points. */
+    fun moveSelection(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
+        edit { h, project -> NativeViewport.nativeMoveSelection(h, project, x0, y0, x1, y1) }
+
+    fun rotateSelection(radians: Float): Boolean = edit { h, project -> NativeViewport.nativeRotateSelection(h, project, radians) }
+
+    private inline fun edit(action: (Long, Long) -> Boolean): Boolean {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L || selection == null) return false
+        return action(h, project).also { if (it) requestRender() }
+    }
+
+    fun orbit(dx: Float, dy: Float) = gesture { NativeViewport.nativeOrbit(it, dx, dy) }
+
+    fun pan(dx: Float, dy: Float) = gesture { NativeViewport.nativePan(it, dx, dy) }
+
+    fun zoom(factor: Float, focusX: Float, focusY: Float) = gesture { NativeViewport.nativeZoom(it, factor, focusX, focusY) }
+
+    fun fit() = gesture { NativeViewport.nativeFit(it) }
+
+    private inline fun gesture(action: (Long) -> Unit) {
+        val h = handle
+        if (h == 0L) return
+        action(h)
+        requestRender()
+    }
+
+    // Building the render mesh walks every triangle; keep it off the UI thread.
+    private fun showProjectOnGlThread(project: Long) {
+        queueEvent {
+            val h = handle
+            if (h == 0L) return@queueEvent
+            if (project == 0L) NativeViewport.nativeClearMesh(h) else NativeViewport.nativeShowProject(h, project)
+        }
+        requestRender()
+    }
+
+    private inner class Renderer : GLSurfaceView.Renderer {
+        override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
+            handle.takeIf { it != 0L }?.let(NativeViewport::nativeSurfaceCreated)
+        }
+
+        override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+            handle.takeIf { it != 0L }?.let { NativeViewport.nativeSurfaceChanged(it, width, height) }
+        }
+
+        override fun onDrawFrame(gl: GL10?) {
+            handle.takeIf { it != 0L }?.let(NativeViewport::nativeDraw)
+        }
+    }
+
+    /** RGBA8 + depth 24 with 4x MSAA when available, otherwise without. */
+    private class MultisampleConfigChooser : EGLConfigChooser {
+        override fun chooseConfig(egl: EGL10, display: EGLDisplay): EGLConfig =
+            choose(egl, display, samples = 4) ?: choose(egl, display, samples = 0)
+                ?: error("No EGL config with RGBA8 and a depth buffer")
+
+        private fun choose(egl: EGL10, display: EGLDisplay, samples: Int): EGLConfig? {
+            val attributes = intArrayOf(
+                EGL10.EGL_RED_SIZE, 8,
+                EGL10.EGL_GREEN_SIZE, 8,
+                EGL10.EGL_BLUE_SIZE, 8,
+                EGL10.EGL_ALPHA_SIZE, 8,
+                EGL10.EGL_DEPTH_SIZE, 24,
+                EGL10.EGL_RENDERABLE_TYPE, EGL_OPENGL_ES3_BIT,
+                EGL10.EGL_SAMPLE_BUFFERS, if (samples > 0) 1 else 0,
+                EGL10.EGL_SAMPLES, samples,
+                EGL10.EGL_NONE,
+            )
+            val count = IntArray(1)
+            val configs = arrayOfNulls<EGLConfig>(1)
+            return if (egl.eglChooseConfig(display, attributes, configs, 1, count) && count[0] > 0) configs[0] else null
+        }
+
+        private companion object {
+            const val EGL_OPENGL_ES3_BIT = 0x40
+        }
+    }
+}

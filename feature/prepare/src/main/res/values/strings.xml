@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="prepare_title">Prepare</string>
+    <string name="prepare_back">Back</string>
+    <string name="prepare_slice_title">Slice</string>
+    <string name="prepare_slice_presets">%1$s · %2$s · %3$s</string>
+    <string name="prepare_slice_no_presets">No printer chosen: slicing with the engine defaults on a generic 220 mm bed. Pick a printer on the start screen.</string>
+    <string name="prepare_model_info">%1$d object(s), %2$d triangles</string>
+    <string name="prepare_slice_action">Slice plate</string>
+    <string name="prepare_slice_cancel">Cancel</string>
+    <string name="prepare_slice_canceled">Slicing canceled.</string>
+    <string name="prepare_stats_time">Estimated print time: %1$d h %2$02d min</string>
+    <string name="prepare_stats_filament">Filament: %1$s m (%2$s g)</string>
+    <string name="prepare_stats_layers">Layers: %1$d</string>
+    <string name="prepare_host_title">Send to printer</string>
+    <string name="prepare_host_type">Printer host</string>
+    <string name="prepare_host_address">Address</string>
+    <string name="prepare_host_api_key">API key (if the host needs one)</string>
+    <string name="prepare_host_start_print">Start printing after upload</string>
+    <string name="prepare_host_test">Test connection</string>
+    <string name="prepare_host_send">Send G-code</string>
+    <string name="prepare_host_connected">Connected: %1$s</string>
+    <string name="prepare_host_sending">Uploading… %1$d%%</string>
+    <string name="prepare_host_sent">Uploaded to the printer.</string>
+    <string name="prepare_host_sent_printing">Uploaded. The printer is starting the print.</string>
+    <string name="prepare_mode_model">Model</string>
+    <string name="prepare_mode_preview">Preview</string>
+    <string name="prepare_preview_title">Preview</string>
+    <string name="prepare_preview_layers">Layers %1$d–%2$d of %3$d · top at %4$s mm</string>
+    <string name="prepare_preview_coloring">Color by</string>
+    <string name="prepare_preview_failed">Could not show the preview: %1$s</string>
+    <string name="prepare_coloring_feature_type">Line type</string>
+    <string name="prepare_coloring_height">Layer height</string>
+    <string name="prepare_coloring_width">Line width</string>
+    <string name="prepare_coloring_speed">Speed</string>
+    <string name="prepare_coloring_fan_speed">Fan speed</string>
+    <string name="prepare_coloring_temperature">Temperature</string>
+    <string name="prepare_coloring_flow">Volumetric flow rate</string>
+    <string name="prepare_coloring_layer_time">Layer time</string>
+    <string name="prepare_coloring_filament">Filament</string>
+    <string name="prepare_selection_hint">%1$s selected · drag it to move, twist two fingers to turn it</string>
+</resources>
