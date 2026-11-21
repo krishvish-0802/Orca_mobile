@@ -10,7 +10,13 @@ using Slic3r::DynamicPrintConfig;
 
 DynamicPrintConfig ConfigBuilder::defaults()
 {
-    return DynamicPrintConfig::full_print_config();
+    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    // The built-in defaults use relative E with Marlin, which Print::validate
+    // rejects unless each layer resets E. Every system machine profile does so
+    // here (e.g. resources/profiles/Creality/machine/fdm_creality_common.json).
+    config.option<Slic3r::ConfigOptionString>("before_layer_change_gcode", true)->value =
+        ";BEFORE_LAYER_CHANGE\n;[layer_z]\nG92 E0\n";
+    return config;
 }
 
 DynamicPrintConfig ConfigBuilder::build(DynamicPrintConfig config, const std::map<std::string, std::string>& overrides,
