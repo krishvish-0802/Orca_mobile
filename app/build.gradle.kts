@@ -9,8 +9,21 @@ android {
 
     defaultConfig {
         applicationId = "com.orcamobile.app"
-        versionCode = 1
-        versionName = "0.1.0-m0"
+        // CI passes its run number, so each published build installs as an update.
+        versionCode = providers.gradleProperty("orca.versionCode").orNull?.toInt() ?: 1
+        versionName = "0.1.0-m1"
+    }
+
+    signingConfigs {
+        // A fixed debug key, committed on purpose: every CI runner would otherwise
+        // sign with a fresh one, and Android refuses an update signed differently.
+        // Not a secret; never use it for a store release.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {

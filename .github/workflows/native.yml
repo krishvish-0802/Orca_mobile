@@ -2,16 +2,10 @@
 # libslic3r + orca_engine, and an APK that bundles the engine.
 name: Native engine
 
+# Every push: the APK bundles the engine, so any change to the app needs this
+# build to produce one. The caches keep runs without engine changes short.
 on:
   push:
-    paths:
-      - deps/**
-      - native/**
-      - third_party/**
-      - .gitmodules
-      - core/engine/**
-      - .github/workflows/native.yml
-      - ci/**
   workflow_dispatch:
 
 concurrency:
@@ -176,6 +170,7 @@ jobs:
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
           -Porca.ndkVersion="${NDK_REVISION}" -Porca.prebuiltEngineDir="${RUNNER_TEMP}/engine-libs"
+          -Porca.versionCode="${{ github.run_number }}"
 
       - name: Check 16 KB page alignment
         run: |
@@ -235,3 +230,49 @@ jobs:
           name: smoke-test-gcode-x86_64
           path: smoke/*.gcode
           if-no-files-found: ignore
+
+  # Builds from main that passed the emulator test go to one rolling pre-release,
+  # so a phone can always install the latest from a fixed link:
+  # https://github.com/<owner>/<repo>/releases/download/latest-build/orca-mobile-arm64-v8a.apk
+  publish:
+    name: Publish the latest build
+    needs: [engine, emulator-smoke]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: publish-latest-build
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: orca-mobile-debug-*
+          path: apks
+
+      - name: Update the latest-build release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          for abi in arm64-v8a x86_64; do
+            cp "$(ls apks/orca-mobile-debug-${abi}/*.apk | head -n 1)" "out/orca-mobile-${abi}.apk"
+          done
+          ls -l out
+          git tag -f latest-build "${GITHUB_SHA}"
+          git push -f origin refs/tags/latest-build
+          notes="Latest build of main: ${GITHUB_SHA::7}, CI run #${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC').
+
+          Phones: install orca-mobile-arm64-v8a.apk. The x86_64 file is for emulators.
+          This is a test build, signed with the project's debug key; later builds install over it."
+          if gh release view latest-build >/dev/null 2>&1; then
+            gh release edit latest-build --prerelease --title "Latest build" --notes "${notes}"
+          else
+            gh release create latest-build --prerelease --title "Latest build" --notes "${notes}" --verify-tag
+          fi
+          gh release upload latest-build out/*.apk --clobber

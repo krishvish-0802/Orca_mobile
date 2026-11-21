@@ -4,6 +4,8 @@ A full 3D-printing slicer for **Android**, built on the slicing engine from [Orc
 
 The goal is to slice on the phone itself: load a model, pick printer, filament and process profiles, slice it, preview the toolpaths, and send the G-code to the printer. No desktop or cloud service is needed.
 
+**Try it:** on an Android 10+ phone, download and install [orca-mobile-arm64-v8a.apk](https://github.com/krishvish-0802/Orca_mobile/releases/download/latest-build/orca-mobile-arm64-v8a.apk), the latest build of `main` that passed CI. Later builds install over it.
+
 > **Status: M1 (first slice on the phone) in progress.** Working today: OrcaSlicer's system printer, process and filament profiles; opening STL, 3MF, OBJ and STEP files; a 3D plate with touch gestures (orbit, pan, pinch zoom, tap to select, drag to move, twist to turn); slicing on the phone; a G-code preview drawn by OrcaSlicer's own renderer, with a layer range and coloring by line type, speed, height and more; and sending the G-code to Klipper (Moonraker) or OctoPrint. See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
 
 ## How it fits together
@@ -80,7 +82,7 @@ deps/scripts/build_deps.sh --abi arm64-v8a --prefix "$HOME/orca-deps/arm64-v8a"
 
 The engine is always compiled optimized, even in the debug app. If Gradle's bundled CMake is older than the one that built the dependencies, point it at yours with `cmake.dir=/path/to/cmake` in `local.properties`. A library built separately can be packaged instead with `-Porca.prebuiltEngineDir=<dir>` (holding `<abi>/liborca_engine.so` and `libc++_shared.so`), which is what CI does.
 
-The `Native engine` GitHub workflow builds the dependencies (cached between runs), the engine, an APK for each ABI, and slices test models on an emulator. To try it on a phone, download the `orca-mobile-debug-arm64-v8a` artifact from a workflow run and install it. Pick a printer on the start screen, then open a model or the sample cube.
+The `Native engine` GitHub workflow builds the dependencies (cached between runs), the engine, an APK for each ABI, and slices test models on an emulator. Each build of `main` that passes the emulator test replaces the APKs on the [latest-build](https://github.com/krishvish-0802/Orca_mobile/releases/tag/latest-build) pre-release. Builds are signed with the committed `app/debug.keystore` so they install over each other; it is a debug key, not for store releases.
 
 ## License
 
