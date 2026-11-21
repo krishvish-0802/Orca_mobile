@@ -21,6 +21,10 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -39,8 +43,10 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.SliceStatistics
+import com.orcamobile.core.model.ToolpathColoring
 import com.orcamobile.core.viewport.PlateViewport
 import java.util.Locale
+import kotlin.math.roundToInt
 
 @Composable
 fun PrepareRoute(onBack: () -> Unit, viewModel: PrepareViewModel = hiltViewModel()) {
@@ -64,9 +70,26 @@ fun PrepareScreen(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onBa
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            val preview = (state.preview as? PreviewUiState.Ready)?.takeIf { state.showingPreview }
             Box(Modifier.fillMaxWidth().weight(0.55f)) {
-                PlateViewport(bed = state.bed, project = state.project?.id, modifier = Modifier.fillMaxSize())
-                if (state.loading) CircularProgressIndicator(Modifier.align(Alignment.Center))
+                PlateViewport(
+                    bed = state.bed,
+                    project = state.project?.id,
+                    preview = preview?.summary?.id,
+                    layers = preview?.layers,
+                    coloring = preview?.coloring ?: ToolpathColoring.FeatureType,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                if (state.loading || state.preview is PreviewUiState.Loading) {
+                    CircularProgressIndicator(Modifier.align(Alignment.Center))
+                }
+                if (state.preview is PreviewUiState.Ready) {
+                    PlateModeToggle(
+                        showingPreview = state.showingPreview,
+                        onShowPreview = { onIntent(PrepareIntent.ShowPreview(it)) },
+                        modifier = Modifier.align(Alignment.TopCenter).padding(8.dp),
+                    )
+                }
             }
             Column(
                 modifier = Modifier
@@ -77,11 +100,80 @@ fun PrepareScreen(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onBa
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                preview?.let { PreviewCard(it, onIntent) }
+                (state.preview as? PreviewUiState.Failed)?.let {
+                    Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)
+                }
                 SliceCard(state, onIntent)
                 if (state.slice is SliceUiState.Done) PrintHostCard(state.printHost, onIntent)
             }
         }
     }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PlateModeToggle(showingPreview: Boolean, onShowPreview: (Boolean) -> Unit, modifier: Modifier = Modifier) {
+    val labels = listOf(R.string.prepare_mode_model, R.string.prepare_mode_preview)
+    SingleChoiceSegmentedButtonRow(modifier) {
+        labels.forEachIndexed { index, label ->
+            SegmentedButton(
+                selected = showingPreview == (index == 1),
+                onClick = { onShowPreview(index == 1) },
+                shape = SegmentedButtonDefaults.itemShape(index, labels.size),
+            ) { Text(stringResource(label)) }
+        }
+    }
+}
+
+/** Which layers to show and what colors the toolpaths, as in the desktop preview's slider and legend. */
+@Composable
+private fun PreviewCard(preview: PreviewUiState.Ready, onIntent: (PrepareIntent) -> Unit) {
+    val summary = preview.summary
+    StatusCard(title = stringResource(R.string.prepare_preview_title)) {
+        val zs = summary.layerZs
+        Text(
+            stringResource(
+                R.string.prepare_preview_layers,
+                preview.layers.first + 1,
+                preview.layers.last + 1,
+                summary.layerCount,
+                String.format(Locale.ROOT, "%.2f", zs.getOrElse(preview.layers.last) { 0f }),
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (summary.layerCount > 1) {
+            RangeSlider(
+                value = preview.layers.first.toFloat()..preview.layers.last.toFloat(),
+                onValueChange = { range ->
+                    onIntent(PrepareIntent.SetPreviewLayers(range.start.roundToInt()..range.endInclusive.roundToInt()))
+                },
+                valueRange = 0f..(summary.layerCount - 1).toFloat(),
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        val coloringLabels = ToolpathColoring.entries.associateWith { stringResource(it.labelRes()) }
+        DropdownField(
+            label = stringResource(R.string.prepare_preview_coloring),
+            options = coloringLabels.values.toList(),
+            selected = coloringLabels.getValue(preview.coloring),
+            onSelect = { label ->
+                coloringLabels.entries.firstOrNull { it.value == label }?.let { onIntent(PrepareIntent.SetPreviewColoring(it.key)) }
+            },
+        )
+    }
+}
+
+private fun ToolpathColoring.labelRes(): Int = when (this) {
+    ToolpathColoring.FeatureType -> R.string.prepare_coloring_feature_type
+    ToolpathColoring.Height -> R.string.prepare_coloring_height
+    ToolpathColoring.Width -> R.string.prepare_coloring_width
+    ToolpathColoring.Speed -> R.string.prepare_coloring_speed
+    ToolpathColoring.FanSpeed -> R.string.prepare_coloring_fan_speed
+    ToolpathColoring.Temperature -> R.string.prepare_coloring_temperature
+    ToolpathColoring.VolumetricFlowRate -> R.string.prepare_coloring_flow
+    ToolpathColoring.LayerTime -> R.string.prepare_coloring_layer_time
+    ToolpathColoring.Filament -> R.string.prepare_coloring_filament
 }
 
 @Composable

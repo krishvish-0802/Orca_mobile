@@ -1,11 +1,13 @@
 package com.orcamobile.feature.prepare
 
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SliceStatistics
+import com.orcamobile.core.model.ToolpathColoring
 
 /** Everything the Prepare screen renders. Produced only by [PrepareViewModel]. */
 data class PrepareUiState(
@@ -16,7 +18,26 @@ data class PrepareUiState(
     val presets: PresetSelection? = null,
     val slice: SliceUiState = SliceUiState.Idle,
     val printHost: PrintHostUiState = PrintHostUiState(),
+    val preview: PreviewUiState = PreviewUiState.None,
+    /** The plate shows the sliced toolpaths rather than the model. */
+    val showingPreview: Boolean = false,
 )
+
+/** The sliced plate's toolpaths, read back from the G-code. */
+sealed interface PreviewUiState {
+    data object None : PreviewUiState
+
+    data object Loading : PreviewUiState
+
+    data class Ready(
+        val summary: GCodePreviewSummary,
+        /** Shown layers, 0-based and inclusive. */
+        val layers: IntRange,
+        val coloring: ToolpathColoring = ToolpathColoring.FeatureType,
+    ) : PreviewUiState
+
+    data class Failed(val message: String) : PreviewUiState
+}
 
 sealed interface SliceUiState {
     data object Idle : SliceUiState
@@ -60,6 +81,13 @@ sealed interface PrepareIntent {
     data object Slice : PrepareIntent
 
     data object CancelSlice : PrepareIntent
+
+    /** Switches the plate between the model and the sliced toolpaths. */
+    data class ShowPreview(val show: Boolean) : PrepareIntent
+
+    data class SetPreviewLayers(val layers: IntRange) : PrepareIntent
+
+    data class SetPreviewColoring(val coloring: ToolpathColoring) : PrepareIntent
 
     data class SetHostType(val type: PrintHostType) : PrepareIntent
 

@@ -22,6 +22,17 @@ internal object NativeViewport {
 
     @JvmStatic external fun nativeClearMesh(handle: Long)
 
+    /** Shows the toolpaths of the G-code preview with native handle [previewHandle] instead of the model. */
+    @JvmStatic external fun nativeShowPreview(handle: Long, previewHandle: Long)
+
+    @JvmStatic external fun nativeClearToolpaths(handle: Long)
+
+    /** Toolpath layers [first]..[last], 0-based and inclusive. */
+    @JvmStatic external fun nativeSetLayerRange(handle: Long, first: Int, last: Int)
+
+    /** A ToolpathColoring.nativeValue. */
+    @JvmStatic external fun nativeSetColoring(handle: Long, coloring: Int)
+
     @JvmStatic external fun nativeOrbit(handle: Long, dx: Float, dy: Float)
 
     @JvmStatic external fun nativePan(handle: Long, dx: Float, dy: Float)

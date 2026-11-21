@@ -15,6 +15,7 @@
 #include "Camera.hpp"
 #include "GlProgram.hpp"
 #include "Shaders.hpp"
+#include "ToolpathRenderer.hpp"
 
 namespace orca::viewport {
 
@@ -107,6 +108,14 @@ struct Viewport::Impl {
     // The pending mesh is that copy coming back after a context loss: keep the camera.
     bool restoring_mesh = false;
 
+    // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
+    std::shared_ptr<const libvgcode::GCodeInputData> toolpaths;
+    bool toolpaths_dirty = false;
+    bool toolpaths_restoring = false;
+    std::array<std::size_t, 2> layer_range{0, static_cast<std::size_t>(-1)};
+    ToolpathColoring coloring = ToolpathColoring::FeatureType;
+    bool toolpath_view_dirty = false;
+
     // Bounds of what is shown, for fit().
     BedGeometry bed_geometry;
     bool has_bed = false;
@@ -119,11 +128,19 @@ struct Viewport::Impl {
     GlProgram lit_program;
     GlProgram line_program;
     GpuBatch plate, grid, outline, model;
+    ToolpathRenderer toolpath_renderer;
     bool gl_ready = false;
+    // Toolpath bounds, known once uploaded.
+    bool has_toolpaths = false;
+    Eigen::Vector3f toolpaths_min{0, 0, 0};
+    Eigen::Vector3f toolpaths_max{0, 0, 0};
 
     void frame_scene_locked()
     {
-        if (has_mesh) {
+        if (has_toolpaths) {
+            const Eigen::Vector3f center = (toolpaths_min + toolpaths_max) * 0.5f;
+            camera.frame(center, (toolpaths_max - toolpaths_min).norm() * 0.5f);
+        } else if (has_mesh) {
             const Eigen::Vector3f center = (mesh_min + mesh_max) * 0.5f;
             camera.frame(center, (mesh_max - mesh_min).norm() * 0.5f);
         } else if (has_bed) {
@@ -133,7 +150,7 @@ struct Viewport::Impl {
                                                    bed_geometry.max_y - bed_geometry.min_y);
             camera.frame(center, radius);
         }
-        framed = has_mesh || has_bed;
+        framed = has_toolpaths || has_mesh || has_bed;
     }
 };
 
@@ -143,7 +160,9 @@ Viewport::~Viewport() = default;
 void Viewport::on_surface_created()
 {
     Impl& d = *m_impl;
-    // A new context: earlier GL names belong to the lost one.
+    // A new context: earlier GL names belong to the lost one. The toolpath
+    // renderer goes first, while nothing of ours exists in the new context yet.
+    d.toolpath_renderer.on_context_created();
     d.lit_program.abandon();
     d.line_program.abandon();
     d.plate.abandon();
@@ -167,6 +186,11 @@ void Viewport::on_surface_created()
         d.pending_mesh = *d.shown_mesh;
         d.restoring_mesh = true;
     }
+    if (d.toolpaths) {
+        d.toolpaths_restoring = !d.toolpaths_dirty;
+        d.toolpaths_dirty = true;
+    }
+    d.has_toolpaths = false;
 }
 
 void Viewport::on_surface_changed(int width_px, int height_px)
@@ -216,6 +240,27 @@ void Viewport::draw()
                 d.frame_scene_locked();
             d.restoring_mesh = false;
         }
+        if (d.toolpaths_dirty) {
+            d.toolpaths_dirty = false;
+            d.has_toolpaths = false;
+            if (d.toolpaths && d.gl_ready && d.toolpath_renderer.load(*d.toolpaths)) {
+                const auto bounds = d.toolpath_renderer.bounds();
+                d.toolpaths_min = bounds[0];
+                d.toolpaths_max = bounds[1];
+                d.has_toolpaths = true;
+                d.toolpath_view_dirty = true;
+            } else {
+                d.toolpath_renderer.release();
+            }
+            if (!d.toolpaths_restoring)
+                d.frame_scene_locked();
+            d.toolpaths_restoring = false;
+        }
+        if (d.toolpath_view_dirty && d.has_toolpaths) {
+            d.toolpath_renderer.set_coloring(d.coloring);
+            d.toolpath_renderer.set_layer_range(d.layer_range[0], d.layer_range[1]);
+            d.toolpath_view_dirty = false;
+        }
         if (!d.framed)
             d.frame_scene_locked();
         camera = d.camera;
@@ -228,7 +273,9 @@ void Viewport::draw()
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
-    const Eigen::Matrix4f mvp = camera.projection() * camera.view();
+    const Eigen::Matrix4f view = camera.view();
+    const Eigen::Matrix4f projection = camera.projection();
+    const Eigen::Matrix4f mvp = projection * view;
     const Eigen::Vector3f eye = camera.eye();
 
     d.lit_program.use();
@@ -246,9 +293,13 @@ void Viewport::draw()
     glUniform4f(line_color, kOutline.r, kOutline.g, kOutline.b, kOutline.a);
     d.outline.draw(GL_LINES);
 
-    d.lit_program.use();
-    glUniform4f(lit_color, kModel.r, kModel.g, kModel.b, kModel.a);
-    d.model.draw(GL_TRIANGLES);
+    if (d.has_toolpaths) {
+        d.toolpath_renderer.render(view, projection);
+    } else {
+        d.lit_program.use();
+        glUniform4f(lit_color, kModel.r, kModel.g, kModel.b, kModel.a);
+        d.model.draw(GL_TRIANGLES);
+    }
 }
 
 void Viewport::set_bed(Bed bed)
@@ -271,6 +322,39 @@ void Viewport::clear_mesh()
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->pending_mesh.reset();
     m_impl->clear_mesh = true;
+}
+
+void Viewport::set_toolpaths(std::shared_ptr<const libvgcode::GCodeInputData> toolpaths)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->toolpaths = std::move(toolpaths);
+    m_impl->toolpaths_dirty = true;
+    m_impl->toolpaths_restoring = false;
+    m_impl->layer_range = {0, static_cast<std::size_t>(-1)};
+}
+
+void Viewport::clear_toolpaths()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!m_impl->toolpaths)
+        return;
+    m_impl->toolpaths.reset();
+    m_impl->toolpaths_dirty = true;
+    m_impl->toolpaths_restoring = false;
+}
+
+void Viewport::set_layer_range(std::size_t first, std::size_t last)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->layer_range = {first, last};
+    m_impl->toolpath_view_dirty = true;
+}
+
+void Viewport::set_toolpath_coloring(ToolpathColoring coloring)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->coloring = coloring;
+    m_impl->toolpath_view_dirty = true;
 }
 
 void Viewport::orbit(float dx_px, float dy_px)

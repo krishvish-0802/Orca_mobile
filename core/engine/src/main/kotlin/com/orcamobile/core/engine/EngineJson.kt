@@ -2,9 +2,11 @@ package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
-import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
 import kotlinx.serialization.Serializable
@@ -74,6 +76,24 @@ internal object EngineJson {
         json.decodeFromJsonElement(ObjectsDto.serializer(), element).objects.map { it.toModel() }
     }
 
+    data class LoadedPreview(val handle: Long, val summary: GCodePreviewSummary)
+
+    /** The summary's id and path are placeholders; the repository fills them in. */
+    fun loadedPreview(payload: String): Result<LoadedPreview> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(LoadedPreviewDto.serializer(), element)
+        LoadedPreview(
+            dto.handle.toLong(),
+            GCodePreviewSummary(
+                id = PreviewId(""),
+                gcodePath = "",
+                layerZs = dto.layerZs,
+                printTimeSeconds = dto.printTimeSeconds,
+                moveCount = dto.moveCount,
+                filamentColors = dto.filamentColors,
+            ),
+        )
+    }
+
     private fun <T> decodeOrError(payload: String, decode: (kotlinx.serialization.json.JsonElement) -> T): Result<T> =
         runCatching {
             val element = json.parseToJsonElement(payload)
@@ -110,6 +130,15 @@ internal object EngineJson {
 
     @Serializable
     private data class LoadedProjectDto(val handle: String, val objects: List<ObjectDto>)
+
+    @Serializable
+    private data class LoadedPreviewDto(
+        val handle: String,
+        val layerZs: List<Float>,
+        val printTimeSeconds: Double = 0.0,
+        val moveCount: Long = 0,
+        val filamentColors: List<String> = emptyList(),
+    )
 
     @Serializable
     private data class CompatiblePresetsDto(

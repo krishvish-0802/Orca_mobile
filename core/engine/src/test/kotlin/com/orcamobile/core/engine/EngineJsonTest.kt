@@ -92,4 +92,17 @@ class EngineJsonTest {
         assertEquals(546054451200L, loaded.handle)
         assertEquals(listOf(ModelObjectInfo("3DBenchy", 1, 225154, listOf(60.0, 31.0, 48.0))), loaded.objects)
     }
+
+    @Test
+    fun `decodes a loaded G-code preview`() {
+        val payload = """{"handle":"77","layerZs":[0.2,0.4],"printTimeSeconds":125.5,"moveCount":1200,""" +
+            """"filamentColors":["#00AE42"]}"""
+        val loaded = EngineJson.loadedPreview(payload).getOrThrow()
+        assertEquals(77L, loaded.handle)
+        assertEquals(listOf(0.2f, 0.4f), loaded.summary.layerZs)
+        assertEquals(125.5, loaded.summary.printTimeSeconds)
+        assertEquals(1200L, loaded.summary.moveCount)
+        assertEquals(listOf("#00AE42"), loaded.summary.filamentColors)
+        assertIs<EngineException>(EngineJson.loadedPreview("""{"error":"no moves"}""").exceptionOrNull())
+    }
 }

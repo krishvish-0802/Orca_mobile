@@ -22,16 +22,20 @@ import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import com.orcamobile.core.engine.EngineLibrary
+import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.ToolpathColoring
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 
 /**
- * The 3D plate: the printer's bed and the loaded project.
+ * The 3D plate: the printer's bed and the loaded project, or the sliced
+ * toolpaths when [preview] is set (layers [layers], colored by [coloring]).
  *
  * Gestures (see docs/proposal/tech-stack-and-architecture.md, section 4):
  * one finger orbits, two fingers pan, pinch zooms around the fingers, and a
@@ -42,6 +46,9 @@ fun PlateViewport(
     bed: BedShape?,
     project: ProjectId?,
     modifier: Modifier = Modifier,
+    preview: PreviewId? = null,
+    layers: IntRange? = null,
+    coloring: ToolpathColoring = ToolpathColoring.FeatureType,
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -50,8 +57,8 @@ fun PlateViewport(
         return
     }
     val context = LocalContext.current
-    val registry = remember {
-        EntryPointAccessors.fromApplication(context.applicationContext, ViewportEntryPoint::class.java).projectRegistry()
+    val entryPoint = remember {
+        EntryPointAccessors.fromApplication(context.applicationContext, ViewportEntryPoint::class.java)
     }
     val outline = remember(bed) {
         bed?.outline?.flatMap { (x, y) -> listOf(x.toFloat(), y.toFloat()) }?.toFloatArray()
@@ -63,7 +70,8 @@ fun PlateViewport(
             factory = { surface },
             update = { view ->
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
-                view.setProject(project?.let(registry::handleOf) ?: 0L)
+                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L)
+                view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -118,4 +126,6 @@ private suspend fun PointerInputScope.plateGestures(
 @InstallIn(SingletonComponent::class)
 internal interface ViewportEntryPoint {
     fun projectRegistry(): NativeProjectRegistry
+
+    fun previewRegistry(): NativePreviewRegistry
 }

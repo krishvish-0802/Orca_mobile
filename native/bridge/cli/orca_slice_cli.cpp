@@ -2,6 +2,7 @@
 // (adb push + adb shell) without the app, and by CI. Prints JSON results.
 //
 //   orca_slice_cli --version
+//   orca_slice_cli --preview <file.gcode>      (what the preview screen reads)
 //   orca_slice_cli --profiles DIR --list-vendors
 //   orca_slice_cli --profiles DIR --list-printers VENDOR
 //   orca_slice_cli --profiles DIR --compatible VENDOR PRINTER
@@ -19,6 +20,7 @@
 
 #include "orca_engine/EngineEnvironment.hpp"
 #include "orca_engine/EngineInfo.hpp"
+#include "orca_engine/GCodePreview.hpp"
 #include "orca_engine/Json.hpp"
 #include "orca_engine/PresetCatalog.hpp"
 #include "orca_engine/SliceJob.hpp"
@@ -36,6 +38,7 @@ public:
 int usage()
 {
     std::cerr << "usage: orca_slice_cli --version\n"
+                 "       orca_slice_cli --preview FILE.gcode\n"
                  "       orca_slice_cli --profiles DIR --list-vendors\n"
                  "       orca_slice_cli --profiles DIR --list-printers VENDOR\n"
                  "       orca_slice_cli --profiles DIR --compatible VENDOR PRINTER\n"
@@ -106,6 +109,16 @@ int main(int argc, char** argv)
     if (argc == 2 && std::string(argv[1]) == "--version") {
         std::cout << orca::engine::json::to_json(orca::engine::engine_info()) << '\n';
         return 0;
+    }
+    if (argc == 3 && std::string(argv[1]) == "--preview") {
+        try {
+            const auto preview = orca::engine::GCodePreview::load(argv[2]);
+            std::cout << orca::engine::json::to_json(preview->summary()) << '\n';
+            return 0;
+        } catch (const std::exception& e) {
+            std::cout << orca::engine::json::error_json(e.what()) << '\n';
+            return 1;
+        }
     }
     Arguments args;
     if (!parse(argc, argv, args))

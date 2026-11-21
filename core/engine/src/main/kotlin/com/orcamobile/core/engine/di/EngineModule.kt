@@ -2,7 +2,9 @@ package com.orcamobile.core.engine.di
 
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
+import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.engine.NativeGCodePreviewRepository
 import com.orcamobile.core.engine.NativePresetCatalog
 import com.orcamobile.core.engine.NativeProjectRepository
 import com.orcamobile.core.engine.NativeSlicingEngine
@@ -22,4 +24,7 @@ internal interface EngineModule {
 
     @Binds
     fun projects(impl: NativeProjectRepository): ProjectRepository
+
+    @Binds
+    fun previews(impl: NativeGCodePreviewRepository): GCodePreviewRepository
 }

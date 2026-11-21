@@ -23,4 +23,19 @@
     <string name="prepare_host_sending">Uploading… %1$d%%</string>
     <string name="prepare_host_sent">Uploaded to the printer.</string>
     <string name="prepare_host_sent_printing">Uploaded. The printer is starting the print.</string>
+    <string name="prepare_mode_model">Model</string>
+    <string name="prepare_mode_preview">Preview</string>
+    <string name="prepare_preview_title">Preview</string>
+    <string name="prepare_preview_layers">Layers %1$d–%2$d of %3$d · top at %4$s mm</string>
+    <string name="prepare_preview_coloring">Color by</string>
+    <string name="prepare_preview_failed">Could not show the preview: %1$s</string>
+    <string name="prepare_coloring_feature_type">Line type</string>
+    <string name="prepare_coloring_height">Layer height</string>
+    <string name="prepare_coloring_width">Line width</string>
+    <string name="prepare_coloring_speed">Speed</string>
+    <string name="prepare_coloring_fan_speed">Fan speed</string>
+    <string name="prepare_coloring_temperature">Temperature</string>
+    <string name="prepare_coloring_flow">Volumetric flow rate</string>
+    <string name="prepare_coloring_layer_time">Layer time</string>
+    <string name="prepare_coloring_filament">Filament</string>
 </resources>

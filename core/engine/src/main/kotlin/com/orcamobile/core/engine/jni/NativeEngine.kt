@@ -44,6 +44,15 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
 
+    /**
+     * Reads a G-code file for the preview (blocking, seconds for a large file):
+     * `{"handle":"<id>","layerZs":[..],"printTimeSeconds":..,"moveCount":..,"filamentColors":[..]}`
+     * or `{"error": ...}`. Release the handle with [nativePreviewRelease].
+     */
+    @JvmStatic external fun nativePreviewLoad(gcodePath: String): String
+
+    @JvmStatic external fun nativePreviewRelease(handle: Long)
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)

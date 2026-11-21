@@ -98,6 +98,22 @@ target_sources(libslic3r PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/NanoSvgImplementation.cpp")
 target_link_libraries(libslic3r PRIVATE nanosvg)
 
+# libvgcode: the G-code preview renderer, in its OpenGL ES 3.0 flavour (it loads
+# GL entry points at run time with its bundled glad loader).
+set(SLIC3R_OPENGL_ES ON)
+add_subdirectory("${ORCA_SOURCE_DIR}/src/libvgcode" "${CMAKE_BINARY_DIR}/src/libvgcode")
+
+# Upstream's GCodeProcessorResult -> libvgcode conversion, which the desktop app
+# keeps with its GUI. The glue include directory stands in for the one GUI
+# header it includes; ${ORCA_SOURCE_DIR}/src/libvgcode resolves its
+# "../../src/libvgcode/..." includes.
+add_library(orca_vgcode_convert STATIC
+    "${ORCA_SOURCE_DIR}/src/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp")
+target_include_directories(orca_vgcode_convert BEFORE PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/include")
+target_include_directories(orca_vgcode_convert PRIVATE "${ORCA_SOURCE_DIR}/src/libvgcode")
+target_link_libraries(orca_vgcode_convert PUBLIC libslic3r libvgcode)
+
 # Commit of the pinned engine, reported in the app's About screen.
 execute_process(
     COMMAND git -C "${ORCA_SOURCE_DIR}" rev-parse --short=12 HEAD

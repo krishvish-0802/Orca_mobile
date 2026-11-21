@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
@@ -25,6 +26,7 @@ import javax.inject.Inject
 class PrepareViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val projects: ProjectRepository,
+    private val previews: GCodePreviewRepository,
     private val presets: PresetCatalog,
     private val settings: UserSettingsRepository,
     private val sliceProject: SliceProjectUseCase,
@@ -37,6 +39,7 @@ class PrepareViewModel @Inject constructor(
 
     private var sliceJob: Job? = null
     private var hostJob: Job? = null
+    private var previewJob: Job? = null
 
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
@@ -52,6 +55,11 @@ class PrepareViewModel @Inject constructor(
         when (intent) {
             PrepareIntent.Slice -> startSlice()
             PrepareIntent.CancelSlice -> cancelSlice()
+            is PrepareIntent.ShowPreview -> _state.update {
+                it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)
+            }
+            is PrepareIntent.SetPreviewLayers -> updatePreview { copy(layers = intent.layers.clampTo(summary.layerCount)) }
+            is PrepareIntent.SetPreviewColoring -> updatePreview { copy(coloring = intent.coloring) }
             is PrepareIntent.SetHostType -> updateHost { copy(type = intent.type, status = PrintHostStatus.Idle) }
             is PrepareIntent.SetHostAddress -> updateHost { copy(address = intent.address, status = PrintHostStatus.Idle) }
             is PrepareIntent.SetHostApiKey -> updateHost { copy(apiKey = intent.apiKey, status = PrintHostStatus.Idle) }
@@ -63,6 +71,7 @@ class PrepareViewModel @Inject constructor(
 
     override fun onCleared() {
         _state.value.project?.let { projects.release(it.id) }
+        releasePreview()
     }
 
     // --- loading ------------------------------------------------------------
@@ -92,10 +101,20 @@ class PrepareViewModel @Inject constructor(
     private fun startSlice() {
         val project = _state.value.project ?: return
         if (sliceJob?.isActive == true) return
-        _state.update { it.copy(slice = SliceUiState.Running(0, "Preparing"), printHost = it.printHost.copy(status = PrintHostStatus.Idle)) }
+        releasePreview()
+        _state.update {
+            it.copy(
+                slice = SliceUiState.Running(0, "Preparing"),
+                printHost = it.printHost.copy(status = PrintHostStatus.Idle),
+                preview = PreviewUiState.None,
+                showingPreview = false,
+            )
+        }
         sliceJob = viewModelScope.launch {
             sliceProject(project, _state.value.presets).collect { event ->
-                _state.update { it.copy(slice = event.toUiState()) }
+                val slice = event.toUiState()
+                _state.update { it.copy(slice = slice) }
+                if (slice is SliceUiState.Done) loadPreview(slice.gcodePath)
             }
         }
     }
@@ -105,6 +124,42 @@ class PrepareViewModel @Inject constructor(
         if (!job.isActive) return
         job.cancel()
         _state.update { it.copy(slice = SliceUiState.Canceled) }
+    }
+
+    // --- preview ------------------------------------------------------------
+
+    /** Reads the G-code back for the preview and shows it, all layers visible. */
+    private fun loadPreview(gcodePath: String) {
+        previewJob?.cancel()
+        _state.update { it.copy(preview = PreviewUiState.Loading) }
+        previewJob = viewModelScope.launch {
+            previews.load(gcodePath).fold(
+                { summary ->
+                    _state.update {
+                        it.copy(preview = PreviewUiState.Ready(summary, 0..(summary.layerCount - 1).coerceAtLeast(0)), showingPreview = true)
+                    }
+                },
+                { error -> _state.update { it.copy(preview = PreviewUiState.Failed(error.message ?: "Could not read the G-code")) } },
+            )
+        }
+    }
+
+    private fun releasePreview() {
+        previewJob?.cancel()
+        (_state.value.preview as? PreviewUiState.Ready)?.let { previews.release(it.summary.id) }
+    }
+
+    private fun updatePreview(transform: PreviewUiState.Ready.() -> PreviewUiState.Ready) {
+        _state.update { state ->
+            val preview = state.preview as? PreviewUiState.Ready ?: return@update state
+            state.copy(preview = preview.transform())
+        }
+    }
+
+    private fun IntRange.clampTo(layerCount: Int): IntRange {
+        if (layerCount <= 0) return 0..0
+        val last = last.coerceIn(0, layerCount - 1)
+        return first.coerceIn(0, last)..last
     }
 
     // --- sending to a printer -----------------------------------------------

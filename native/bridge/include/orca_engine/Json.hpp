@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "orca_engine/EngineInfo.hpp"
+#include "orca_engine/GCodePreview.hpp"
 #include "orca_engine/PresetCatalog.hpp"
 #include "orca_engine/Project.hpp"
 #include "orca_engine/SliceJob.hpp"
@@ -20,6 +21,7 @@ std::string to_json(const std::vector<std::string>& names);
 std::string to_json(const CompatiblePresets& presets);
 std::string to_json(const BedShape& bed);
 std::string to_json(const std::vector<ObjectSummary>& objects);
+std::string to_json(const PreviewSummary& summary);
 
 // Parses {"vendor":..,"printer":..,"process":..,"filaments":[..]}. An empty
 // payload means no presets. Throws std::runtime_error on malformed input.

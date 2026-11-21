@@ -84,6 +84,16 @@ std::string to_json(const std::vector<ObjectSummary>& objects)
     return nlohmann::json{{"objects", list}}.dump();
 }
 
+std::string to_json(const PreviewSummary& summary)
+{
+    return nlohmann::json{
+        {"layerZs", summary.layer_zs},
+        {"printTimeSeconds", summary.print_time_seconds},
+        {"moveCount", summary.move_count},
+        {"filamentColors", summary.filament_colors},
+    }.dump();
+}
+
 std::optional<PresetSelection> preset_selection_from_json(const std::string& payload)
 {
     if (payload.empty())

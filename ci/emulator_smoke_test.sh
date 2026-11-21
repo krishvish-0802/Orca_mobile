@@ -36,6 +36,13 @@ moves="$(grep -c '^G1 ' "${dir}/cube.gcode" || true)"
 echo "G-code: $(wc -c < "${dir}/cube.gcode") bytes, ${moves} G1 moves"
 (( moves > 1000 )) || { echo "Too few moves in the G-code"; exit 1; }
 
+echo "== Reading the G-code back for the preview"
+preview="$(run_cli --preview cube.gcode | grep '^{' | tail -n 1)"
+echo "${preview}" | cut -c1-400
+echo "${preview}" | grep -q '"error"' && { echo "Preview failed: ${preview}"; exit 1; }
+layers="$(echo "${preview}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["layerZs"]))')"
+(( layers == 100 )) || { echo "Expected 100 preview layers, got ${layers}"; exit 1; }
+
 echo "== Slicing with OrcaSlicer system presets (Creality)"
 adb push "${dir}/test-profiles.tar.gz" "${remote}/"
 adb shell "cd ${remote} && rm -rf profiles && tar -xzf test-profiles.tar.gz"

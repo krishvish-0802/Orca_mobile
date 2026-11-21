@@ -6,6 +6,7 @@
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
 #include "orca_engine/Project.hpp"
+#include "orca_engine/GCodePreview.hpp"
 #include "orca_viewport/Viewport.hpp"
 
 namespace orca::jni {
@@ -77,6 +78,40 @@ void native_clear_mesh(JNIEnv*, jclass, jlong handle)
         v->clear_mesh();
 }
 
+// Shows a loaded G-code preview's toolpaths; they stay shared with the preview.
+void native_show_preview(JNIEnv*, jclass, jlong handle, jlong preview_handle)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return;
+    if (auto* preview = from_handle<orca::engine::GCodePreview>(preview_handle))
+        v->set_toolpaths(preview->toolpaths());
+    else
+        v->clear_toolpaths();
+}
+
+void native_clear_toolpaths(JNIEnv*, jclass, jlong handle)
+{
+    if (auto* v = viewport(handle))
+        v->clear_toolpaths();
+}
+
+void native_set_layer_range(JNIEnv*, jclass, jlong handle, jint first, jint last)
+{
+    if (auto* v = viewport(handle); v != nullptr && first >= 0 && last >= first)
+        v->set_layer_range(static_cast<std::size_t>(first), static_cast<std::size_t>(last));
+}
+
+void native_set_coloring(JNIEnv*, jclass, jlong handle, jint coloring)
+{
+    using orca::viewport::ToolpathColoring;
+    auto* v = viewport(handle);
+    if (v == nullptr || coloring < static_cast<jint>(ToolpathColoring::FeatureType) ||
+        coloring > static_cast<jint>(ToolpathColoring::Filament))
+        return;
+    v->set_toolpath_coloring(static_cast<ToolpathColoring>(coloring));
+}
+
 void native_orbit(JNIEnv*, jclass, jlong handle, jfloat dx, jfloat dy)
 {
     if (auto* v = viewport(handle))
@@ -110,6 +145,10 @@ const JNINativeMethod kMethods[] = {
     {"nativeSetBed", "(J[FF)V", reinterpret_cast<void*>(native_set_bed)},
     {"nativeShowProject", "(JJ)V", reinterpret_cast<void*>(native_show_project)},
     {"nativeClearMesh", "(J)V", reinterpret_cast<void*>(native_clear_mesh)},
+    {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
+    {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
+    {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},
+    {"nativeSetColoring", "(JI)V", reinterpret_cast<void*>(native_set_coloring)},
     {"nativeOrbit", "(JFF)V", reinterpret_cast<void*>(native_orbit)},
     {"nativePan", "(JFF)V", reinterpret_cast<void*>(native_pan)},
     {"nativeZoom", "(JFFF)V", reinterpret_cast<void*>(native_zoom)},

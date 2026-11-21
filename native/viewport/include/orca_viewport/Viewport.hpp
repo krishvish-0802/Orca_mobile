@@ -1,8 +1,11 @@
 #pragma once
 
 #include <array>
+#include <cstddef>
 #include <memory>
 #include <vector>
+
+namespace libvgcode { struct GCodeInputData; }
 
 namespace orca::viewport {
 
@@ -17,6 +20,19 @@ struct Bed {
 struct Mesh {
     std::vector<float> positions;
     std::vector<float> normals;
+};
+
+// What colors the toolpaths. Values are shared with the app (ToolpathColoring.kt).
+enum class ToolpathColoring : int {
+    FeatureType = 0,
+    Height = 1,
+    Width = 2,
+    Speed = 3,
+    FanSpeed = 4,
+    Temperature = 5,
+    VolumetricFlowRate = 6,
+    LayerTime = 7,
+    Filament = 8,
 };
 
 // The plate view. Rendering methods run on the GL thread; the scene and camera
@@ -40,11 +56,19 @@ public:
     void set_mesh(Mesh mesh);
     void clear_mesh();
 
+    // Sliced toolpaths, drawn instead of the model while set. Shared: the caller
+    // may keep its copy, nothing here modifies it.
+    void set_toolpaths(std::shared_ptr<const libvgcode::GCodeInputData> toolpaths);
+    void clear_toolpaths();
+    // Shows toolpath layers first..last (0-based, inclusive).
+    void set_layer_range(std::size_t first, std::size_t last);
+    void set_toolpath_coloring(ToolpathColoring coloring);
+
     // Gestures, in screen pixels.
     void orbit(float dx_px, float dy_px);
     void pan(float dx_px, float dy_px);
     void zoom(float factor, float focus_x_px, float focus_y_px);
-    // Frames the model if there is one, else the bed.
+    // Frames the toolpaths or the model if shown, else the bed.
     void fit();
 
 private:

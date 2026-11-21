@@ -5,6 +5,7 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
+import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.project.ProjectRepository
@@ -14,9 +15,11 @@ import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineStatus
+import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
+import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.PrintHostInfo
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ProjectSummary
@@ -25,6 +28,7 @@ import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceSource
 import com.orcamobile.core.model.SliceStatistics
+import com.orcamobile.core.model.ToolpathColoring
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -101,12 +105,27 @@ class PrepareViewModelTest {
         }
     }
 
+    private class FakePreviews : GCodePreviewRepository {
+        val loaded = mutableListOf<String>()
+        val released = mutableListOf<PreviewId>()
+        override suspend fun load(gcodePath: String): Result<GCodePreviewSummary> {
+            loaded += gcodePath
+            val id = PreviewId("preview${loaded.size}")
+            return Result.success(GCodePreviewSummary(id, gcodePath, List(240) { (it + 1) * 0.2f }, 60.0, 5000, listOf("#FF0000")))
+        }
+        override fun release(id: PreviewId) {
+            released += id
+        }
+    }
+
     private val engine = RecordingEngine()
     private val hosts = FakeHosts()
+    private val previews = FakePreviews()
 
     private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
         SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
         projects,
+        previews,
         FakePresets(),
         settings,
         SliceProjectUseCase(engine, workspace),
@@ -162,5 +181,48 @@ class PrepareViewModelTest {
         assertEquals(PrintHostStatus.Sent(printing = false), vm.state.value.printHost.status)
         assertEquals(listOf("/gcode/benchy.gcode"), hosts.uploads)
         assertEquals("printer.local", settings.host?.baseUrl)
+    }
+
+    @Test
+    fun `shows the sliced toolpaths with every layer once slicing is done`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+
+        assertEquals(listOf("/gcode/benchy.gcode"), previews.loaded)
+        val preview = assertIs<PreviewUiState.Ready>(vm.state.value.preview)
+        assertEquals(0..239, preview.layers)
+        assertEquals(true, vm.state.value.showingPreview)
+
+        vm.onIntent(PrepareIntent.ShowPreview(false))
+        assertEquals(false, vm.state.value.showingPreview)
+    }
+
+    @Test
+    fun `layer range and coloring are kept within the preview`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+
+        vm.onIntent(PrepareIntent.SetPreviewLayers(10..500))
+        vm.onIntent(PrepareIntent.SetPreviewColoring(ToolpathColoring.Speed))
+        val preview = assertIs<PreviewUiState.Ready>(vm.state.value.preview)
+        assertEquals(10..239, preview.layers)
+        assertEquals(ToolpathColoring.Speed, preview.coloring)
+    }
+
+    @Test
+    fun `slicing again frees the previous preview`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        vm.onIntent(PrepareIntent.Slice)
+
+        assertEquals(listOf(PreviewId("preview1")), previews.released)
+        assertEquals(PreviewId("preview2"), assertIs<PreviewUiState.Ready>(vm.state.value.preview).summary.id)
+    }
+
+    @Test
+    fun `the preview cannot be shown before slicing`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.ShowPreview(true))
+        assertEquals(false, vm.state.value.showingPreview)
     }
 }

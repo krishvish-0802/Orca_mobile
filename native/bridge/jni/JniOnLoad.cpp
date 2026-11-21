@@ -30,7 +30,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
     }
     const auto engine_class = static_cast<jclass>(engine.get());
     if (!orca::jni::register_engine_natives(env, engine_class) ||
-        !orca::jni::register_project_natives(env, engine_class)) {
+        !orca::jni::register_project_natives(env, engine_class) ||
+        !orca::jni::register_preview_natives(env, engine_class)) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Registering engine natives failed");
         return JNI_ERR;
     }

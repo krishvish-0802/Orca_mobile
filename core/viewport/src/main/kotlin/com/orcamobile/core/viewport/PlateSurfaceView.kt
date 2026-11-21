@@ -28,6 +28,9 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     private var bed: FloatArray? = null
     private var bedHeight = 0f
     private var projectHandle = 0L
+    private var previewHandle = 0L
+    private var layerRange: IntRange? = null
+    private var coloring = 0
 
     init {
         setEGLContextClientVersion(3)
@@ -42,6 +45,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
             handle = NativeViewport.nativeCreate()
             bed?.let { NativeViewport.nativeSetBed(handle, it, bedHeight) }
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
+            if (previewHandle != 0L) applyPreview()
         }
         super.onAttachedToWindow()
     }
@@ -69,6 +73,26 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         if (project == projectHandle) return
         projectHandle = project
         if (handle != 0L) showProjectOnGlThread(project)
+    }
+
+    /** Shows the toolpaths of the preview with native handle [preview] instead of the model; 0 hides them. */
+    fun setPreview(preview: Long, layers: IntRange?, coloring: Int) {
+        val previewChanged = preview != previewHandle
+        if (!previewChanged && layers == layerRange && coloring == this.coloring) return
+        previewHandle = preview
+        layerRange = layers
+        this.coloring = coloring
+        if (handle != 0L) applyPreview(showToolpaths = previewChanged)
+    }
+
+    private fun applyPreview(showToolpaths: Boolean = true) {
+        val h = handle
+        if (showToolpaths) {
+            if (previewHandle == 0L) NativeViewport.nativeClearToolpaths(h) else NativeViewport.nativeShowPreview(h, previewHandle)
+        }
+        NativeViewport.nativeSetColoring(h, coloring)
+        layerRange?.let { NativeViewport.nativeSetLayerRange(h, it.first, it.last) }
+        requestRender()
     }
 
     fun orbit(dx: Float, dy: Float) = gesture { NativeViewport.nativeOrbit(it, dx, dy) }
