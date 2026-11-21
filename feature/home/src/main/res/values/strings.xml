@@ -20,4 +20,15 @@
     <string name="home_stats_filament">Filament: %1$s m (%2$s g)</string>
     <string name="home_stats_layers">Layers: %1$d</string>
     <string name="home_stats_size">G-code size: %1$d KB</string>
+    <string name="home_host_title">Send to printer</string>
+    <string name="home_host_type">Printer host</string>
+    <string name="home_host_address">Address</string>
+    <string name="home_host_api_key">API key (if the host needs one)</string>
+    <string name="home_host_start_print">Start printing after upload</string>
+    <string name="home_host_test">Test connection</string>
+    <string name="home_host_send">Send G-code</string>
+    <string name="home_host_connected">Connected: %1$s</string>
+    <string name="home_host_sending">Uploading… %1$d%%</string>
+    <string name="home_host_sent">Uploaded to the printer.</string>
+    <string name="home_host_sent_printing">Uploaded. The printer is starting the print.</string>
 </resources>

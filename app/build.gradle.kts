@@ -34,6 +34,7 @@ dependencies {
     // Implementations are wired here, the composition root; features see only interfaces.
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
+    implementation(project(":core:printer"))
     implementation(project(":feature:home"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

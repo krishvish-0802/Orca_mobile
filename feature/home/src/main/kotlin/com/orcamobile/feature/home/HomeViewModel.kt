@@ -4,7 +4,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
+import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceSampleModelUseCase
+import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceResult
@@ -22,6 +24,8 @@ class HomeViewModel @Inject constructor(
     private val getEngineStatus: GetEngineStatusUseCase,
     private val sliceSampleModel: SliceSampleModelUseCase,
     private val presets: PresetCatalog,
+    private val testPrintHost: TestPrintHostUseCase,
+    private val sendGcode: SendGcodeUseCase,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -29,6 +33,7 @@ class HomeViewModel @Inject constructor(
 
     private var sliceJob: Job? = null
     private var presetJob: Job? = null
+    private var hostJob: Job? = null
 
     init {
         val engine = getEngineStatus().toUiState()
@@ -42,6 +47,12 @@ class HomeViewModel @Inject constructor(
             is HomeIntent.SelectPrinter -> selectPrinter(intent.printer)
             is HomeIntent.SelectProcess -> updateSetup { copy(process = intent.process) }
             is HomeIntent.SelectFilament -> updateSetup { copy(filament = intent.filament) }
+            is HomeIntent.SetHostType -> updateHost { copy(type = intent.type, status = PrintHostStatus.Idle) }
+            is HomeIntent.SetHostAddress -> updateHost { copy(address = intent.address, status = PrintHostStatus.Idle) }
+            is HomeIntent.SetHostApiKey -> updateHost { copy(apiKey = intent.apiKey, status = PrintHostStatus.Idle) }
+            is HomeIntent.SetStartPrint -> updateHost { copy(startPrint = intent.startPrint) }
+            HomeIntent.TestPrintHost -> testHost()
+            HomeIntent.SendToPrinter -> sendToPrinter()
             HomeIntent.SliceSample -> startSlice()
             HomeIntent.CancelSlice -> cancelSlice()
         }
@@ -104,6 +115,46 @@ class HomeViewModel @Inject constructor(
 
     private fun updateSetup(transform: PrinterSetupUiState.() -> PrinterSetupUiState) {
         _state.update { it.copy(printerSetup = it.printerSetup.transform()) }
+    }
+
+    // --- sending to a printer -----------------------------------------------
+
+    private fun testHost() {
+        val host = _state.value.printHost.config ?: return
+        runHostTask(PrintHostStatus.Testing) {
+            testPrintHost(host).fold(
+                { PrintHostStatus.Connected(it.description) },
+                { PrintHostStatus.Failed(it.message ?: "Connection failed") },
+            )
+        }
+    }
+
+    private fun sendToPrinter() {
+        val host = _state.value.printHost.config ?: return
+        val gcode = (_state.value.slice as? SliceUiState.Done)?.gcodePath ?: return
+        val startPrint = _state.value.printHost.startPrint
+        runHostTask(PrintHostStatus.Sending(0)) {
+            sendGcode(host, gcode, startPrint) { sent, total ->
+                val percent = if (total > 0) (sent * 100 / total).toInt() else 0
+                updateHost { if (status is PrintHostStatus.Sending) copy(status = PrintHostStatus.Sending(percent)) else this }
+            }.fold(
+                { PrintHostStatus.Sent(startPrint) },
+                { PrintHostStatus.Failed(it.message ?: "Upload failed") },
+            )
+        }
+    }
+
+    private fun runHostTask(initial: PrintHostStatus, task: suspend () -> PrintHostStatus) {
+        if (hostJob?.isActive == true) return
+        updateHost { copy(status = initial) }
+        hostJob = viewModelScope.launch {
+            val result = task()
+            updateHost { copy(status = result) }
+        }
+    }
+
+    private fun updateHost(transform: PrintHostUiState.() -> PrintHostUiState) {
+        _state.update { it.copy(printHost = it.printHost.transform()) }
     }
 
     // --- slicing ------------------------------------------------------------

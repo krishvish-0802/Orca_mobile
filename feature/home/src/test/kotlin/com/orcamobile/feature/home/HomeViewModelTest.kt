@@ -2,13 +2,20 @@ package com.orcamobile.feature.home
 
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
+import com.orcamobile.core.domain.printer.PrintHostClient
+import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
+import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceSampleModelUseCase
+import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.PrintHostConfig
+import com.orcamobile.core.model.PrintHostInfo
+import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
@@ -55,8 +62,33 @@ class HomeViewModelTest {
         )
     }
 
-    private fun viewModel(engine: SlicingEngine) =
-        HomeViewModel(GetEngineStatusUseCase(engine), SliceSampleModelUseCase(engine, samples, workspace), FakePresets())
+    /** Records uploads; every host answers as a ready Klipper. */
+    private class FakeHosts : PrintHostClientFactory {
+        val uploads = mutableListOf<Pair<PrintHostConfig, String>>()
+        override fun create(config: PrintHostConfig) = object : PrintHostClient {
+            override suspend fun testConnection() = Result.success(PrintHostInfo("Klipper ready"))
+            override suspend fun upload(
+                localPath: String,
+                remoteName: String,
+                startPrint: Boolean,
+                onProgress: (sent: Long, total: Long) -> Unit,
+            ): Result<Unit> {
+                onProgress(50, 100)
+                uploads += config to localPath
+                return Result.success(Unit)
+            }
+        }
+    }
+
+    private val hosts = FakeHosts()
+
+    private fun viewModel(engine: SlicingEngine) = HomeViewModel(
+        GetEngineStatusUseCase(engine),
+        SliceSampleModelUseCase(engine, samples, workspace),
+        FakePresets(),
+        TestPrintHostUseCase(hosts),
+        SendGcodeUseCase(hosts),
+    )
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -129,5 +161,27 @@ class HomeViewModelTest {
         assertEquals(null, setup.printer)
         assertEquals(null, setup.selection)
         assertEquals(listOf("Prusa P1", "Prusa P2"), setup.printers)
+    }
+
+    @Test
+    fun `sends the sliced gcode to the configured host`() = runTest {
+        val engine = ScriptedEngine(EngineStatus.Available(info))
+        val vm = viewModel(engine)
+        vm.onIntent(HomeIntent.SliceSample)
+        engine.events.emit(
+            SliceEvent.Finished(SliceResult.Succeeded("/out/cube.gcode", SliceStatistics(1.0, 1.0, 1.0, 1, 1))),
+        )
+
+        vm.onIntent(HomeIntent.SetHostAddress("192.168.1.50:7125"))
+        vm.onIntent(HomeIntent.TestPrintHost)
+        assertEquals(PrintHostStatus.Connected("Klipper ready"), vm.state.value.printHost.status)
+
+        vm.onIntent(HomeIntent.SetStartPrint(true))
+        vm.onIntent(HomeIntent.SendToPrinter)
+        assertEquals(PrintHostStatus.Sent(printing = true), vm.state.value.printHost.status)
+        assertEquals(
+            listOf(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125") to "/out/cube.gcode"),
+            hosts.uploads,
+        )
     }
 }

@@ -13,12 +13,18 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -28,6 +34,7 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.theme.OrcaTheme
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.SliceStatistics
 import java.util.Locale
 
@@ -58,6 +65,9 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
                 engineReady = state.engine is EngineUiState.Ready,
                 onIntent = onIntent,
             )
+            if (state.slice is SliceUiState.Done) {
+                PrintHostCard(state.printHost, onIntent)
+            }
         }
     }
 }
@@ -146,6 +156,72 @@ private fun SliceCard(slice: SliceUiState, engineReady: Boolean, onIntent: (Home
                 OutlinedButton(onClick = { onIntent(HomeIntent.CancelSlice) }) {
                     Text(stringResource(R.string.home_slice_cancel))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PrintHostCard(host: PrintHostUiState, onIntent: (HomeIntent) -> Unit) {
+    val busy = host.status is PrintHostStatus.Testing || host.status is PrintHostStatus.Sending
+    StatusCard(title = stringResource(R.string.home_host_title)) {
+        DropdownField(
+            label = stringResource(R.string.home_host_type),
+            options = PrintHostType.entries.map { it.displayName },
+            selected = host.type.displayName,
+            onSelect = { name ->
+                PrintHostType.entries.firstOrNull { it.displayName == name }?.let { onIntent(HomeIntent.SetHostType(it)) }
+            },
+            enabled = !busy,
+        )
+        OutlinedTextField(
+            value = host.address,
+            onValueChange = { onIntent(HomeIntent.SetHostAddress(it)) },
+            label = { Text(stringResource(R.string.home_host_address)) },
+            placeholder = { Text("192.168.1.50:7125") },
+            singleLine = true,
+            enabled = !busy,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = host.apiKey,
+            onValueChange = { onIntent(HomeIntent.SetHostApiKey(it)) },
+            label = { Text(stringResource(R.string.home_host_api_key)) },
+            singleLine = true,
+            enabled = !busy,
+            visualTransformation = PasswordVisualTransformation(),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Switch(
+                checked = host.startPrint,
+                onCheckedChange = { onIntent(HomeIntent.SetStartPrint(it)) },
+                enabled = !busy,
+            )
+            Text(stringResource(R.string.home_host_start_print))
+        }
+        when (val status = host.status) {
+            PrintHostStatus.Idle -> Unit
+            PrintHostStatus.Testing -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            is PrintHostStatus.Connected -> Text(stringResource(R.string.home_host_connected, status.description))
+            is PrintHostStatus.Sending -> {
+                LinearProgressIndicator(progress = { status.percent / 100f }, modifier = Modifier.fillMaxWidth())
+                Text(stringResource(R.string.home_host_sending, status.percent), style = MaterialTheme.typography.bodySmall)
+            }
+            is PrintHostStatus.Sent -> Text(
+                stringResource(if (status.printing) R.string.home_host_sent_printing else R.string.home_host_sent),
+            )
+            is PrintHostStatus.Failed -> Text(status.message, color = MaterialTheme.colorScheme.error)
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            val ready = host.config != null && !busy
+            OutlinedButton(onClick = { onIntent(HomeIntent.TestPrintHost) }, enabled = ready) {
+                Text(stringResource(R.string.home_host_test))
+            }
+            Button(onClick = { onIntent(HomeIntent.SendToPrinter) }, enabled = ready) {
+                Text(stringResource(R.string.home_host_send))
             }
         }
     }

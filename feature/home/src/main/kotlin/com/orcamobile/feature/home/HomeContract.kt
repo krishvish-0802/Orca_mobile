@@ -2,6 +2,8 @@ package com.orcamobile.feature.home
 
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.PrintHostConfig
+import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.SliceStatistics
 
 /** Everything the home screen renders. Produced only by [HomeViewModel]. */
@@ -9,7 +11,34 @@ data class HomeUiState(
     val engine: EngineUiState = EngineUiState.Loading,
     val printerSetup: PrinterSetupUiState = PrinterSetupUiState(),
     val slice: SliceUiState = SliceUiState.Idle,
+    val printHost: PrintHostUiState = PrintHostUiState(),
 )
+
+/** Sending the sliced G-code to a printer host. */
+data class PrintHostUiState(
+    val type: PrintHostType = PrintHostType.MOONRAKER,
+    val address: String = "",
+    val apiKey: String = "",
+    val startPrint: Boolean = false,
+    val status: PrintHostStatus = PrintHostStatus.Idle,
+) {
+    val config: PrintHostConfig?
+        get() = address.takeIf { it.isNotBlank() }?.let { PrintHostConfig(type, it, apiKey.ifBlank { null }) }
+}
+
+sealed interface PrintHostStatus {
+    data object Idle : PrintHostStatus
+
+    data object Testing : PrintHostStatus
+
+    data class Connected(val description: String) : PrintHostStatus
+
+    data class Sending(val percent: Int) : PrintHostStatus
+
+    data class Sent(val printing: Boolean) : PrintHostStatus
+
+    data class Failed(val message: String) : PrintHostStatus
+}
 
 /** Choosing the printer, process and filament presets for the test slice. */
 data class PrinterSetupUiState(
@@ -64,6 +93,18 @@ sealed interface HomeIntent {
     data class SelectProcess(val process: String) : HomeIntent
 
     data class SelectFilament(val filament: String) : HomeIntent
+
+    data class SetHostType(val type: PrintHostType) : HomeIntent
+
+    data class SetHostAddress(val address: String) : HomeIntent
+
+    data class SetHostApiKey(val apiKey: String) : HomeIntent
+
+    data class SetStartPrint(val startPrint: Boolean) : HomeIntent
+
+    data object TestPrintHost : HomeIntent
+
+    data object SendToPrinter : HomeIntent
 
     data object SliceSample : HomeIntent
 
