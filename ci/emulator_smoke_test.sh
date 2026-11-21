@@ -16,15 +16,29 @@ adb shell chmod 755 "${remote}/orca_slice_cli"
 
 run_cli() { adb shell "cd ${remote} && LD_LIBRARY_PATH=${remote} ./orca_slice_cli $*"; }
 
+# Runs the CLI and prints everything it said, even when it fails: a bare
+# $(run_cli ...) under set -e would exit before showing why. Sets `output`.
+capture() {
+    local status=0
+    output="$(run_cli "$@" 2>&1)" || status=$?
+    echo "${output}" | tail -n 60
+    if (( status != 0 )); then
+        echo "orca_slice_cli exited with ${status}"
+        echo "== Native crash report, if any"
+        adb logcat -d -b crash | tail -n 80 || true
+        adb logcat -d | grep -E "orca|DEBUG|libc   " | tail -n 80 || true
+        exit 1
+    fi
+}
+
 echo "== Engine version"
 run_cli --version
 
 echo "== Slicing the calibration cube"
 started=${SECONDS}
-output="$(run_cli cube.stl cube.gcode \
+capture cube.stl cube.gcode \
     printable_area=0x0,220x0,220x220,0x220 printable_height=250 \
-    layer_height=0.2 initial_layer_print_height=0.2)"
-echo "${output}"
+    layer_height=0.2 initial_layer_print_height=0.2
 echo "Sliced in $((SECONDS - started)) s"
 result="$(echo "${output}" | grep '^{' | tail -n 1)"
 echo "${result}" | grep -q '"status":"succeeded"' || { echo "Slicing did not succeed: ${result}"; exit 1; }
@@ -37,8 +51,8 @@ echo "G-code: $(wc -c < "${dir}/cube.gcode") bytes, ${moves} G1 moves"
 (( moves > 1000 )) || { echo "Too few moves in the G-code"; exit 1; }
 
 echo "== Reading the G-code back for the preview"
-preview="$(run_cli --preview cube.gcode | grep '^{' | tail -n 1)"
-echo "${preview}" | cut -c1-400
+capture --preview cube.gcode
+preview="$(echo "${output}" | grep '^{' | tail -n 1)"
 echo "${preview}" | grep -q '"error"' && { echo "Preview failed: ${preview}"; exit 1; }
 layers="$(echo "${preview}" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["layerZs"]))')"
 (( layers == 100 )) || { echo "Expected 100 preview layers, got ${layers}"; exit 1; }
@@ -47,16 +61,16 @@ echo "== Slicing with OrcaSlicer system presets (Creality)"
 adb push "${dir}/test-profiles.tar.gz" "${remote}/"
 adb shell "cd ${remote} && rm -rf profiles && tar -xzf test-profiles.tar.gz"
 printer="Creality Ender-3 Pro 0.4 nozzle"
-run_cli --profiles "${remote}/profiles" --list-vendors
-compatible="$(run_cli --profiles "${remote}/profiles" --compatible Creality "\"${printer}\"" | grep '^{' | tail -n 1)"
+capture --profiles "${remote}/profiles" --list-vendors
+capture --profiles "${remote}/profiles" --compatible Creality "\"${printer}\""
+compatible="$(echo "${output}" | grep '^{' | tail -n 1)"
 echo "Compatible with ${printer}: ${compatible:0:400}..."
 process="$(echo "${compatible}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["defaultProcess"])')"
 filament="$(echo "${compatible}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["defaultFilament"])')"
 echo "Using process '${process}', filament '${filament}'"
 [[ -n "${process}" && -n "${filament}" ]] || { echo "No default process/filament for ${printer}"; exit 1; }
-output="$(run_cli cube.stl cube-ender3.gcode --profiles "${remote}/profiles" --vendor Creality \
-    --printer "\"${printer}\"" --process "\"${process}\"" --filament "\"${filament}\"")"
-echo "${output}" | tail -n 3
+capture cube.stl cube-ender3.gcode --profiles "${remote}/profiles" --vendor Creality \
+    --printer "\"${printer}\"" --process "\"${process}\"" --filament "\"${filament}\""
 result="$(echo "${output}" | grep '^{' | tail -n 1)"
 echo "${result}" | grep -q '"status":"succeeded"' || { echo "Preset slice did not succeed: ${result}"; exit 1; }
 adb pull "${remote}/cube-ender3.gcode" "${dir}/cube-ender3.gcode"
