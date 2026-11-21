@@ -102,6 +102,13 @@ target_link_libraries(libslic3r PRIVATE nanosvg)
 # GL entry points at run time with its bundled glad loader).
 set(SLIC3R_OPENGL_ES ON)
 add_subdirectory("${ORCA_SOURCE_DIR}/src/libvgcode" "${CMAKE_BINARY_DIR}/src/libvgcode")
+# glad finds GLES entry points through eglGetProcAddress. Upstream ships no
+# glad/egl.h, so use the platform's <EGL/egl.h> (the NDK has it) and libEGL.
+target_compile_definitions(libvgcode PRIVATE GLAD_GLES2_USE_SYSTEM_EGL=1)
+find_library(ORCA_EGL_LIB EGL)
+if (ORCA_EGL_LIB)
+    target_link_libraries(libvgcode PUBLIC ${ORCA_EGL_LIB} ${CMAKE_DL_LIBS})
+endif ()
 
 # Upstream's GCodeProcessorResult -> libvgcode conversion, which the desktop app
 # keeps with its GUI. The glue include directory stands in for the one GUI
