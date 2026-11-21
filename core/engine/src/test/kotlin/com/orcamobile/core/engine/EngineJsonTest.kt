@@ -3,6 +3,8 @@ package com.orcamobile.core.engine
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.OptionChoice
+import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SliceResult
@@ -104,5 +106,29 @@ class EngineJsonTest {
         assertEquals(1200L, loaded.summary.moveCount)
         assertEquals(listOf("#00AE42"), loaded.summary.filamentColors)
         assertIs<EngineException>(EngineJson.loadedPreview("""{"error":"no moves"}""").exceptionOrNull())
+    }
+
+    @Test
+    fun `decodes option definitions with their choices`() {
+        val payload = """{"options":[{"key":"sparse_infill_pattern","type":"enum","label":"Sparse infill pattern",""" +
+            """"fullLabel":"","category":"Strength","tooltip":"Line pattern","unit":"","mode":"simple","default":"crosshatch",""" +
+            """"enumValues":["grid","gyroid"],"enumLabels":["Grid",""],"nullable":false},""" +
+            """{"key":"layer_height","type":"float","label":"Layer height","unit":"mm","min":0.0,"enumValues":[],"enumLabels":[]}]}"""
+        val (pattern, layer) = EngineJson.configOptions(payload).getOrThrow()
+        assertEquals(OptionType.ENUM, pattern.type)
+        assertEquals("Sparse infill pattern", pattern.fullLabel)
+        assertEquals(listOf(OptionChoice("grid", "Grid"), OptionChoice("gyroid", "gyroid")), pattern.choices)
+        assertEquals(OptionType.FLOAT, layer.type)
+        assertEquals(0.0, layer.min)
+        assertEquals(null, layer.max)
+        assertEquals("mm", layer.unit)
+    }
+
+    @Test
+    fun `decodes config values`() {
+        assertEquals(
+            mapOf("layer_height" to "0.2", "nozzle_temperature" to "220,220"),
+            EngineJson.configValues("""{"values":{"layer_height":"0.2","nozzle_temperature":"220,220"}}""").getOrThrow(),
+        )
     }
 }

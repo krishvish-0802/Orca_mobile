@@ -14,14 +14,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RangeSlider
@@ -44,7 +45,9 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orcamobile.core.designsystem.component.DropdownField
+import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.StatusCard
+import com.orcamobile.core.designsystem.component.TonalPillButton
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
@@ -55,14 +58,19 @@ import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
-fun PrepareRoute(onBack: () -> Unit, viewModel: PrepareViewModel = hiltViewModel()) {
+fun PrepareRoute(onBack: () -> Unit, onOpenSettings: () -> Unit, viewModel: PrepareViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    PrepareScreen(state = state, onIntent = viewModel::onIntent, onBack = onBack)
+    PrepareScreen(state = state, onIntent = viewModel::onIntent, onBack = onBack, onOpenSettings = onOpenSettings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun PrepareScreen(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onBack: () -> Unit) {
+fun PrepareScreen(
+    state: PrepareUiState,
+    onIntent: (PrepareIntent) -> Unit,
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
     Scaffold(
         topBar = {
             TopAppBar(
@@ -70,6 +78,13 @@ fun PrepareScreen(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onBa
                 navigationIcon = {
                     IconButton(onClick = onBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.prepare_back))
+                    }
+                },
+                actions = {
+                    IconButton(onClick = onOpenSettings) {
+                        BadgedBox(badge = { if (state.changedSettings > 0) Badge { Text(state.changedSettings.toString()) } }) {
+                            Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.prepare_settings))
+                        }
                     }
                 },
             )
@@ -209,6 +224,13 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
             },
             style = MaterialTheme.typography.bodySmall,
         )
+        if (state.changedSettings > 0) {
+            Text(
+                stringResource(R.string.prepare_settings_changed, state.changedSettings),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
+        }
         state.project?.let { project ->
             val triangles = project.objects.sumOf { it.triangles }
             Text(
@@ -226,16 +248,21 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
             SliceUiState.Canceled -> Text(stringResource(R.string.prepare_slice_canceled))
             is SliceUiState.Failed -> Text(slice.message, color = MaterialTheme.colorScheme.error)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val running = state.slice is SliceUiState.Running
-            Button(onClick = { onIntent(PrepareIntent.Slice) }, enabled = state.project != null && !running) {
-                Text(stringResource(R.string.prepare_slice_action))
-            }
             if (running) {
-                OutlinedButton(onClick = { onIntent(PrepareIntent.CancelSlice) }) {
-                    Text(stringResource(R.string.prepare_slice_cancel))
-                }
+                TonalPillButton(
+                    text = stringResource(R.string.prepare_slice_cancel),
+                    onClick = { onIntent(PrepareIntent.CancelSlice) },
+                    modifier = Modifier.weight(1f),
+                )
             }
+            PrimaryPillButton(
+                text = stringResource(R.string.prepare_slice_action),
+                onClick = { onIntent(PrepareIntent.Slice) },
+                enabled = state.project != null && !running,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }
@@ -348,14 +375,20 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
             )
             is PrintHostStatus.Failed -> Text(status.message, color = MaterialTheme.colorScheme.error)
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val ready = host.config != null && !busy
-            OutlinedButton(onClick = { onIntent(PrepareIntent.TestPrintHost) }, enabled = ready) {
-                Text(stringResource(R.string.prepare_host_test))
-            }
-            Button(onClick = { onIntent(PrepareIntent.SendToPrinter) }, enabled = ready) {
-                Text(stringResource(R.string.prepare_host_send))
-            }
+            TonalPillButton(
+                text = stringResource(R.string.prepare_host_test),
+                onClick = { onIntent(PrepareIntent.TestPrintHost) },
+                enabled = ready,
+                modifier = Modifier.weight(1f),
+            )
+            PrimaryPillButton(
+                text = stringResource(R.string.prepare_host_send),
+                onClick = { onIntent(PrepareIntent.SendToPrinter) },
+                enabled = ready,
+                modifier = Modifier.weight(1f),
+            )
         }
     }
 }

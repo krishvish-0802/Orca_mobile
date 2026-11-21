@@ -50,6 +50,7 @@ dependencies {
     implementation(project(":core:printer"))
     implementation(project(":feature:home"))
     implementation(project(":feature:prepare"))
+    implementation(project(":feature:settings"))
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

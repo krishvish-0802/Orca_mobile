@@ -7,6 +7,7 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
@@ -19,6 +20,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -27,6 +31,7 @@ import javax.inject.Inject
 class PrepareViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val projects: ProjectRepository,
+    private val printSettings: PrintSettingsRepository,
     private val previews: GCodePreviewRepository,
     private val presets: PresetCatalog,
     private val settings: UserSettingsRepository,
@@ -52,13 +57,14 @@ class PrepareViewModel @Inject constructor(
             val options = settings.printStartOptions()
             updateHost { copy(startOptions = options) }
         }
+        viewModelScope.launch { followSettingsChanges() }
     }
 
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
             is PrepareIntent.Select -> _state.update { it.copy(selection = intent.instance) }
-            PrepareIntent.PlateEdited -> onPlateEdited()
+            PrepareIntent.PlateEdited -> dropStaleResult()
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
                 it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)
@@ -127,7 +133,20 @@ class PrepareViewModel @Inject constructor(
         }
     }
 
-    private fun onPlateEdited() {
+    /** Counts the settings changes; a change after slicing makes the result stale, as moving an object does. */
+    private suspend fun followSettingsChanges() {
+        var previous: Map<String, String>? = null
+        val presets = _state.map { it.presets }.distinctUntilChanged()
+        combine(printSettings.edits, presets) { edits, selection ->
+            if (edits.appliesTo(selection)) edits.values else emptyMap()
+        }.distinctUntilChanged().collect { changes ->
+            _state.update { it.copy(changedSettings = changes.size) }
+            if (previous != null) dropStaleResult()
+            previous = changes
+        }
+    }
+
+    private fun dropStaleResult() {
         if (sliceJob?.isActive == true) return   // the running slice took its snapshot already
         val slice = _state.value.slice
         if (slice is SliceUiState.Idle || slice is SliceUiState.Running) return

@@ -2,9 +2,12 @@ package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.OptionChoice
+import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.SliceResult
@@ -76,6 +79,14 @@ internal object EngineJson {
         json.decodeFromJsonElement(ObjectsDto.serializer(), element).objects.map { it.toModel() }
     }
 
+    fun configOptions(payload: String): Result<List<ConfigOption>> = decodeOrError(payload) { element ->
+        json.decodeFromJsonElement(OptionsDto.serializer(), element).options.map { it.toModel() }
+    }
+
+    fun configValues(payload: String): Result<Map<String, String>> = decodeOrError(payload) { element ->
+        json.decodeFromJsonElement(ValuesDto.serializer(), element).values
+    }
+
     data class LoadedPreview(val handle: Long, val summary: GCodePreviewSummary)
 
     /** The summary's id and path are placeholders; the repository fills them in. */
@@ -130,6 +141,42 @@ internal object EngineJson {
 
     @Serializable
     private data class LoadedProjectDto(val handle: String, val objects: List<ObjectDto>)
+
+    @Serializable
+    private data class OptionDto(
+        val key: String,
+        val type: String,
+        val label: String = "",
+        val fullLabel: String = "",
+        val category: String = "",
+        val tooltip: String = "",
+        val unit: String = "",
+        val default: String = "",
+        val min: Double? = null,
+        val max: Double? = null,
+        val enumValues: List<String> = emptyList(),
+        val enumLabels: List<String> = emptyList(),
+    ) {
+        fun toModel() = ConfigOption(
+            key = key,
+            type = OptionType.fromWire(type),
+            label = label.ifEmpty { key },
+            fullLabel = fullLabel.ifEmpty { label.ifEmpty { key } },
+            category = category,
+            tooltip = tooltip,
+            unit = unit,
+            defaultValue = default,
+            min = min,
+            max = max,
+            choices = enumValues.mapIndexed { i, value -> OptionChoice(value, enumLabels.getOrNull(i)?.ifEmpty { null } ?: value) },
+        )
+    }
+
+    @Serializable
+    private data class OptionsDto(val options: List<OptionDto>)
+
+    @Serializable
+    private data class ValuesDto(val values: Map<String, String>)
 
     @Serializable
     private data class LoadedPreviewDto(

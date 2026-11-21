@@ -94,6 +94,38 @@ std::string to_json(const PreviewSummary& summary)
     }.dump();
 }
 
+std::string to_json(const std::vector<OptionInfo>& options)
+{
+    nlohmann::json list = nlohmann::json::array();
+    for (const OptionInfo& option : options) {
+        nlohmann::json item = {
+            {"key", option.key},
+            {"type", option.type},
+            {"label", option.label},
+            {"fullLabel", option.full_label},
+            {"category", option.category},
+            {"tooltip", option.tooltip},
+            {"unit", option.unit},
+            {"mode", option.mode},
+            {"default", option.default_value},
+            {"enumValues", option.enum_values},
+            {"enumLabels", option.enum_labels},
+            {"nullable", option.nullable},
+        };
+        if (option.min)
+            item["min"] = *option.min;
+        if (option.max)
+            item["max"] = *option.max;
+        list.push_back(std::move(item));
+    }
+    return nlohmann::json{{"options", list}}.dump();
+}
+
+std::string values_to_json(const std::map<std::string, std::string>& values)
+{
+    return nlohmann::json{{"values", values}}.dump();
+}
+
 std::optional<PresetSelection> preset_selection_from_json(const std::string& payload)
 {
     if (payload.empty())

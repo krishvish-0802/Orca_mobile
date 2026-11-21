@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <stdexcept>
 
+#include "ConfigValues.hpp"
 #include "PresetCatalogImpl.hpp"
 
 namespace orca::engine {
@@ -165,6 +166,12 @@ BedShape PresetCatalog::bed_shape(const std::string& vendor, const std::string& 
     if (const auto* height = config.option<Slic3r::ConfigOptionFloat>("printable_height"))
         shape.max_height = height->value;
     return shape;
+}
+
+std::map<std::string, std::string> PresetCatalog::config_values(const PresetSelection& selection,
+                                                                const std::vector<std::string>& keys)
+{
+    return orca::engine::config_values(m_impl->compose(selection), keys);
 }
 
 } // namespace orca::engine

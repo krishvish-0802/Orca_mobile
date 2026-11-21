@@ -77,6 +77,33 @@ jstring native_printer_bed(JNIEnv* env, jclass, jstring vendor, jstring printer)
     return catalog_call(env, [&](orca::engine::PresetCatalog& c) { return json::to_json(c.bed_shape(id, name)); });
 }
 
+// {"options":[...]}: OrcaSlicer's definitions of `keys`.
+jstring native_describe_options(JNIEnv* env, jclass, jobjectArray keys)
+{
+    try {
+        return to_jstring(env, json::to_json(orca::engine::describe_options(to_string_vector(env, keys))));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// {"values":{...}} of `keys` for a preset selection, or the engine defaults when
+// the selection is empty.
+jstring native_config_values(JNIEnv* env, jclass, jstring preset_selection_json, jobjectArray keys)
+{
+    const std::vector<std::string> wanted = to_string_vector(env, keys);
+    try {
+        const auto selection = json::preset_selection_from_json(to_std_string(env, preset_selection_json));
+        if (!selection)
+            return to_jstring(env, json::values_to_json(orca::engine::default_values(wanted)));
+        return catalog_call(env, [&](orca::engine::PresetCatalog& c) {
+            return json::values_to_json(c.config_values(*selection, wanted));
+        });
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 jlong native_create_cancel_token(JNIEnv*, jclass)
 {
     return to_handle(new orca::engine::CancelToken());
@@ -164,6 +191,8 @@ const JNINativeMethod kMethods[] = {
     {"nativeListPrinters", "(" STR ")" STR, reinterpret_cast<void*>(native_list_printers)},
     {"nativeCompatiblePresets", "(" STR STR ")" STR, reinterpret_cast<void*>(native_compatible_presets)},
     {"nativePrinterBed", "(" STR STR ")" STR, reinterpret_cast<void*>(native_printer_bed)},
+    {"nativeDescribeOptions", "([" STR ")" STR, reinterpret_cast<void*>(native_describe_options)},
+    {"nativeConfigValues", "(" STR "[" STR ")" STR, reinterpret_cast<void*>(native_config_values)},
     {"nativeCreateCancelToken", "()J", reinterpret_cast<void*>(native_create_cancel_token)},
     {"nativeRequestCancel", "(J)V", reinterpret_cast<void*>(native_request_cancel)},
     {"nativeReleaseCancelToken", "(J)V", reinterpret_cast<void*>(native_release_cancel_token)},

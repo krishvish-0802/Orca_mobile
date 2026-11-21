@@ -83,6 +83,24 @@ class NativeEngineDeviceTest {
         }
     }
 
+    @Test
+    fun describesOptionsAndAppliesOverrides() {
+        val options = EngineJson.configOptions(
+            NativeEngine.nativeDescribeOptions(arrayOf("layer_height", "sparse_infill_pattern", "no_such_option")),
+        ).getOrThrow()
+        assertEquals(listOf("layer_height", "sparse_infill_pattern"), options.map { it.key })
+        assertTrue(options[1].choices.any { it.value == "gyroid" })
+
+        val defaults = EngineJson.configValues(NativeEngine.nativeConfigValues("", arrayOf("layer_height"))).getOrThrow()
+        assertTrue(defaults.containsKey("layer_height"))
+
+        // The editor's changes travel as overrides: 0.1 mm layers double the cube's layer count.
+        val gcode = File(work, "fine.gcode")
+        val fine = arrayOf("0x0,220x0,220x220,0x220", "250", "0.1", "0.2")
+        val result = NativeEngine.nativeSlice(cube(20f).path, gcode.path, "", keys, fine, RecordingListener(), 0L)
+        assertTrue(result, result.contains("\"layerCount\":199"))
+    }
+
     /** An ASCII STL cube of [size] mm, its corner at the origin. */
     private fun cube(size: Float): File {
         val v = listOf(

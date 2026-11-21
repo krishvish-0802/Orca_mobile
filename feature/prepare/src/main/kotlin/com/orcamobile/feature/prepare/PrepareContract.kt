@@ -26,6 +26,8 @@ data class PrepareUiState(
     val showingPreview: Boolean = false,
     /** The object instance being edited on the plate. */
     val selection: InstanceRef? = null,
+    /** How many settings the user changed from the presets (see the settings screen). */
+    val changedSettings: Int = 0,
 ) {
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?

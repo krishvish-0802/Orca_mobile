@@ -2,6 +2,8 @@
 <resources>
     <string name="prepare_title">Prepare</string>
     <string name="prepare_back">Back</string>
+    <string name="prepare_settings">Print settings</string>
+    <string name="prepare_settings_changed">%1$d settings changed from the presets</string>
     <string name="prepare_slice_title">Slice</string>
     <string name="prepare_slice_presets">%1$s · %2$s · %3$s</string>
     <string name="prepare_slice_no_presets">No printer chosen: slicing with the engine defaults on a generic 220 mm bed. Pick a printer on the start screen.</string>

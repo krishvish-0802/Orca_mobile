@@ -1,9 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="home_title">Orca Mobile</string>
-    <string name="home_engine_title">Slicing engine</string>
     <string name="home_engine_loading">Loading the engine…</string>
-    <string name="home_engine_commit">Upstream commit %1$s</string>
     <string name="home_engine_unavailable">Engine unavailable: %1$s</string>
     <string name="home_printer_title">Printer</string>
     <string name="home_printer_vendor">Vendor</string>
@@ -11,8 +9,13 @@
     <string name="home_printer_process">Process</string>
     <string name="home_printer_filament">Filament</string>
     <string name="home_printer_hint">Pick a printer to slice with its OrcaSlicer profiles. Without one, the engine defaults are used.</string>
-    <string name="home_open_title">Model</string>
+    <string name="home_engine_ready">OrcaSlicer %1$s engine · %2$s</string>
+    <string name="home_not_chosen">Not chosen</string>
+    <string name="home_search">Search</string>
+    <string name="home_print_settings">Print settings</string>
+    <string name="home_print_settings_description">Layer height, walls, infill, supports, temperatures…</string>
+    <string name="home_open_title">Start a print</string>
     <string name="home_open_description">Open an STL, 3MF, OBJ or STEP file to place it on the plate and slice it on this phone.</string>
     <string name="home_open_model">Open model</string>
-    <string name="home_open_sample">Try the sample cube</string>
+    <string name="home_open_sample">Sample cube</string>
 </resources>

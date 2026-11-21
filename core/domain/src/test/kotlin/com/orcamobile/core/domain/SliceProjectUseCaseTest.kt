@@ -2,6 +2,7 @@ package com.orcamobile.core.domain
 
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.WorkspaceRepository
+import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.PresetSelection
@@ -10,8 +11,10 @@ import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
+import com.orcamobile.core.model.SettingsEdits
 import com.orcamobile.core.model.SliceSource
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
@@ -40,7 +43,7 @@ class SliceProjectUseCaseTest {
         val engine = RecordingEngine()
         val presets = PresetSelection("Creality", "Ender-3", "0.20mm Standard", listOf("PLA"))
 
-        val events = SliceProjectUseCase(engine, workspace)(project, presets).toList()
+        val events = SliceProjectUseCase(engine, workspace, FakePrintSettings())(project, presets).toList()
 
         assertEquals(listOf<SliceEvent>(SliceEvent.Finished(SliceResult.Canceled)), events)
         val request = requireNotNull(engine.lastRequest)
@@ -53,7 +56,37 @@ class SliceProjectUseCaseTest {
     @Test
     fun `without presets the generic bed overrides apply`() = runTest {
         val engine = RecordingEngine()
-        SliceProjectUseCase(engine, workspace)(project, null).toList()
+        SliceProjectUseCase(engine, workspace, FakePrintSettings())(project, null).toList()
         assertEquals(SliceProjectUseCase.DEFAULT_OVERRIDES, engine.lastRequest?.configOverrides)
+    }
+
+    @Test
+    fun `the user's settings changes go over the presets`() = runTest {
+        val engine = RecordingEngine()
+        val presets = PresetSelection("Elegoo", "Elegoo Centauri Carbon 0.4 nozzle", "0.20mm Standard", listOf("PLA"))
+        val settings = FakePrintSettings(SettingsEdits(presets, mapOf("sparse_infill_density" to "25%")))
+
+        SliceProjectUseCase(engine, workspace, settings)(project, presets).toList()
+        assertEquals(mapOf("sparse_infill_density" to "25%"), engine.lastRequest?.configOverrides)
+
+        // Changes made for other presets do not apply.
+        SliceProjectUseCase(engine, workspace, settings)(project, presets.copy(process = "0.12mm Fine")).toList()
+        assertEquals(emptyMap(), engine.lastRequest?.configOverrides)
+    }
+}
+
+/** In-memory [PrintSettingsRepository] for tests. */
+class FakePrintSettings(initial: SettingsEdits = SettingsEdits.NONE) : PrintSettingsRepository {
+    private val state = MutableStateFlow(initial)
+    override val edits: Flow<SettingsEdits> = state
+    override suspend fun editsFor(selection: PresetSelection?) = state.value.takeIf { it.appliesTo(selection) }?.values.orEmpty()
+    override suspend fun set(selection: PresetSelection?, key: String, value: String) {
+        state.value = SettingsEdits(selection, editsFor(selection) + (key to value))
+    }
+    override suspend fun reset(selection: PresetSelection?, key: String) {
+        state.value = SettingsEdits(selection, editsFor(selection) - key)
+    }
+    override suspend fun resetAll() {
+        state.value = SettingsEdits.NONE
     }
 }

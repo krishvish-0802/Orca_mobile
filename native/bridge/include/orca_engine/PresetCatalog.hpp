@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -57,6 +58,12 @@ public:
     // The printer's printable_area and printable_height. Throws std::runtime_error
     // if the vendor or printer is unknown.
     BedShape bed_shape(const std::string& vendor, const std::string& printer);
+
+    // Values of `keys` in the config a slice with `selection` uses (printer, process
+    // and filaments composed as the desktop app does), serialized as in profiles.
+    // Unknown keys are left out. Throws std::runtime_error for unknown presets.
+    std::map<std::string, std::string> config_values(const PresetSelection& selection,
+                                                     const std::vector<std::string>& keys);
 
     // Internal: implementation shared with the config builder.
     struct Impl;

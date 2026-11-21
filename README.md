@@ -40,7 +40,8 @@ Orca_mobile/
 │   └── designsystem/     theme and shared Compose components
 ├── feature/
 │   ├── home/             start screen: engine status, printer choice, open a model
-│   └── prepare/          plate, slicing, G-code preview, sending to the printer
+│   ├── prepare/          plate, slicing, G-code preview, sending to the printer
+│   └── settings/         print settings over the chosen presets
 ├── native/
 │   ├── CMakeLists.txt    builds libslic3r without the desktop top-level project
 │   ├── cmake/            upstream compatibility layer
@@ -91,5 +92,6 @@ OrcaSlicer is licensed under the **GNU Affero General Public License v3.0**. Thi
 ## Acknowledgements
 
 - [OrcaSlicer](https://github.com/SoftFever/OrcaSlicer) by SoftFever and contributors, which builds on Bambu Studio, PrusaSlicer and Slic3r.
+- The look of the app (grouped rounded lists, pill buttons, bold section titles) takes its inspiration from [Mochy Music](https://github.com/realidkroo/Mochy-Music) by realidkroo. No code is copied from it.
 
 *Orca Mobile is an independent project and is not affiliated with or endorsed by the OrcaSlicer team.*

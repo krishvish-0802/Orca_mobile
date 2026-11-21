@@ -9,6 +9,7 @@ import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
@@ -27,6 +28,7 @@ import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ProjectSummary
+import com.orcamobile.core.model.SettingsEdits
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
@@ -36,6 +38,7 @@ import com.orcamobile.core.model.ToolpathColoring
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -128,6 +131,22 @@ class PrepareViewModelTest {
         }
     }
 
+    private class FakePrintSettings : PrintSettingsRepository {
+        val state = MutableStateFlow(SettingsEdits.NONE)
+        override val edits: Flow<SettingsEdits> = state
+        override suspend fun editsFor(selection: PresetSelection?) = state.value.takeIf { it.appliesTo(selection) }?.values.orEmpty()
+        override suspend fun set(selection: PresetSelection?, key: String, value: String) {
+            state.value = SettingsEdits(selection, editsFor(selection) + (key to value))
+        }
+        override suspend fun reset(selection: PresetSelection?, key: String) {
+            state.value = SettingsEdits(selection, editsFor(selection) - key)
+        }
+        override suspend fun resetAll() {
+            state.value = SettingsEdits.NONE
+        }
+    }
+
+    private val printSettings = FakePrintSettings()
     private val engine = RecordingEngine()
     private val hosts = FakeHosts()
     private val previews = FakePreviews()
@@ -135,10 +154,11 @@ class PrepareViewModelTest {
     private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
         SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
         projects,
+        printSettings,
         previews,
         FakePresets(),
         settings,
-        SliceProjectUseCase(engine, workspace),
+        SliceProjectUseCase(engine, workspace, printSettings),
         TestPrintHostUseCase(hosts),
         SendGcodeUseCase(hosts),
     )
@@ -267,5 +287,19 @@ class PrepareViewModelTest {
         val expected = PrintStartOptions(timeLapse = true, heatedBedLeveling = true, plate = BuildPlateSide.SMOOTH)
         assertEquals(listOf(expected), hosts.options)
         assertEquals(expected, settings.startOptions)
+    }
+
+    @Test
+    fun `changing a setting after slicing drops the stale result and slices with the change`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        assertIs<SliceUiState.Done>(vm.state.value.slice)
+
+        printSettings.set(selection, "layer_height", "0.12")
+        assertEquals(SliceUiState.Idle, vm.state.value.slice)
+        assertEquals(1, vm.state.value.changedSettings)
+
+        vm.onIntent(PrepareIntent.Slice)
+        assertEquals(mapOf("layer_height" to "0.12"), engine.lastRequest?.configOverrides)
     }
 }

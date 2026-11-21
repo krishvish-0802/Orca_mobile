@@ -53,6 +53,12 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativePreviewRelease(handle: Long)
 
+    /** `{"options":[...]}`: OrcaSlicer's definitions of [keys]. */
+    @JvmStatic external fun nativeDescribeOptions(keys: Array<String>): String
+
+    /** `{"values":{...}}` of [keys] for a preset selection, or the engine defaults for an empty one. */
+    @JvmStatic external fun nativeConfigValues(presetSelectionJson: String, keys: Array<String>): String
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)

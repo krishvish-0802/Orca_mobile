@@ -3,6 +3,8 @@
 add_library(orca_engine_core STATIC
     src/ConfigBuilder.cpp
     src/ConfigBuilder.hpp
+    src/ConfigOptions.cpp
+    src/ConfigValues.hpp
     src/EngineInfo.cpp
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp

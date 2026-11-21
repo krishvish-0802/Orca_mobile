@@ -58,6 +58,21 @@ inline std::map<std::string, std::string> to_string_map(JNIEnv* env, jobjectArra
 }
 
 // Copies a float[] into a vector.
+inline std::vector<std::string> to_string_vector(JNIEnv* env, jobjectArray array)
+{
+    std::vector<std::string> out;
+    if (array == nullptr)
+        return out;
+    const jsize count = env->GetArrayLength(array);
+    out.reserve(static_cast<size_t>(count));
+    for (jsize i = 0; i < count; ++i) {
+        auto* item = static_cast<jstring>(env->GetObjectArrayElement(array, i));
+        out.push_back(to_std_string(env, item));
+        env->DeleteLocalRef(item);
+    }
+    return out;
+}
+
 inline std::vector<float> to_float_vector(JNIEnv* env, jfloatArray array)
 {
     std::vector<float> result;
