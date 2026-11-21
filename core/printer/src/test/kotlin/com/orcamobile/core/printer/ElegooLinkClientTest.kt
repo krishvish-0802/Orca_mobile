@@ -144,5 +144,10 @@ class ElegooLinkClientTest {
         }
 
         override fun onOpen(webSocket: WebSocket, response: Response) = Unit
+
+        // Finish the close handshake the client starts, so the server can shut down.
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, null)
+        }
     }
 }

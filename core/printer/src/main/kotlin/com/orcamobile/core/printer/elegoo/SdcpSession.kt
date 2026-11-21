@@ -44,6 +44,11 @@ internal class SdcpSession(http: OkHttpClient, host: String, port: Int) : Closea
                 incoming.trySend(Result.success(text))
             }
 
+            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                webSocket.close(code, null)
+                incoming.trySend(Result.failure(IOException("The printer closed the start-print connection")))
+            }
+
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 val error = IOException("Lost the connection to the printer's start-print service: ${t.message}", t)
                 opened.trySend(Result.failure(error))
