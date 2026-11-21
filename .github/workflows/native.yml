@@ -129,19 +129,40 @@ jobs:
               -DORCA_MAX_COMPILE_JOBS=3 &&
             cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli orca_engine'
 
-      # The app packages the library built above rather than compiling the
-      # engine a second time through Gradle.
-      - name: Stage the engine library for the APK
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ github.sha }}
+
+      # Stripped copies of the engine (packaged into the APK below, rather than
+      # compiling it a second time through Gradle) and of the CLI harness; the
+      # NDK compiles with -g even for Release, which makes them gigabytes. The
+      # build tree goes afterwards: the runner's disk cannot hold it and Gradle's.
+      - name: Collect the engine, the CLI harness and its C++ runtime
         run: |
           case "${ORCA_ABI}" in
             arm64-v8a) triple=aarch64-linux-android ;;
             x86_64) triple=x86_64-linux-android ;;
           esac
+          toolchain="${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64"
+          libcxx="${toolchain}/sysroot/usr/lib/${triple}/libc++_shared.so"
           libs="${RUNNER_TEMP}/engine-libs/${ORCA_ABI}"
-          mkdir -p "${libs}"
-          cp "${RUNNER_TEMP}/native-cli/bridge/liborca_engine.so" "${libs}/"
-          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${triple}/libc++_shared.so" "${libs}/"
-          ls -l "${libs}"
+          bundle="${RUNNER_TEMP}/cli-bundle"
+          mkdir -p "${libs}" "${bundle}"
+          "${toolchain}/bin/llvm-strip" --strip-debug -o "${libs}/liborca_engine.so" "${RUNNER_TEMP}/native-cli/bridge/liborca_engine.so"
+          "${toolchain}/bin/llvm-strip" --strip-debug -o "${bundle}/orca_slice_cli" "${RUNNER_TEMP}/native-cli/bridge/orca_slice_cli"
+          cp "${libcxx}" "${libs}/"
+          cp "${libcxx}" "${bundle}/"
+          # A profile subset for the on-device preset test: one vendor and the
+          # filament library it inherits from.
+          tar -C third_party/OrcaSlicer/resources -czf "${bundle}/test-profiles.tar.gz" \
+              --exclude='*.png' --exclude='*.stl' --exclude='*.svg' \
+              profiles/Creality.json profiles/Creality profiles/OrcaFilamentLibrary.json profiles/OrcaFilamentLibrary
+          ls -l "${libs}" "${bundle}"
+          rm -rf "${RUNNER_TEMP}/native-cli"
+          df -h /
 
       - uses: actions/setup-java@v5
         with:
@@ -150,21 +171,11 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Disk space before the APK build
-        run: df -h / /mnt
-
       - name: Build APK with the native engine
         run: >
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
           -Porca.ndkVersion="${NDK_REVISION}" -Porca.prebuiltEngineDir="${RUNNER_TEMP}/engine-libs"
-
-      - name: Save compiler cache
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: /home/runner/.ccache
-          key: ccache-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ github.sha }}
 
       - name: Check 16 KB page alignment
         run: |
@@ -177,22 +188,6 @@ jobs:
         with:
           name: orca-mobile-debug-${{ env.ORCA_ABI }}
           path: app/build/outputs/apk/debug/*.apk
-
-      - name: Collect CLI harness and its C++ runtime
-        run: |
-          case "${ORCA_ABI}" in
-            arm64-v8a) triple=aarch64-linux-android ;;
-            x86_64) triple=x86_64-linux-android ;;
-          esac
-          mkdir -p "${RUNNER_TEMP}/cli-bundle"
-          cp "${RUNNER_TEMP}/native-cli/bridge/orca_slice_cli" "${RUNNER_TEMP}/cli-bundle/"
-          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${triple}/libc++_shared.so" \
-             "${RUNNER_TEMP}/cli-bundle/"
-          # A profile subset for the on-device preset test: one vendor and the
-          # filament library it inherits from.
-          tar -C third_party/OrcaSlicer/resources -czf "${RUNNER_TEMP}/cli-bundle/test-profiles.tar.gz" \
-              --exclude='*.png' --exclude='*.stl' --exclude='*.svg' \
-              profiles/Creality.json profiles/Creality profiles/OrcaFilamentLibrary.json profiles/OrcaFilamentLibrary
 
       - name: Upload CLI harness
         uses: actions/upload-artifact@v4
