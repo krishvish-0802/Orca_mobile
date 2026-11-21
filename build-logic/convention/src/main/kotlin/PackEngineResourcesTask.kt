@@ -10,6 +10,7 @@ import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.PathSensitive
 import org.gradle.api.tasks.PathSensitivity
 import org.gradle.api.tasks.TaskAction
+import org.gradle.api.tasks.util.PatternSet
 import java.io.DataOutputStream
 import java.io.File
 import java.security.MessageDigest
@@ -47,7 +48,7 @@ abstract class PackEngineResourcesTask : DefaultTask() {
     @get:InputFiles
     @get:PathSensitive(PathSensitivity.RELATIVE)
     val inputFiles: FileTree
-        get() = resourcesRoot.asFileTree.matching { include(includes.get()) }
+        get() = resourcesRoot.asFileTree.matching(PatternSet().include(includes.get()))
 
     @get:OutputDirectory
     abstract val outputDir: DirectoryProperty
