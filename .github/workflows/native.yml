@@ -167,7 +167,7 @@ jobs:
 
       - name: Build APK with the native engine
         run: >
-          ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
+          ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug :core:engine:assembleDebugAndroidTest
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
           -Porca.ndkVersion="${NDK_REVISION}" -Porca.prebuiltEngineDir="${RUNNER_TEMP}/engine-libs"
           -Porca.versionCode="${{ github.run_number }}"
@@ -183,6 +183,12 @@ jobs:
         with:
           name: orca-mobile-debug-${{ env.ORCA_ABI }}
           path: app/build/outputs/apk/debug/*.apk
+
+      - name: Upload engine device tests
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-device-tests-${{ env.ORCA_ABI }}
+          path: core/engine/build/outputs/apk/androidTest/debug/*.apk
 
       - name: Upload CLI harness
         uses: actions/upload-artifact@v4
@@ -213,6 +219,11 @@ jobs:
         with:
           name: orca-mobile-debug-x86_64
           path: smoke
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: engine-device-tests-x86_64
+          path: smoke/device-tests
 
       - name: Run the engine and the app on the emulator
         uses: reactivecircus/android-emulator-runner@v2

@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "EngineState.hpp"
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
 #include "nlohmann/json.hpp"
@@ -21,8 +22,9 @@ namespace json = orca::engine::json;
 jstring native_preview_load(JNIEnv* env, jclass, jstring gcode_path)
 {
     try {
-        std::unique_ptr<orca::engine::GCodePreview> preview =
-            orca::engine::GCodePreview::load(to_std_string(env, gcode_path));
+        const std::string file = to_std_string(env, gcode_path);
+        std::unique_ptr<orca::engine::GCodePreview> preview;
+        run_on_engine_thread([&] { preview = orca::engine::GCodePreview::load(file); });
         nlohmann::json result = nlohmann::json::parse(json::to_json(preview->summary()));
         result["handle"] = std::to_string(to_handle(preview.release()));
         return to_jstring(env, result.dump());

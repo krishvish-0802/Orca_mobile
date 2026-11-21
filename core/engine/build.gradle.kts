@@ -25,6 +25,8 @@ android {
 
     defaultConfig {
         consumerProguardFiles("consumer-rules.pro")
+        // On-device tests of the JNI boundary (src/androidTest); CI runs them on an emulator.
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("boolean", "NATIVE_ENGINE_BUNDLED", nativeEnabled.toString())
         if (nativeEnabled) ndk { abiFilters += abis }
         if (buildEngineWithGradle) {
@@ -87,4 +89,7 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.kotlinx.coroutines.test)
+    androidTestImplementation(libs.androidx.test.runner)
+    androidTestImplementation(libs.androidx.test.ext.junit)
+    androidTestImplementation(libs.junit)
 }

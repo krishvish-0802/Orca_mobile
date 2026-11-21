@@ -125,10 +125,11 @@ jstring native_slice(JNIEnv* env, jclass, jstring model_path, jstring output_pat
     if (!make_request(env, output_path, preset_selection_json, keys, values, request, failure))
         return to_jstring(env, failure);
     request.model_path = to_std_string(env, model_path);
-    JavaProgressSink progress(env, listener);
+    ProgressRelay progress(env, listener);
     orca::engine::CancelToken fallback;
     auto* token = from_handle<orca::engine::CancelToken>(cancel_handle);
-    return finish_slice(env, orca::engine::run_slice(request, progress, token ? *token : fallback, catalog()));
+    orca::engine::CancelToken& cancel = token ? *token : fallback;
+    return finish_slice(env, progress.run([&] { return orca::engine::run_slice(request, progress, cancel, catalog()); }));
 }
 
 jstring native_slice_project(JNIEnv* env, jclass, jlong project_handle, jstring output_path,
@@ -145,10 +146,13 @@ jstring native_slice_project(JNIEnv* env, jclass, jlong project_handle, jstring 
     std::string failure;
     if (!make_request(env, output_path, preset_selection_json, keys, values, request, failure))
         return to_jstring(env, failure);
-    JavaProgressSink progress(env, listener);
+    ProgressRelay progress(env, listener);
     orca::engine::CancelToken fallback;
     auto* token = from_handle<orca::engine::CancelToken>(cancel_handle);
-    return finish_slice(env, orca::engine::run_slice(*project, request, progress, token ? *token : fallback, catalog()));
+    orca::engine::CancelToken& cancel = token ? *token : fallback;
+    return finish_slice(env, progress.run([&] {
+        return orca::engine::run_slice(*project, request, progress, cancel, catalog());
+    }));
 }
 
 #define STR "Ljava/lang/String;"

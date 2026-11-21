@@ -78,6 +78,19 @@ adb pull "${remote}/cube-ender3.gcode" "${dir}/cube-ender3.gcode"
 grep -qi "printer_model\|Ender-3" "${dir}/cube-ender3.gcode" || { echo "G-code does not mention the printer"; exit 1; }
 echo "Preset slice OK: $(wc -c < "${dir}/cube-ender3.gcode") bytes"
 
+echo "== Engine device tests (the JNI boundary as the app uses it)"
+test_apk="$(ls "${dir}"/device-tests/*.apk | head -n 1)"
+adb install -r -t "${test_apk}"
+adb logcat -c
+instrument="$(adb shell am instrument -w com.orcamobile.core.engine.test/androidx.test.runner.AndroidJUnitRunner 2>&1 || true)"
+echo "${instrument}" | tail -n 40
+if ! echo "${instrument}" | grep -q "^OK ("; then
+    echo "Engine device tests failed"
+    adb logcat -d -b crash | tail -n 80 || true
+    adb logcat -d | grep -E "orca|DEBUG|AndroidRuntime|JNI" | tail -n 120 || true
+    exit 1
+fi
+
 echo "== Installing and launching the app"
 apk="$(ls "${dir}"/*.apk | head -n 1)"
 adb install -r "${apk}"

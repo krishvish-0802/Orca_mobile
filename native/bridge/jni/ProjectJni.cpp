@@ -4,6 +4,7 @@
 
 #include <memory>
 
+#include "EngineState.hpp"
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
 #include "nlohmann/json.hpp"
@@ -21,7 +22,9 @@ namespace json = orca::engine::json;
 jstring native_project_load(JNIEnv* env, jclass, jstring path)
 {
     try {
-        std::unique_ptr<orca::engine::Project> project = orca::engine::Project::load(to_std_string(env, path));
+        const std::string file = to_std_string(env, path);
+        std::unique_ptr<orca::engine::Project> project;
+        run_on_engine_thread([&] { project = orca::engine::Project::load(file); });
         nlohmann::json result = nlohmann::json::parse(json::to_json(project->objects()));
         result["handle"] = std::to_string(to_handle(project.release()));
         return to_jstring(env, result.dump());
