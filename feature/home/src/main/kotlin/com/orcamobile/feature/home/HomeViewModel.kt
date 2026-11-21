@@ -3,6 +3,7 @@ package com.orcamobile.feature.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
+import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceSampleModelUseCase
@@ -26,6 +27,7 @@ class HomeViewModel @Inject constructor(
     private val presets: PresetCatalog,
     private val testPrintHost: TestPrintHostUseCase,
     private val sendGcode: SendGcodeUseCase,
+    private val settings: UserSettingsRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(HomeUiState())
@@ -39,14 +41,25 @@ class HomeViewModel @Inject constructor(
         val engine = getEngineStatus().toUiState()
         _state.update { it.copy(engine = engine) }
         if (engine is EngineUiState.Ready) loadVendors()
+        viewModelScope.launch {
+            settings.printHost()?.let { host ->
+                updateHost { copy(type = host.type, address = host.baseUrl, apiKey = host.apiKey.orEmpty()) }
+            }
+        }
     }
 
     fun onIntent(intent: HomeIntent) {
         when (intent) {
             is HomeIntent.SelectVendor -> selectVendor(intent.vendor)
             is HomeIntent.SelectPrinter -> selectPrinter(intent.printer)
-            is HomeIntent.SelectProcess -> updateSetup { copy(process = intent.process) }
-            is HomeIntent.SelectFilament -> updateSetup { copy(filament = intent.filament) }
+            is HomeIntent.SelectProcess -> {
+                updateSetup { copy(process = intent.process) }
+                rememberSelection()
+            }
+            is HomeIntent.SelectFilament -> {
+                updateSetup { copy(filament = intent.filament) }
+                rememberSelection()
+            }
             is HomeIntent.SetHostType -> updateHost { copy(type = intent.type, status = PrintHostStatus.Idle) }
             is HomeIntent.SetHostAddress -> updateHost { copy(address = intent.address, status = PrintHostStatus.Idle) }
             is HomeIntent.SetHostApiKey -> updateHost { copy(apiKey = intent.apiKey, status = PrintHostStatus.Idle) }
@@ -60,11 +73,33 @@ class HomeViewModel @Inject constructor(
 
     // --- printer setup ------------------------------------------------------
 
+    /** Loads the vendor list, then restores the last saved selection if it still exists. */
     private fun loadVendors() = loadPresets {
-        presets.vendors().fold(
-            { vendors -> updateSetup { copy(loading = false, vendors = vendors) } },
-            ::showPresetError,
-        )
+        updateSetup { copy(loading = true) }
+        val vendors = presets.vendors().getOrElse { return@loadPresets showPresetError(it) }
+        updateSetup { copy(loading = false, vendors = vendors) }
+        val saved = settings.presetSelection() ?: return@loadPresets
+        if (saved.vendor !in vendors) return@loadPresets
+        val printers = presets.printers(saved.vendor).getOrElse { return@loadPresets showPresetError(it) }
+        updateSetup { copy(vendor = saved.vendor, printers = printers) }
+        if (saved.printer !in printers) return@loadPresets
+        val compatible = presets.compatiblePresets(saved.vendor, saved.printer)
+            .getOrElse { return@loadPresets showPresetError(it) }
+        val filament = saved.filaments.firstOrNull()
+        updateSetup {
+            copy(
+                printer = saved.printer,
+                processes = compatible.processes,
+                process = saved.process.takeIf { it in compatible.processes } ?: compatible.defaultProcess,
+                filaments = compatible.filaments,
+                filament = filament?.takeIf { it in compatible.filaments } ?: compatible.defaultFilament,
+            )
+        }
+    }
+
+    private fun rememberSelection() {
+        val selection = _state.value.printerSetup.selection ?: return
+        viewModelScope.launch { settings.savePresetSelection(selection) }
     }
 
     private fun selectVendor(vendor: String) {
@@ -100,6 +135,7 @@ class HomeViewModel @Inject constructor(
                 },
                 ::showPresetError,
             )
+            rememberSelection()
         }
     }
 
@@ -123,7 +159,10 @@ class HomeViewModel @Inject constructor(
         val host = _state.value.printHost.config ?: return
         runHostTask(PrintHostStatus.Testing) {
             testPrintHost(host).fold(
-                { PrintHostStatus.Connected(it.description) },
+                {
+                    settings.savePrintHost(host)
+                    PrintHostStatus.Connected(it.description)
+                },
                 { PrintHostStatus.Failed(it.message ?: "Connection failed") },
             )
         }
@@ -138,7 +177,10 @@ class HomeViewModel @Inject constructor(
                 val percent = if (total > 0) (sent * 100 / total).toInt() else 0
                 updateHost { if (status is PrintHostStatus.Sending) copy(status = PrintHostStatus.Sending(percent)) else this }
             }.fold(
-                { PrintHostStatus.Sent(startPrint) },
+                {
+                    settings.savePrintHost(host)
+                    PrintHostStatus.Sent(startPrint)
+                },
                 { PrintHostStatus.Failed(it.message ?: "Upload failed") },
             )
         }

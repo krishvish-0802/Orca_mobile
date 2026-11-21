@@ -5,6 +5,7 @@ import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.model.SampleModelRepository
+import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
@@ -82,12 +83,25 @@ class HomeViewModelTest {
 
     private val hosts = FakeHosts()
 
+    private class FakeSettings(
+        var selection: PresetSelection? = null,
+        var host: PrintHostConfig? = null,
+    ) : UserSettingsRepository {
+        override suspend fun presetSelection() = selection
+        override suspend fun savePresetSelection(selection: PresetSelection) { this.selection = selection }
+        override suspend fun printHost() = host
+        override suspend fun savePrintHost(host: PrintHostConfig) { this.host = host }
+    }
+
+    private var settings = FakeSettings()
+
     private fun viewModel(engine: SlicingEngine) = HomeViewModel(
         GetEngineStatusUseCase(engine),
         SliceSampleModelUseCase(engine, samples, workspace),
         FakePresets(),
         TestPrintHostUseCase(hosts),
         SendGcodeUseCase(hosts),
+        settings,
     )
 
     @Before
@@ -183,5 +197,28 @@ class HomeViewModelTest {
             listOf(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125") to "/out/cube.gcode"),
             hosts.uploads,
         )
+    }
+
+    @Test
+    fun `restores the saved printer setup and host`() = runTest {
+        settings = FakeSettings(
+            selection = PresetSelection("Prusa", "Prusa P2", "Fine", listOf("PETG")),
+            host = PrintHostConfig(PrintHostType.OCTOPRINT, "octopi.local", "key"),
+        )
+        val vm = viewModel(ScriptedEngine(EngineStatus.Available(info)))
+
+        assertEquals(PresetSelection("Prusa", "Prusa P2", "Fine", listOf("PETG")), vm.state.value.printerSetup.selection)
+        assertEquals(PrintHostType.OCTOPRINT, vm.state.value.printHost.type)
+        assertEquals("octopi.local", vm.state.value.printHost.address)
+    }
+
+    @Test
+    fun `remembers the selection once a printer is chosen`() = runTest {
+        val vm = viewModel(ScriptedEngine(EngineStatus.Available(info)))
+        vm.onIntent(HomeIntent.SelectVendor("Creality"))
+        vm.onIntent(HomeIntent.SelectPrinter("Creality P1"))
+        vm.onIntent(HomeIntent.SelectProcess("Fine"))
+
+        assertEquals(PresetSelection("Creality", "Creality P1", "Fine", listOf("PLA")), settings.selection)
     }
 }
