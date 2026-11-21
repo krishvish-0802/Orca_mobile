@@ -1,10 +1,13 @@
 package com.orcamobile.core.engine
 
+import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertIs
 
 /** Payloads here match what native/bridge/src/JsonCodec.cpp produces. */
 class EngineJsonTest {
@@ -41,5 +44,31 @@ class EngineJsonTest {
     fun `treats success without statistics as a failure`() {
         val result = EngineJson.sliceResult("""{"status":"succeeded"}""", "/x")
         assertEquals(SliceResult.Failed("Engine reported success without statistics"), result)
+    }
+
+    @Test
+    fun `decodes string lists and engine errors`() {
+        assertEquals(listOf("Creality", "Prusa"), EngineJson.stringList("""["Creality","Prusa"]""").getOrThrow())
+        val failure = assertIs<EngineException>(EngineJson.stringList("""{"error":"Unknown vendor: Foo"}""").exceptionOrNull())
+        assertEquals("Unknown vendor: Foo", failure.message)
+    }
+
+    @Test
+    fun `decodes compatible presets, treating empty defaults as none`() {
+        val payload = """{"processes":["0.20mm Standard"],"filaments":["Generic PLA"],"defaultProcess":"0.20mm Standard","defaultFilament":""}"""
+        assertEquals(
+            CompatiblePresets(listOf("0.20mm Standard"), listOf("Generic PLA"), "0.20mm Standard", null),
+            EngineJson.compatiblePresets(payload).getOrThrow(),
+        )
+    }
+
+    @Test
+    fun `encodes a preset selection for the bridge`() {
+        val selection = PresetSelection("Creality", "K1 (0.4 nozzle)", "0.20mm Standard", listOf("Generic PLA"))
+        assertEquals(
+            """{"vendor":"Creality","printer":"K1 (0.4 nozzle)","process":"0.20mm Standard","filaments":["Generic PLA"]}""",
+            EngineJson.encode(selection),
+        )
+        assertEquals("", EngineJson.encode(null))
     }
 }

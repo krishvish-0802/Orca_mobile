@@ -7,6 +7,7 @@ import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -38,21 +39,30 @@ class NativeSlicingEngine @Inject constructor(
             return flowOf(SliceEvent.Finished(SliceResult.Failed(status.reason)))
         }
         return callbackFlow {
-            environment.ensureInitialized()
             val token = NativeEngine.nativeCreateCancelToken()
             val job = launch(dispatchers.io) {
                 try {
-                    val keys = request.configOverrides.keys.toTypedArray()
-                    val values = keys.map { request.configOverrides.getValue(it) }.toTypedArray()
-                    val payload = NativeEngine.nativeSlice(
-                        request.modelPath,
-                        request.outputGcodePath,
-                        keys,
-                        values,
-                        { percent, message -> trySend(SliceEvent.Progress(percent, message)) },
-                        token,
-                    )
-                    send(SliceEvent.Finished(EngineJson.sliceResult(payload, request.outputGcodePath)))
+                    val result = try {
+                        environment.ensureInitialized()
+                        val keys = request.configOverrides.keys.toTypedArray()
+                        val values = keys.map { request.configOverrides.getValue(it) }.toTypedArray()
+                        val payload = NativeEngine.nativeSlice(
+                            request.modelPath,
+                            request.outputGcodePath,
+                            EngineJson.encode(request.presets),
+                            keys,
+                            values,
+                            { percent, message -> trySend(SliceEvent.Progress(percent, message)) },
+                            token,
+                        )
+                        EngineJson.sliceResult(payload, request.outputGcodePath)
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        // Installing resources or decoding the result failed: report it, don't crash.
+                        SliceResult.Failed(e.message ?: e.javaClass.simpleName)
+                    }
+                    send(SliceEvent.Finished(result))
                 } finally {
                     close()
                 }

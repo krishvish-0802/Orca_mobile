@@ -51,6 +51,20 @@ android {
     }
 }
 
+// OrcaSlicer resources the engine reads at runtime, packed into one asset.
+// Extend `includes` as later milestones need more of resources/.
+val packEngineResources = tasks.register<PackEngineResourcesTask>("packEngineResources") {
+    resourcesRoot.set(rootProject.layout.projectDirectory.dir("third_party/OrcaSlicer/resources"))
+    includes.set(listOf("profiles/**/*.json"))
+    outputDir.set(layout.buildDirectory.dir("generated/engineResources"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.assets?.addGeneratedSourceDirectory(packEngineResources, PackEngineResourcesTask::outputDir)
+    }
+}
+
 dependencies {
     implementation(project(":core:common"))
     implementation(project(":core:domain"))

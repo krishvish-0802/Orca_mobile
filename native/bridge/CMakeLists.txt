@@ -7,6 +7,8 @@ add_library(orca_engine_core STATIC
     src/EngineEnvironment.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/PresetCatalog.cpp
+    src/PresetCatalogImpl.hpp
 )
 target_include_directories(orca_engine_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include

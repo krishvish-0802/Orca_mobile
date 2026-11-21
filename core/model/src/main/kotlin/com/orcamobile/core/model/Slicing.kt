@@ -5,12 +5,15 @@ package com.orcamobile.core.model
  *
  * @property modelPath absolute path to an STL/3MF/OBJ/STEP file.
  * @property outputGcodePath where the engine writes G-code.
- * @property configOverrides OrcaSlicer config keys and serialized values applied over
- *   the engine defaults, e.g. `"layer_height" to "0.2"`.
+ * @property presets system presets to slice with; null slices with the engine
+ *   defaults, which describe no real printer.
+ * @property configOverrides OrcaSlicer config keys and serialized values applied last,
+ *   over the presets or the defaults, e.g. `"layer_height" to "0.2"`.
  */
 data class SliceRequest(
     val modelPath: String,
     val outputGcodePath: String,
+    val presets: PresetSelection? = null,
     val configOverrides: Map<String, String> = emptyMap(),
 )
 

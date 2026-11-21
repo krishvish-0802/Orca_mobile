@@ -1,11 +1,14 @@
 package com.orcamobile.feature.home
 
+import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.domain.usecase.SliceSampleModelUseCase
+import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
@@ -44,8 +47,16 @@ class HomeViewModelTest {
         override fun newGcodePath(baseName: String) = "/$baseName.gcode"
     }
 
+    private class FakePresets : PresetCatalog {
+        override suspend fun vendors() = Result.success(listOf("Creality", "Prusa"))
+        override suspend fun printers(vendor: String) = Result.success(listOf("$vendor P1", "$vendor P2"))
+        override suspend fun compatiblePresets(vendor: String, printer: String) = Result.success(
+            CompatiblePresets(listOf("Fine", "Standard"), listOf("PLA", "PETG"), "Standard", "PLA"),
+        )
+    }
+
     private fun viewModel(engine: SlicingEngine) =
-        HomeViewModel(GetEngineStatusUseCase(engine), SliceSampleModelUseCase(engine, samples, workspace))
+        HomeViewModel(GetEngineStatusUseCase(engine), SliceSampleModelUseCase(engine, samples, workspace), FakePresets())
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -87,5 +98,36 @@ class HomeViewModelTest {
         // Late events from the cancelled slice no longer reach the state.
         engine.events.emit(SliceEvent.Progress(90, "late"))
         assertEquals(SliceUiState.Canceled, vm.state.value.slice)
+    }
+
+    @Test
+    fun `choosing a printer fills in its recommended process and filament`() = runTest {
+        val vm = viewModel(ScriptedEngine(EngineStatus.Available(info)))
+        assertEquals(listOf("Creality", "Prusa"), vm.state.value.printerSetup.vendors)
+
+        vm.onIntent(HomeIntent.SelectVendor("Creality"))
+        assertEquals(listOf("Creality P1", "Creality P2"), vm.state.value.printerSetup.printers)
+
+        vm.onIntent(HomeIntent.SelectPrinter("Creality P1"))
+        assertEquals(
+            PresetSelection("Creality", "Creality P1", "Standard", listOf("PLA")),
+            vm.state.value.printerSetup.selection,
+        )
+
+        vm.onIntent(HomeIntent.SelectFilament("PETG"))
+        assertEquals(listOf("PETG"), vm.state.value.printerSetup.selection?.filaments)
+    }
+
+    @Test
+    fun `changing vendor clears the previous printer choice`() = runTest {
+        val vm = viewModel(ScriptedEngine(EngineStatus.Available(info)))
+        vm.onIntent(HomeIntent.SelectVendor("Creality"))
+        vm.onIntent(HomeIntent.SelectPrinter("Creality P1"))
+
+        vm.onIntent(HomeIntent.SelectVendor("Prusa"))
+        val setup = vm.state.value.printerSetup
+        assertEquals(null, setup.printer)
+        assertEquals(null, setup.selection)
+        assertEquals(listOf("Prusa P1", "Prusa P2"), setup.printers)
     }
 }

@@ -36,6 +36,27 @@ moves="$(grep -c '^G1 ' "${dir}/cube.gcode" || true)"
 echo "G-code: $(wc -c < "${dir}/cube.gcode") bytes, ${moves} G1 moves"
 (( moves > 1000 )) || { echo "Too few moves in the G-code"; exit 1; }
 
+echo "== Slicing with OrcaSlicer system presets (Creality)"
+adb push "${dir}/test-profiles.tar.gz" "${remote}/"
+adb shell "cd ${remote} && rm -rf profiles && tar -xzf test-profiles.tar.gz"
+printer="Creality Ender-3 Pro 0.4 nozzle"
+run_cli --profiles "${remote}/profiles" --list-vendors
+compatible="$(run_cli --profiles "${remote}/profiles" --compatible Creality "\"${printer}\"" | grep '^{' | tail -n 1)"
+echo "Compatible with ${printer}: ${compatible:0:400}..."
+process="$(echo "${compatible}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["defaultProcess"])')"
+filament="$(echo "${compatible}" | python3 -c 'import json,sys; print(json.load(sys.stdin)["defaultFilament"])')"
+echo "Using process '${process}', filament '${filament}'"
+[[ -n "${process}" && -n "${filament}" ]] || { echo "No default process/filament for ${printer}"; exit 1; }
+output="$(run_cli cube.stl cube-ender3.gcode --profiles "${remote}/profiles" --vendor Creality \
+    --printer "\"${printer}\"" --process "\"${process}\"" --filament "\"${filament}\"")"
+echo "${output}" | tail -n 3
+result="$(echo "${output}" | grep '^{' | tail -n 1)"
+echo "${result}" | grep -q '"status":"succeeded"' || { echo "Preset slice did not succeed: ${result}"; exit 1; }
+adb pull "${remote}/cube-ender3.gcode" "${dir}/cube-ender3.gcode"
+# The printer profile's start G-code must be in the output.
+grep -qi "printer_model\|Ender-3" "${dir}/cube-ender3.gcode" || { echo "G-code does not mention the printer"; exit 1; }
+echo "Preset slice OK: $(wc -c < "${dir}/cube-ender3.gcode") bytes"
+
 echo "== Installing and launching the app"
 apk="$(ls "${dir}"/*.apk | head -n 1)"
 adb install -r "${apk}"

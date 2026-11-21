@@ -24,6 +24,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.theme.OrcaTheme
 import com.orcamobile.core.model.EngineInfo
@@ -49,6 +50,9 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             EngineCard(state.engine)
+            if (state.engine is EngineUiState.Ready) {
+                PrinterSetupCard(state.printerSetup, onIntent)
+            }
             SliceCard(
                 slice = state.slice,
                 engineReady = state.engine is EngineUiState.Ready,
@@ -73,6 +77,44 @@ private fun EngineCard(engine: EngineUiState) {
             is EngineUiState.Unavailable -> Text(
                 stringResource(R.string.home_engine_unavailable, engine.reason),
                 color = MaterialTheme.colorScheme.error,
+            )
+        }
+    }
+}
+
+@Composable
+private fun PrinterSetupCard(setup: PrinterSetupUiState, onIntent: (HomeIntent) -> Unit) {
+    StatusCard(title = stringResource(R.string.home_printer_title)) {
+        DropdownField(
+            label = stringResource(R.string.home_printer_vendor),
+            options = setup.vendors,
+            selected = setup.vendor,
+            onSelect = { onIntent(HomeIntent.SelectVendor(it)) },
+        )
+        DropdownField(
+            label = stringResource(R.string.home_printer_printer),
+            options = setup.printers,
+            selected = setup.printer,
+            onSelect = { onIntent(HomeIntent.SelectPrinter(it)) },
+        )
+        DropdownField(
+            label = stringResource(R.string.home_printer_process),
+            options = setup.processes,
+            selected = setup.process,
+            onSelect = { onIntent(HomeIntent.SelectProcess(it)) },
+        )
+        DropdownField(
+            label = stringResource(R.string.home_printer_filament),
+            options = setup.filaments,
+            selected = setup.filament,
+            onSelect = { onIntent(HomeIntent.SelectFilament(it)) },
+        )
+        when {
+            setup.loading -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            setup.error != null -> Text(setup.error, color = MaterialTheme.colorScheme.error)
+            setup.selection == null -> Text(
+                stringResource(R.string.home_printer_hint),
+                style = MaterialTheme.typography.bodySmall,
             )
         }
     }

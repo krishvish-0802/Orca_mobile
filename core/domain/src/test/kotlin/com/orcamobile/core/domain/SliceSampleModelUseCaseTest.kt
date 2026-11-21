@@ -6,6 +6,7 @@ import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.usecase.SliceSampleModelUseCase
 import com.orcamobile.core.model.EngineStatus
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
@@ -54,5 +55,22 @@ class SliceSampleModelUseCaseTest {
         assertEquals("/samples/cube.stl", request.modelPath)
         assertEquals("/out/calibration_cube.gcode", request.outputGcodePath)
         assertEquals(SliceSampleModelUseCase.DEFAULT_OVERRIDES, request.configOverrides)
+        assertEquals(null, request.presets)
+    }
+
+    @Test
+    fun `slices with the chosen presets and no generic overrides`() = runTest {
+        val engine = RecordingEngine()
+        val presets = PresetSelection("Creality", "Creality K1 (0.4 nozzle)", "0.20mm Standard @Creality K1 (0.4 nozzle)", listOf("Creality Generic PLA"))
+
+        SliceSampleModelUseCase(engine, samples, workspace)(presets).test {
+            awaitItem()
+            awaitItem()
+            awaitComplete()
+        }
+
+        val request = requireNotNull(engine.lastRequest)
+        assertEquals(presets, request.presets)
+        assertEquals(emptyMap(), request.configOverrides)
     }
 }

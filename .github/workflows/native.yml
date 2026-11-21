@@ -164,6 +164,11 @@ jobs:
           cp "${RUNNER_TEMP}/native-cli/bridge/orca_slice_cli" "${RUNNER_TEMP}/cli-bundle/"
           cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${triple}/libc++_shared.so" \
              "${RUNNER_TEMP}/cli-bundle/"
+          # A profile subset for the on-device preset test: one vendor and the
+          # filament library it inherits from.
+          tar -C third_party/OrcaSlicer/resources -czf "${RUNNER_TEMP}/cli-bundle/test-profiles.tar.gz" \
+              --exclude='*.png' --exclude='*.stl' --exclude='*.svg' \
+              profiles/Creality.json profiles/Creality profiles/OrcaFilamentLibrary.json profiles/OrcaFilamentLibrary
 
       - name: Upload CLI harness
         uses: actions/upload-artifact@v4

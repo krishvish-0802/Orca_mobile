@@ -6,6 +6,8 @@
 #include <optional>
 #include <string>
 
+#include "orca_engine/PresetCatalog.hpp"
+
 namespace Slic3r { class PrintBase; }
 
 namespace orca::engine {
@@ -37,8 +39,11 @@ private:
 struct SliceRequest {
     std::string model_path;          // STL, 3MF, OBJ, STEP, ...
     std::string output_gcode_path;
-    // Config keys and serialized values applied over OrcaSlicer's defaults,
-    // e.g. {"layer_height", "0.2"}. Keys are validated against PrintConfigDef.
+    // System presets to slice with. Without them the slice uses OrcaSlicer's
+    // built-in defaults, which describe no real printer.
+    std::optional<PresetSelection> presets;
+    // Config keys and serialized values applied last, over the presets or the
+    // defaults, e.g. {"layer_height", "0.2"}. Keys are validated against PrintConfigDef.
     std::map<std::string, std::string> config_overrides;
 };
 
@@ -58,7 +63,9 @@ struct SliceOutcome {
 };
 
 // Loads a model, slices it with the given config and writes G-code.
+// `catalog` resolves request.presets and may be null when none are given.
 // Blocking; run it off the UI thread.
-SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel);
+SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel,
+                       PresetCatalog* catalog = nullptr);
 
 } // namespace orca::engine

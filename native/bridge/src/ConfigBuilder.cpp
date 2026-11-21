@@ -8,10 +8,14 @@ using Slic3r::ConfigOptionEnumsGeneric;
 using Slic3r::ConfigOptionInts;
 using Slic3r::DynamicPrintConfig;
 
-DynamicPrintConfig ConfigBuilder::build(const std::map<std::string, std::string>& overrides)
+DynamicPrintConfig ConfigBuilder::defaults()
 {
-    DynamicPrintConfig config = DynamicPrintConfig::full_print_config();
+    return DynamicPrintConfig::full_print_config();
+}
 
+DynamicPrintConfig ConfigBuilder::build(DynamicPrintConfig config, const std::map<std::string, std::string>& overrides,
+                                       int used_filaments)
+{
     for (const auto& [key, value] : overrides) {
         if (config.def()->get(key) == nullptr)
             throw std::runtime_error("Unknown config option: " + key);
@@ -27,7 +31,7 @@ DynamicPrintConfig ConfigBuilder::build(const std::map<std::string, std::string>
     if (nozzle_volume_type->values.empty())
         nozzle_volume_type->values.assign(1, Slic3r::nvtStandard);
 
-    config.normalize_fdm(1);
+    config.normalize_fdm(used_filaments);
     return config;
 }
 

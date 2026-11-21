@@ -5,8 +5,14 @@
     <string name="home_engine_loading">Loading the engine…</string>
     <string name="home_engine_commit">Upstream commit %1$s</string>
     <string name="home_engine_unavailable">Engine unavailable: %1$s</string>
+    <string name="home_printer_title">Printer</string>
+    <string name="home_printer_vendor">Vendor</string>
+    <string name="home_printer_printer">Printer</string>
+    <string name="home_printer_process">Process</string>
+    <string name="home_printer_filament">Filament</string>
+    <string name="home_printer_hint">Pick a printer to slice with its OrcaSlicer profiles. Without one, the engine defaults are used.</string>
     <string name="home_slice_title">Engine check</string>
-    <string name="home_slice_description">Slices a 20 mm calibration cube on this phone with the engine defaults.</string>
+    <string name="home_slice_description">Slices a 20 mm calibration cube on this phone with the printer chosen above.</string>
     <string name="home_slice_action">Slice test cube</string>
     <string name="home_slice_cancel">Cancel</string>
     <string name="home_slice_canceled">Slicing canceled.</string>

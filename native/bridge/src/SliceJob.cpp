@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "ConfigBuilder.hpp"
+#include "PresetCatalogImpl.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
@@ -104,13 +105,24 @@ SliceStatistics collect_statistics(const Slic3r::Print& print, const Slic3r::GCo
     return stats;
 }
 
+Slic3r::DynamicPrintConfig base_config(const SliceRequest& request, PresetCatalog* catalog)
+{
+    if (!request.presets)
+        return ConfigBuilder::defaults();
+    if (catalog == nullptr)
+        throw std::runtime_error("Presets were requested but no preset catalog is available");
+    return catalog->impl().compose(*request.presets);
+}
+
 } // namespace
 
-SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel)
+SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel, PresetCatalog* catalog)
 {
     SliceOutcome outcome;
     try {
-        Slic3r::DynamicPrintConfig config = ConfigBuilder::build(request.config_overrides);
+        const int used_filaments = request.presets ? static_cast<int>(request.presets->filaments.size()) : 1;
+        Slic3r::DynamicPrintConfig config =
+            ConfigBuilder::build(base_config(request, catalog), request.config_overrides, used_filaments);
         Slic3r::Model model = load_model(request.model_path);
         model.center_instances_around_point(bed_center(config));
 

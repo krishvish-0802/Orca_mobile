@@ -2,26 +2,38 @@ package com.orcamobile.core.engine
 
 import android.content.Context
 import com.orcamobile.core.engine.jni.NativeEngine
+import com.orcamobile.core.engine.resources.EngineResources
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
-import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** Points libslic3r at app-private directories. Safe to call more than once. */
+/**
+ * Prepares the native engine for use: installs its bundled resources and points
+ * libslic3r at app-private directories. Idempotent and thread-safe; the first
+ * call does the work (unpacking profiles takes about a second), so call it off
+ * the main thread.
+ */
 @Singleton
 class EngineEnvironment @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val resources: EngineResources,
 ) {
-    private val initialized = AtomicBoolean(false)
+    @Volatile
+    private var initialized = false
 
     internal fun ensureInitialized() {
-        if (NativeEngine.loadError != null || !initialized.compareAndSet(false, true)) return
-        val root = File(context.filesDir, "engine")
-        val resources = File(root, "resources").apply { mkdirs() }
-        val data = File(root, "data").apply { mkdirs() }
-        val temp = File(context.cacheDir, "engine").apply { mkdirs() }
-        NativeEngine.nativeInitialize(resources.path, data.path, temp.path, LOG_LEVEL_WARNING)
+        if (initialized || NativeEngine.loadError != null) return
+        synchronized(this) {
+            if (initialized) return
+            resources.ensureInstalled()
+            val root = File(context.filesDir, "engine")
+            val data = File(root, "data").apply { mkdirs() }
+            val temp = File(context.cacheDir, "engine").apply { mkdirs() }
+            resources.directory.mkdirs()
+            NativeEngine.nativeInitialize(resources.directory.path, data.path, temp.path, LOG_LEVEL_WARNING)
+            initialized = true
+        }
     }
 
     private companion object {

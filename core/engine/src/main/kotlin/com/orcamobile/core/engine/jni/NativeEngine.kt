@@ -23,15 +23,26 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeInitialize(resourcesDir: String, dataDir: String, tempDir: String, logLevel: Int)
 
+    /** JSON array of vendor ids, or `{"error": ...}`. */
+    @JvmStatic external fun nativeListVendors(): String
+
+    /** JSON array of printer preset names, or `{"error": ...}`. */
+    @JvmStatic external fun nativeListPrinters(vendor: String): String
+
+    /** `{"processes":[..],"filaments":[..],"defaultProcess":..,"defaultFilament":..}` or `{"error": ...}`. */
+    @JvmStatic external fun nativeCompatiblePresets(vendor: String, printer: String): String
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)
 
     @JvmStatic external fun nativeReleaseCancelToken(token: Long)
 
+    /** [presetSelectionJson] is `{"vendor","printer","process","filaments":[..]}`, or empty for engine defaults. */
     @JvmStatic external fun nativeSlice(
         modelPath: String,
         outputPath: String,
+        presetSelectionJson: String,
         overrideKeys: Array<String>,
         overrideValues: Array<String>,
         listener: NativeProgressListener,
