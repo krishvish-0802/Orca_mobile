@@ -5,6 +5,7 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
+import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
@@ -69,10 +70,11 @@ class PrepareViewModelTest {
 
     private inner class FakePresets : PresetCatalog {
         override suspend fun vendors() = Result.success(listOf("Creality"))
-        override suspend fun printers(vendor: String) = Result.success(listOf("Ender-3"))
+        override suspend fun printers(vendor: String) = Result.success(listOf("Ender-3", "K1 Max"))
         override suspend fun compatiblePresets(vendor: String, printer: String) =
-            Result.success(CompatiblePresets(emptyList(), emptyList(), null, null))
-        override suspend fun bedShape(vendor: String, printer: String) = Result.success(bed)
+            Result.success(CompatiblePresets(listOf("0.20mm Standard"), listOf("PLA"), "0.20mm Standard", "PLA"))
+        override suspend fun bedShape(vendor: String, printer: String) =
+            Result.success(if (printer == "K1 Max") BedShape(listOf(0.0 to 0.0, 300.0 to 300.0), 300.0) else bed)
     }
 
     private class FakeSettings(val selection: PresetSelection?) : UserSettingsRepository {
@@ -157,6 +159,7 @@ class PrepareViewModelTest {
         printSettings,
         previews,
         FakePresets(),
+        PresetPicker(FakePresets(), settings),
         settings,
         SliceProjectUseCase(engine, workspace, printSettings),
         TestPrintHostUseCase(hosts),
@@ -301,5 +304,32 @@ class PrepareViewModelTest {
 
         vm.onIntent(PrepareIntent.Slice)
         assertEquals(mapOf("layer_height" to "0.12"), engine.lastRequest?.configOverrides)
+    }
+
+    @Test
+    fun `choosing another printer on the plate brings its bed and re-places the model`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        assertIs<SliceUiState.Done>(vm.state.value.slice)
+
+        vm.onIntent(PrepareIntent.SelectPrinter("K1 Max"))
+
+        val state = vm.state.value
+        assertEquals("K1 Max", state.presets?.printer)
+        assertEquals(300.0, state.bed?.maxHeight)
+        assertEquals(150.0 to 150.0, projects.centers.last())
+        assertEquals(1, state.plateRevision)
+        assertEquals(SliceUiState.Idle, state.slice)
+    }
+
+    @Test
+    fun `another process keeps the bed and the placement`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SelectProcess("0.12mm Fine"))
+        assertEquals("0.12mm Fine", vm.state.value.presets?.process)
+        assertEquals(1, projects.centers.size)
+        assertEquals(0, vm.state.value.plateRevision)
     }
 }

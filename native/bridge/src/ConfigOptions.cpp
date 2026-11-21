@@ -1,9 +1,11 @@
 #include "orca_engine/ConfigOptions.hpp"
 
+#include <algorithm>
 #include <cfloat>
 
 #include "ConfigBuilder.hpp"
 #include "ConfigValues.hpp"
+#include "libslic3r/Preset.hpp"
 #include "libslic3r/PrintConfig.hpp"
 
 namespace orca::engine {
@@ -72,9 +74,23 @@ std::vector<OptionInfo> describe_options(const std::vector<std::string>& keys)
         info.enum_values = def->enum_values;
         info.enum_labels = def->enum_labels;
         info.nullable = def->nullable;
+        info.multiline = def->multiline || def->is_code;
         result.push_back(std::move(info));
     }
     return result;
+}
+
+PresetOptionKeys preset_option_keys()
+{
+    using Slic3r::Preset;
+    PresetOptionKeys keys;
+    keys.process = Preset::print_options();
+    keys.filament = Preset::filament_options();
+    keys.printer = Preset::printer_options();
+    for (const std::string& key : Preset::machine_limits_options())
+        if (std::find(keys.printer.begin(), keys.printer.end(), key) == keys.printer.end())
+            keys.printer.push_back(key);
+    return keys;
 }
 
 std::map<std::string, std::string> default_values(const std::vector<std::string>& keys)

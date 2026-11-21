@@ -1,6 +1,7 @@
 package com.orcamobile.feature.prepare
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -19,6 +22,7 @@ import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -26,24 +30,30 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RangeSlider
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
-import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.orcamobile.core.designsystem.component.ChoiceSheet
 import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.StatusCard
@@ -102,6 +112,7 @@ fun PrepareScreen(
                     selection = state.selection,
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
+                    projectRevision = state.plateRevision,
                     modifier = Modifier.fillMaxSize(),
                 )
                 val selectedName = state.selectedObjectName
@@ -136,6 +147,7 @@ fun PrepareScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                PresetBar(state, onIntent, onOpenSettings)
                 preview?.let { PreviewCard(it, onIntent) }
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)
@@ -158,6 +170,89 @@ private fun PlateModeToggle(showingPreview: Boolean, onShowPreview: (Boolean) ->
                 onClick = { onShowPreview(index == 1) },
                 shape = SegmentedButtonDefaults.itemShape(index, labels.size),
             ) { Text(stringResource(label)) }
+        }
+    }
+}
+
+/** Which preset list a choice sheet is open for. */
+private enum class PresetField { VENDOR, PRINTER, PROCESS, FILAMENT }
+
+/**
+ * The presets the plate slices with, changeable right here: printer, process and
+ * filament chips (shared with the start screen) and the way into every setting.
+ */
+@Composable
+private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onOpenSettings: () -> Unit) {
+    var choosing by rememberSaveable { mutableStateOf<PresetField?>(null) }
+    val choices = state.choices
+    Row(
+        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PresetChip(stringResource(R.string.prepare_preset_vendor), choices.vendor, enabled = choices.vendors.isNotEmpty()) { choosing = PresetField.VENDOR }
+        PresetChip(stringResource(R.string.prepare_preset_printer), choices.printer, enabled = choices.printers.isNotEmpty()) { choosing = PresetField.PRINTER }
+        PresetChip(stringResource(R.string.prepare_preset_process), choices.process, enabled = choices.processes.isNotEmpty()) { choosing = PresetField.PROCESS }
+        PresetChip(stringResource(R.string.prepare_preset_filament), choices.filament, enabled = choices.filaments.isNotEmpty()) { choosing = PresetField.FILAMENT }
+        FilledTonalButton(onClick = onOpenSettings) {
+            Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
+            Text(
+                if (state.changedSettings > 0) {
+                    stringResource(R.string.prepare_all_settings_changed, state.changedSettings)
+                } else {
+                    stringResource(R.string.prepare_all_settings)
+                },
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        }
+    }
+    if (choices.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+    choices.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+
+    choosing?.let { field ->
+        val (title, options, selected) = when (field) {
+            PresetField.VENDOR -> Triple(R.string.prepare_preset_vendor, choices.vendors, choices.vendor)
+            PresetField.PRINTER -> Triple(R.string.prepare_preset_printer, choices.printers, choices.printer)
+            PresetField.PROCESS -> Triple(R.string.prepare_preset_process, choices.processes, choices.process)
+            PresetField.FILAMENT -> Triple(R.string.prepare_preset_filament, choices.filaments, choices.filament)
+        }
+        ChoiceSheet(
+            title = stringResource(title),
+            options = options,
+            selected = selected,
+            onSelect = { choice ->
+                onIntent(
+                    when (field) {
+                        PresetField.VENDOR -> PrepareIntent.SelectVendor(choice)
+                        PresetField.PRINTER -> PrepareIntent.SelectPrinter(choice)
+                        PresetField.PROCESS -> PrepareIntent.SelectProcess(choice)
+                        PresetField.FILAMENT -> PrepareIntent.SelectFilament(choice)
+                    },
+                )
+                // A new vendor needs a printer next.
+                if (field == PresetField.VENDOR) choosing = PresetField.PRINTER
+            },
+            onDismiss = { if (choosing == field) choosing = null },
+            searchHint = stringResource(R.string.prepare_search),
+        )
+    }
+}
+
+@Composable
+private fun PresetChip(label: String, value: String?, enabled: Boolean, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.widthIn(max = 220.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                value ?: stringResource(R.string.prepare_preset_none),
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
@@ -215,15 +310,9 @@ private fun ToolpathColoring.labelRes(): Int = when (this) {
 @Composable
 private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
     StatusCard(title = stringResource(R.string.prepare_slice_title)) {
-        val presets = state.presets
-        Text(
-            if (presets != null) {
-                stringResource(R.string.prepare_slice_presets, presets.printer, presets.process, presets.filaments.joinToString())
-            } else {
-                stringResource(R.string.prepare_slice_no_presets)
-            },
-            style = MaterialTheme.typography.bodySmall,
-        )
+        if (state.presets == null) {
+            Text(stringResource(R.string.prepare_slice_no_presets), style = MaterialTheme.typography.bodySmall)
+        }
         if (state.changedSettings > 0) {
             Text(
                 stringResource(R.string.prepare_settings_changed, state.changedSettings),

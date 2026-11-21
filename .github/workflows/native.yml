@@ -55,6 +55,17 @@ jobs:
           submodules: true
           fetch-depth: 1
 
+      # The settings screen's layout is generated from upstream's Tab.cpp; it must
+      # match the pinned engine.
+      - name: Check the settings layout matches the pinned OrcaSlicer
+        run: |
+          pin="$(git -C third_party/OrcaSlicer rev-parse --short=12 HEAD)"
+          python3 tools/extract_tab_layout.py third_party/OrcaSlicer/src/slic3r/GUI/Tab.cpp "${RUNNER_TEMP}/layout.json" "${pin}"
+          diff -u feature/settings/src/main/assets/settings_layout.json "${RUNNER_TEMP}/layout.json" || {
+            echo "::error::feature/settings/src/main/assets/settings_layout.json is out of date. Run: python3 tools/extract_tab_layout.py third_party/OrcaSlicer/src/slic3r/GUI/Tab.cpp feature/settings/src/main/assets/settings_layout.json ${pin}"
+            exit 1
+          }
+
       - name: Install build tools
         run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool ccache
 

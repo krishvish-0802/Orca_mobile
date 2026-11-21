@@ -87,6 +87,12 @@ jstring native_describe_options(JNIEnv* env, jclass, jobjectArray keys)
     }
 }
 
+// {"process":[...],"filament":[...],"printer":[...]}: the options each preset kind holds.
+jstring native_preset_option_keys(JNIEnv* env, jclass)
+{
+    return to_jstring(env, json::to_json(orca::engine::preset_option_keys()));
+}
+
 // {"values":{...}} of `keys` for a preset selection, or the engine defaults when
 // the selection is empty.
 jstring native_config_values(JNIEnv* env, jclass, jstring preset_selection_json, jobjectArray keys)
@@ -192,6 +198,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeCompatiblePresets", "(" STR STR ")" STR, reinterpret_cast<void*>(native_compatible_presets)},
     {"nativePrinterBed", "(" STR STR ")" STR, reinterpret_cast<void*>(native_printer_bed)},
     {"nativeDescribeOptions", "([" STR ")" STR, reinterpret_cast<void*>(native_describe_options)},
+    {"nativePresetOptionKeys", "()" STR, reinterpret_cast<void*>(native_preset_option_keys)},
     {"nativeConfigValues", "(" STR "[" STR ")" STR, reinterpret_cast<void*>(native_config_values)},
     {"nativeCreateCancelToken", "()J", reinterpret_cast<void*>(native_create_cancel_token)},
     {"nativeRequestCancel", "(J)V", reinterpret_cast<void*>(native_request_cancel)},

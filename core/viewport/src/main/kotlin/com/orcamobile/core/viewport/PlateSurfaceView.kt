@@ -29,6 +29,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     private var bed: FloatArray? = null
     private var bedHeight = 0f
     private var projectHandle = 0L
+    private var projectRevision = 0
     private var previewHandle = 0L
     private var layerRange: IntRange? = null
     private var coloring = 0
@@ -71,10 +72,14 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 
-    /** Shows the project with native handle [project], or clears the plate for 0. */
-    fun setProject(project: Long) {
-        if (project == projectHandle) return
+    /**
+     * Shows the project with native handle [project], or clears the plate for 0.
+     * A new [revision] redraws it after the engine moved its objects.
+     */
+    fun setProject(project: Long, revision: Int = 0) {
+        if (project == projectHandle && revision == projectRevision) return
         projectHandle = project
+        projectRevision = revision
         if (handle != 0L) showProjectOnGlThread(project)
     }
 

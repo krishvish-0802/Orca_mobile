@@ -26,10 +26,20 @@ struct OptionInfo {
     std::vector<std::string> enum_values;
     std::vector<std::string> enum_labels;
     bool nullable = false;
+    bool multiline = false;     // edited as several lines (custom G-code, notes)
 };
 
 // Definitions of `keys`, in that order; unknown keys are left out.
 std::vector<OptionInfo> describe_options(const std::vector<std::string>& keys);
+
+// Which options each kind of preset holds, as OrcaSlicer's Preset::print_options(),
+// filament_options() and printer_options() (with machine_limits_options()) list them.
+struct PresetOptionKeys {
+    std::vector<std::string> process;
+    std::vector<std::string> filament;
+    std::vector<std::string> printer;
+};
+PresetOptionKeys preset_option_keys();
 
 // Values of `keys` in the engine's built-in defaults (the config a slice without
 // presets starts from), serialized as in profiles. Unknown keys are left out.

@@ -56,6 +56,9 @@ internal object NativeEngine {
     /** `{"options":[...]}`: OrcaSlicer's definitions of [keys]. */
     @JvmStatic external fun nativeDescribeOptions(keys: Array<String>): String
 
+    /** `{"process":[..],"filament":[..],"printer":[..]}`: the options each kind of preset holds. */
+    @JvmStatic external fun nativePresetOptionKeys(): String
+
     /** `{"values":{...}}` of [keys] for a preset selection, or the engine defaults for an empty one. */
     @JvmStatic external fun nativeConfigValues(presetSelectionJson: String, keys: Array<String>): String
 

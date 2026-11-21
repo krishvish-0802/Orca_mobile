@@ -1,7 +1,7 @@
 package com.orcamobile.feature.home
 
 import com.orcamobile.core.model.EngineInfo
-import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.PresetChoices
 
 /** Everything the start screen renders. Produced only by [HomeViewModel]. */
 data class HomeUiState(
@@ -19,29 +19,8 @@ sealed interface EngineUiState {
     data class Unavailable(val reason: String) : EngineUiState
 }
 
-/** Choosing the printer, process and filament presets to slice with. */
-data class PrinterSetupUiState(
-    val loading: Boolean = false,
-    val vendors: List<String> = emptyList(),
-    val vendor: String? = null,
-    val printers: List<String> = emptyList(),
-    val printer: String? = null,
-    val processes: List<String> = emptyList(),
-    val process: String? = null,
-    val filaments: List<String> = emptyList(),
-    val filament: String? = null,
-    val error: String? = null,
-) {
-    /** The complete selection, or null while any part is missing. */
-    val selection: PresetSelection?
-        get() {
-            val vendor = vendor ?: return null
-            val printer = printer ?: return null
-            val process = process ?: return null
-            val filament = filament ?: return null
-            return PresetSelection(vendor, printer, process, listOf(filament))
-        }
-}
+/** Choosing the printer, process and filament presets: the app-wide choice (PresetPicker). */
+typealias PrinterSetupUiState = PresetChoices
 
 /** User actions on the start screen. */
 sealed interface HomeIntent {

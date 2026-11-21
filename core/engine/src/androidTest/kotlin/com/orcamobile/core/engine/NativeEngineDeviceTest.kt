@@ -91,6 +91,13 @@ class NativeEngineDeviceTest {
         assertEquals(listOf("layer_height", "sparse_infill_pattern"), options.map { it.key })
         assertTrue(options[1].choices.any { it.value == "gyroid" })
 
+        val presetKeys = EngineJson.presetOptionKeys(NativeEngine.nativePresetOptionKeys()).getOrThrow()
+        assertTrue(presetKeys.process.size > 300)
+        assertTrue("nozzle_temperature" in presetKeys.filament)
+        assertTrue("machine_start_gcode" in presetKeys.printer)
+        val described = EngineJson.configOptions(NativeEngine.nativeDescribeOptions(presetKeys.process.toTypedArray())).getOrThrow()
+        assertTrue(described.size > 300)
+
         val defaults = EngineJson.configValues(NativeEngine.nativeConfigValues("", arrayOf("layer_height"))).getOrThrow()
         assertTrue(defaults.containsKey("layer_height"))
 

@@ -7,7 +7,9 @@ import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.OptionChoice
+import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.OptionType
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.SliceResult
@@ -83,6 +85,11 @@ internal object EngineJson {
         json.decodeFromJsonElement(OptionsDto.serializer(), element).options.map { it.toModel() }
     }
 
+    fun presetOptionKeys(payload: String): Result<PresetOptionKeys> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(PresetOptionKeysDto.serializer(), element)
+        PresetOptionKeys(dto.process, dto.filament, dto.printer)
+    }
+
     fun configValues(payload: String): Result<Map<String, String>> = decodeOrError(payload) { element ->
         json.decodeFromJsonElement(ValuesDto.serializer(), element).values
     }
@@ -156,6 +163,9 @@ internal object EngineJson {
         val max: Double? = null,
         val enumValues: List<String> = emptyList(),
         val enumLabels: List<String> = emptyList(),
+        val mode: String = "simple",
+        val nullable: Boolean = false,
+        val multiline: Boolean = false,
     ) {
         fun toModel() = ConfigOption(
             key = key,
@@ -169,8 +179,18 @@ internal object EngineJson {
             min = min,
             max = max,
             choices = enumValues.mapIndexed { i, value -> OptionChoice(value, enumLabels.getOrNull(i)?.ifEmpty { null } ?: value) },
+            mode = OptionMode.fromWire(mode),
+            nullable = nullable,
+            multiline = multiline,
         )
     }
+
+    @Serializable
+    private data class PresetOptionKeysDto(
+        val process: List<String> = emptyList(),
+        val filament: List<String> = emptyList(),
+        val printer: List<String> = emptyList(),
+    )
 
     @Serializable
     private data class OptionsDto(val options: List<OptionDto>)

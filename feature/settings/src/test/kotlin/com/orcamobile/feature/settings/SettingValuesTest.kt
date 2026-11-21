@@ -10,8 +10,14 @@ import kotlin.test.assertNull
 
 class SettingValuesTest {
 
-    private fun option(type: OptionType, unit: String = "", min: Double? = null, max: Double? = null, choices: List<OptionChoice> = emptyList()) =
-        ConfigOption("k", type, "Label", "Full label", "", "", unit, "", min, max, choices)
+    private fun option(
+        type: OptionType,
+        unit: String = "",
+        min: Double? = null,
+        max: Double? = null,
+        choices: List<OptionChoice> = emptyList(),
+        nullable: Boolean = false,
+    ) = ConfigOption("k", type, "Label", "Full label", "", "", unit, "", min, max, choices, nullable = nullable)
 
     @Test
     fun `per-filament values are edited through the first one`() {
@@ -52,5 +58,29 @@ class SettingValuesTest {
     fun `choices show their labels`() {
         val pattern = option(OptionType.ENUM, choices = listOf(OptionChoice("gyroid", "Gyroid"), OptionChoice("grid", "Grid")))
         assertEquals("Gyroid", SettingValues.display(pattern, "gyroid"))
+    }
+
+    @Test
+    fun `multi-line text is edited unescaped and stored escaped`() {
+        val gcode = option(OptionType.STRING)
+        assertEquals("G28\nG1 Z5", SettingValues.editable(gcode, "G28\\nG1 Z5"))
+        assertEquals("G28\\nM84", SettingValues.write(gcode, "G28", "G28\nM84"))
+        assertEquals("G28 …", SettingValues.display(gcode, "G28\\nM84"))
+    }
+
+    @Test
+    fun `string lists keep their other elements`() {
+        val type = option(OptionType.STRINGS)
+        assertEquals("PLA", SettingValues.editable(type, "PLA;PETG"))
+        assertEquals("\"Silk PLA\";PETG", SettingValues.write(type, "PLA;PETG", "Silk PLA"))
+    }
+
+    @Test
+    fun `an override can be left unset`() {
+        val retraction = option(OptionType.FLOATS, "mm", min = 0.0, nullable = true)
+        assertEquals(true, SettingValues.isUnset(retraction, "nil"))
+        assertEquals("0.8", SettingValues.write(retraction, "nil", "0.8"))
+        assertEquals("nil", SettingValues.write(retraction, "0.8", SettingValues.UNSET))
+        assertNull(SettingValues.problem(retraction, SettingValues.UNSET))
     }
 }

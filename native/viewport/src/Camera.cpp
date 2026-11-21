@@ -7,7 +7,8 @@ namespace orca::viewport {
 
 namespace {
 constexpr float kOrbitRadiansPerPixel = 0.008f;
-constexpr float kMinPitch = -0.15f;          // allow a peek just under the bed
+// At the bed plane, never below it: from underneath, the plate hides the model and toolpaths.
+constexpr float kMinPitch = 0.0f;
 constexpr float kMaxPitch = 1.5533430f;      // 89 degrees
 constexpr float kMinDistance = 5.0f;
 constexpr float kMaxDistance = 5000.0f;

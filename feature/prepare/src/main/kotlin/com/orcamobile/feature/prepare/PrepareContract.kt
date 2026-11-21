@@ -4,6 +4,7 @@ import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
@@ -28,6 +29,10 @@ data class PrepareUiState(
     val selection: InstanceRef? = null,
     /** How many settings the user changed from the presets (see the settings screen). */
     val changedSettings: Int = 0,
+    /** The app-wide preset choice, changed from the chips under the plate. */
+    val choices: PresetChoices = PresetChoices(),
+    /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
+    val plateRevision: Int = 0,
 ) {
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?
@@ -94,6 +99,14 @@ sealed interface PrepareIntent {
     data object Slice : PrepareIntent
 
     data class Select(val instance: InstanceRef?) : PrepareIntent
+
+    data class SelectVendor(val vendor: String) : PrepareIntent
+
+    data class SelectPrinter(val printer: String) : PrepareIntent
+
+    data class SelectProcess(val process: String) : PrepareIntent
+
+    data class SelectFilament(val filament: String) : PrepareIntent
 
     /** Objects were moved or turned on the plate: earlier slicing results no longer match it. */
     data object PlateEdited : PrepareIntent

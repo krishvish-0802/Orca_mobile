@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
@@ -12,6 +13,7 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceResult
@@ -34,6 +36,7 @@ class PrepareViewModel @Inject constructor(
     private val printSettings: PrintSettingsRepository,
     private val previews: GCodePreviewRepository,
     private val presets: PresetCatalog,
+    private val picker: PresetPicker,
     private val settings: UserSettingsRepository,
     private val sliceProject: SliceProjectUseCase,
     private val testPrintHost: TestPrintHostUseCase,
@@ -49,7 +52,12 @@ class PrepareViewModel @Inject constructor(
 
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
-        viewModelScope.launch { open(modelPath) }
+        viewModelScope.launch {
+            picker.load()
+            applyPresets(picker.choices.value)
+            open(modelPath)
+            picker.choices.collect { applyPresets(it) }
+        }
         viewModelScope.launch {
             settings.printHost()?.let { host ->
                 updateHost { copy(type = host.type, address = host.baseUrl, apiKey = host.apiKey.orEmpty()) }
@@ -63,6 +71,10 @@ class PrepareViewModel @Inject constructor(
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
+            is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
+            is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
+            is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
+            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
             is PrepareIntent.Select -> _state.update { it.copy(selection = intent.instance) }
             PrepareIntent.PlateEdited -> dropStaleResult()
             PrepareIntent.CancelSlice -> cancelSlice()
@@ -96,10 +108,7 @@ class PrepareViewModel @Inject constructor(
             _state.update { it.copy(loading = false, error = "No model to open") }
             return
         }
-        val selection = settings.presetSelection()
-        val bed = selection?.let { presets.bedShape(it.vendor, it.printer).getOrNull() } ?: DEFAULT_BED
-        _state.update { it.copy(bed = bed, presets = selection) }
-
+        val bed = _state.value.bed ?: DEFAULT_BED
         projects.load(modelPath).fold(
             { project ->
                 val (x, y) = bed.center
@@ -108,6 +117,35 @@ class PrepareViewModel @Inject constructor(
             },
             { error -> _state.update { it.copy(loading = false, error = error.message ?: "Could not open the model") } },
         )
+    }
+
+    // --- presets ------------------------------------------------------------
+
+    /**
+     * Follows the app-wide preset choice: a new printer brings its bed, and the
+     * model is placed in its middle; any change makes an earlier slice stale.
+     * While a choice is incomplete (a vendor picked, no printer yet) the plate
+     * keeps the previous presets.
+     */
+    private suspend fun applyPresets(choices: PresetChoices) {
+        _state.update { it.copy(choices = choices) }
+        val selection = choices.selection
+        val old = _state.value
+        if ((selection == old.presets && old.bed != null) || (selection == null && old.presets != null)) return
+        val printerChanged = selection?.vendor != old.presets?.vendor || selection?.printer != old.presets?.printer
+        val bed = if (printerChanged || old.bed == null) {
+            selection?.let { presets.bedShape(it.vendor, it.printer).getOrNull() } ?: DEFAULT_BED
+        } else {
+            old.bed
+        }
+        _state.update { it.copy(presets = selection, bed = bed) }
+        val project = _state.value.project
+        if (project != null && printerChanged) {
+            val (x, y) = bed.center
+            projects.centerOn(project.id, x, y)
+            _state.update { it.copy(plateRevision = it.plateRevision + 1) }
+        }
+        if (project != null) dropStaleResult()
     }
 
     // --- slicing ------------------------------------------------------------

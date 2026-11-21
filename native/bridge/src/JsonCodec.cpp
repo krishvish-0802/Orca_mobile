@@ -111,6 +111,7 @@ std::string to_json(const std::vector<OptionInfo>& options)
             {"enumValues", option.enum_values},
             {"enumLabels", option.enum_labels},
             {"nullable", option.nullable},
+            {"multiline", option.multiline},
         };
         if (option.min)
             item["min"] = *option.min;
@@ -119,6 +120,11 @@ std::string to_json(const std::vector<OptionInfo>& options)
         list.push_back(std::move(item));
     }
     return nlohmann::json{{"options", list}}.dump();
+}
+
+std::string to_json(const PresetOptionKeys& keys)
+{
+    return nlohmann::json{{"process", keys.process}, {"filament", keys.filament}, {"printer", keys.printer}}.dump();
 }
 
 std::string values_to_json(const std::map<std::string, std::string>& values)

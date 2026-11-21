@@ -5,6 +5,7 @@ import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.ModelImportRepository
 import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
@@ -71,7 +72,7 @@ class HomeViewModelTest {
     private fun viewModel(
         status: EngineStatus = EngineStatus.Available(info),
         imports: ModelImportRepository = FakeImports(Result.success("/models/benchy.stl")),
-    ) = HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), FakePresets(), settings, imports, samples)
+    ) = HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), PresetPicker(FakePresets(), settings), imports, samples)
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())

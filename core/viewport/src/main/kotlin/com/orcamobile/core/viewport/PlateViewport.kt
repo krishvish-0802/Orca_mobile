@@ -64,6 +64,8 @@ fun PlateViewport(
     selection: InstanceRef? = null,
     onSelectionChange: (InstanceRef?) -> Unit = {},
     onPlateEdited: () -> Unit = {},
+    /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
+    projectRevision: Int = 0,
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -90,7 +92,7 @@ fun PlateViewport(
             factory = { surface },
             update = { view ->
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
-                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L)
+                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
             },

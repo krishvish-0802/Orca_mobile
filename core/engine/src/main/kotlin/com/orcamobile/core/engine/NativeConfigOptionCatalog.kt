@@ -4,6 +4,7 @@ import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.ConfigOption
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
@@ -31,6 +32,10 @@ class NativeConfigOptionCatalog @Inject constructor(
 
     override suspend fun values(selection: PresetSelection?, keys: List<String>): Result<Map<String, String>> = call {
         EngineJson.configValues(NativeEngine.nativeConfigValues(EngineJson.encode(selection), keys.toTypedArray())).getOrThrow()
+    }
+
+    override suspend fun presetOptionKeys(): Result<PresetOptionKeys> = call {
+        EngineJson.presetOptionKeys(NativeEngine.nativePresetOptionKeys()).getOrThrow()
     }
 
     private suspend fun <T> call(query: () -> T): Result<T> = withContext(dispatchers.io) {

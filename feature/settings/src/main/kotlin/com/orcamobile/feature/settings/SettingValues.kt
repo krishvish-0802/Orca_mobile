@@ -5,36 +5,53 @@ import com.orcamobile.core.model.OptionType
 
 /**
  * Reading and writing option values as profiles serialize them. Per-extruder
- * options (one value per filament, comma separated) are edited through their
- * first value, which is the one a single-filament print uses.
+ * options (one value per extruder or filament) are edited through their first
+ * value, which is the one a single-extruder print uses; the others are kept.
  */
 object SettingValues {
 
-    /** The value the screen shows and edits: the first one of a per-extruder option, without a "%". */
+    /** The value of an unset override ([ConfigOption.nullable] options), which defers to the printer. */
+    const val UNSET = "nil"
+
+    /** The value the screen shows and edits: one element, unescaped, a percentage without its "%". */
     fun editable(option: ConfigOption, serialized: String): String {
-        val first = if (option.type.isVector) serialized.split(',').firstOrNull().orEmpty() else serialized
-        return if (option.type.isPercentOnly) first.removeSuffix("%") else first
+        val first = elements(option, serialized).firstOrNull().orEmpty()
+        return when {
+            option.type == OptionType.STRING -> ConfigText.unescape(serialized)
+            option.type.isPercentOnly -> first.removeSuffix("%")
+            else -> first
+        }
     }
 
-    /** [serialized] with its editable value replaced by [edited]. */
+    /** Whether the edited element is an unset override. */
+    fun isUnset(option: ConfigOption, serialized: String): Boolean =
+        option.nullable && elements(option, serialized).firstOrNull() == UNSET
+
+    /** [serialized] with its edited element replaced by [edited] (or by [UNSET]). */
     fun write(option: ConfigOption, serialized: String, edited: String): String {
-        val value = if (option.type.isPercentOnly) "${edited.trim().removeSuffix("%")}%" else edited.trim()
+        val value = when {
+            edited == UNSET && option.nullable -> UNSET
+            option.type == OptionType.STRING -> return ConfigText.escape(edited)
+            option.type == OptionType.STRINGS -> edited
+            option.type.isPercentOnly -> "${edited.trim().removeSuffix("%")}%"
+            else -> edited.trim()
+        }
         if (!option.type.isVector) return value
-        val rest = serialized.split(',').drop(1)
-        return (listOf(value) + rest).joinToString(",")
+        val rest = elements(option, serialized).drop(1)
+        val all = listOf(value) + rest
+        return if (option.type == OptionType.STRINGS) ConfigText.joinStrings(all) else all.joinToString(",")
     }
 
     /** Why [edited] is not a valid value of [option], or null when it is. */
     fun problem(option: ConfigOption, edited: String): Problem? {
+        if (edited == UNSET && option.nullable) return null
         val text = edited.trim()
-        if (text.isEmpty() && option.type != OptionType.STRING && option.type != OptionType.STRINGS) return Problem.Empty
+        val numeric = option.type in NUMERIC
+        if (!numeric) return null
+        if (text.isEmpty()) return Problem.Empty
         val number = when (option.type) {
             OptionType.INT, OptionType.INTS -> text.toIntOrNull()?.toDouble() ?: return Problem.NotAWholeNumber
-            OptionType.FLOAT, OptionType.FLOATS, OptionType.PERCENT, OptionType.PERCENTS ->
-                text.removeSuffix("%").toDoubleOrNull() ?: return Problem.NotANumber
-            OptionType.FLOAT_OR_PERCENT, OptionType.FLOATS_OR_PERCENTS ->
-                text.removeSuffix("%").toDoubleOrNull() ?: return Problem.NotANumber
-            else -> return null
+            else -> text.removeSuffix("%").toDoubleOrNull() ?: return Problem.NotANumber
         }
         // A percentage of a float-or-percent option is not on the option's own scale.
         if (option.type.isFloatOrPercent && text.endsWith("%")) return null
@@ -43,12 +60,26 @@ object SettingValues {
         return null
     }
 
-    /** How a value reads in a row: the choice's label, "On"/"Off" left to the UI, numbers with their unit. */
+    /**
+     * How a value reads in a row: the choice's label, a number with its unit, or
+     * the first line of a text. Switches and unset overrides are worded by the UI.
+     */
     fun display(option: ConfigOption, serialized: String): String {
         val value = editable(option, serialized)
         option.choices.firstOrNull { it.value == value }?.let { return it.label }
+        if (option.type == OptionType.STRING || option.type == OptionType.STRINGS) {
+            val lines = value.lines()
+            return if (lines.size > 1) "${lines.first().take(MAX_PREVIEW)} …" else value.take(MAX_PREVIEW)
+        }
         if (option.unit.isBlank() || value.isEmpty()) return value
         return if (option.type.isPercentOnly) "$value%" else "$value ${option.unit}"
+    }
+
+    /** The elements of a per-extruder value; the whole value for a single one. */
+    private fun elements(option: ConfigOption, serialized: String): List<String> = when {
+        option.type == OptionType.STRINGS -> ConfigText.splitStrings(serialized).ifEmpty { listOf("") }
+        option.type.isVector && option.type != OptionType.POINTS -> serialized.split(',')
+        else -> listOf(serialized)
     }
 
     sealed interface Problem {
@@ -59,6 +90,11 @@ object SettingValues {
         data class AboveMax(val max: Double) : Problem
     }
 
+    private const val MAX_PREVIEW = 40
+    private val NUMERIC = setOf(
+        OptionType.FLOAT, OptionType.FLOATS, OptionType.INT, OptionType.INTS, OptionType.PERCENT, OptionType.PERCENTS,
+        OptionType.FLOAT_OR_PERCENT, OptionType.FLOATS_OR_PERCENTS,
+    )
     private val OptionType.isPercentOnly get() = this == OptionType.PERCENT || this == OptionType.PERCENTS
     private val OptionType.isFloatOrPercent get() = this == OptionType.FLOAT_OR_PERCENT || this == OptionType.FLOATS_OR_PERCENTS
 }

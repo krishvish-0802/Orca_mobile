@@ -24,6 +24,7 @@ std::string to_json(const BedShape& bed);
 std::string to_json(const std::vector<ObjectSummary>& objects);
 std::string to_json(const PreviewSummary& summary);
 std::string to_json(const std::vector<OptionInfo>& options);
+std::string to_json(const PresetOptionKeys& keys);
 // {"values":{key:value}}
 std::string values_to_json(const std::map<std::string, std::string>& values);
 
