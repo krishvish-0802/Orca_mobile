@@ -3,6 +3,7 @@ package com.orcamobile.core.viewport
 import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
+import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.viewport.jni.NativeViewport
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
@@ -31,6 +32,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     private var previewHandle = 0L
     private var layerRange: IntRange? = null
     private var coloring = 0
+    private var selection: InstanceRef? = null
 
     init {
         setEGLContextClientVersion(3)
@@ -46,6 +48,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
             bed?.let { NativeViewport.nativeSetBed(handle, it, bedHeight) }
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
             if (previewHandle != 0L) applyPreview()
+            selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
         }
         super.onAttachedToWindow()
     }
@@ -93,6 +96,34 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         NativeViewport.nativeSetColoring(h, coloring)
         layerRange?.let { NativeViewport.nativeSetLayerRange(h, it.first, it.last) }
         requestRender()
+    }
+
+    /** The instance under a screen point, if any. */
+    fun pick(x: Float, y: Float): InstanceRef? {
+        val h = handle
+        if (h == 0L) return null
+        val packed = NativeViewport.nativePick(h, x, y)
+        if (packed < 0) return null
+        return InstanceRef((packed ushr 32).toInt(), (packed and 0xFFFFFFFFL).toInt())
+    }
+
+    fun setSelection(ref: InstanceRef?) {
+        if (ref == selection) return
+        selection = ref
+        gesture { NativeViewport.nativeSetSelection(it, ref?.objectIndex ?: -1, ref?.instanceIndex ?: 0) }
+    }
+
+    /** Drags the selected instance with a finger moving between two screen points. */
+    fun moveSelection(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
+        edit { h, project -> NativeViewport.nativeMoveSelection(h, project, x0, y0, x1, y1) }
+
+    fun rotateSelection(radians: Float): Boolean = edit { h, project -> NativeViewport.nativeRotateSelection(h, project, radians) }
+
+    private inline fun edit(action: (Long, Long) -> Boolean): Boolean {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L || selection == null) return false
+        return action(h, project).also { if (it) requestRender() }
     }
 
     fun orbit(dx: Float, dy: Float) = gesture { NativeViewport.nativeOrbit(it, dx, dy) }

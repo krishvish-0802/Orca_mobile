@@ -19,6 +19,9 @@ public:
     // Frames a sphere around `center`.
     void frame(const Vec3& center, float radius);
 
+    // The ray through a screen point: origin at the eye, unit direction.
+    void ray(float x_px, float y_px, Vec3& origin, Vec3& direction) const;
+
     Mat4 view() const;
     Mat4 projection() const;
     Vec3 eye() const;

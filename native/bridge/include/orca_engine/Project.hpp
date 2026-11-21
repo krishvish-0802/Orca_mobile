@@ -18,18 +18,19 @@ struct ObjectSummary {
     std::array<double, 3> size{};     // mm, of the first instance
 };
 
-// Triangles ready to draw: three vertices per triangle, world coordinates (mm),
-// with a face normal repeated per vertex for flat shading.
-struct RenderMesh {
-    std::vector<float> positions;     // x, y, z per vertex
-    std::vector<float> normals;       // nx, ny, nz per vertex
-    std::array<float, 3> min{};       // bounding box
-    std::array<float, 3> max{};
-    std::size_t triangle_count() const { return positions.size() / 9; }
+// One instance of one object on the plate.
+struct InstanceRef {
+    std::size_t object = 0;
+    std::size_t instance = 0;
+    bool operator==(const InstanceRef& other) const { return object == other.object && instance == other.instance; }
 };
 
+// An instance's placement: column-major 4x4, object coordinates to bed (mm).
+using Placement = std::array<double, 16>;
+
 // A model loaded for editing and slicing: the objects of one or more imported
-// files (STL, 3MF, OBJ, STEP, ...), placed on the bed.
+// files (STL, 3MF, OBJ, STEP, ...), placed on the bed. Thread-safe: the UI edits
+// it while a slice may be copying it on another thread.
 class Project {
 public:
     // Loads `path`. Throws std::runtime_error if the file cannot be read or holds
@@ -45,12 +46,20 @@ public:
     // Moves every instance so the objects sit together, centered on (x, y), on the bed.
     void center_on(double x, double y);
 
-    // All instances' triangles in world space, for the viewport.
-    RenderMesh render_mesh() const;
+    // An object's triangles in its own coordinates, shared by its instances:
+    // x, y, z per vertex, three vertices per triangle. Empty for a bad index.
+    std::vector<float> object_triangles(std::size_t object) const;
+    std::vector<InstanceRef> instances() const;
+    // Throws std::out_of_range for a bad reference.
+    Placement placement(const InstanceRef& ref) const;
 
-    // The underlying model, for the slicing pipeline inside the bridge.
-    Slic3r::Model& model();
-    const Slic3r::Model& model() const;
+    // Slides an instance across the bed.
+    void translate(const InstanceRef& ref, double dx, double dy);
+    // Turns an instance about the vertical axis through the center of its bounding box.
+    void rotate_z(const InstanceRef& ref, double radians);
+
+    // A snapshot of the model, for the slicing pipeline inside the bridge.
+    Slic3r::Model model_copy() const;
 
 private:
     Project();

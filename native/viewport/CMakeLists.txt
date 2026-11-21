@@ -1,6 +1,6 @@
 # orca_viewport: the 3D plate view, drawn with OpenGL ES 3.0.
 #
-# Independent of libslic3r: it receives world-space triangles, a bed shape and
+# Independent of libslic3r: it receives parts (object meshes with placements), a bed shape and
 # toolpaths already converted for libvgcode (OrcaSlicer's G-code renderer, which
 # draws them), and owns the camera. The JNI layer (native/bridge/jni) feeds it from the
 # engine's Project, so meshes never travel through Kotlin.
@@ -12,6 +12,8 @@ add_library(orca_viewport STATIC
     src/Camera.hpp
     src/GlProgram.cpp
     src/GlProgram.hpp
+    src/Picking.cpp
+    src/Picking.hpp
     src/Shaders.hpp
     src/ToolpathRenderer.cpp
     src/ToolpathRenderer.hpp

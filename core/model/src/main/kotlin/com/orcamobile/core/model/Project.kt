@@ -4,6 +4,9 @@ package com.orcamobile.core.model
 @JvmInline
 value class ProjectId(val value: String)
 
+/** One instance of one object on the plate, numbered as the engine numbers them. */
+data class InstanceRef(val objectIndex: Int, val instanceIndex: Int)
+
 /** One object of a loaded project. */
 data class ModelObjectInfo(
     val name: String,

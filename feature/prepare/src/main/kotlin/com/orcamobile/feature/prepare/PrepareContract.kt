@@ -2,6 +2,7 @@ package com.orcamobile.feature.prepare
 
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
@@ -21,7 +22,13 @@ data class PrepareUiState(
     val preview: PreviewUiState = PreviewUiState.None,
     /** The plate shows the sliced toolpaths rather than the model. */
     val showingPreview: Boolean = false,
-)
+    /** The object instance being edited on the plate. */
+    val selection: InstanceRef? = null,
+) {
+    /** Name of the selected object, for the hint over the plate. */
+    val selectedObjectName: String?
+        get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
+}
 
 /** The sliced plate's toolpaths, read back from the G-code. */
 sealed interface PreviewUiState {
@@ -79,6 +86,11 @@ sealed interface PrintHostStatus {
 
 sealed interface PrepareIntent {
     data object Slice : PrepareIntent
+
+    data class Select(val instance: InstanceRef?) : PrepareIntent
+
+    /** Objects were moved or turned on the plate: earlier slicing results no longer match it. */
+    data object PlateEdited : PrepareIntent
 
     data object CancelSlice : PrepareIntent
 

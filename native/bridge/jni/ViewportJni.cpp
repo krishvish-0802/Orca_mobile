@@ -3,10 +3,18 @@
 // on any thread.
 #include <jni.h>
 
+#include <array>
+#include <cstdint>
+#include <exception>
+#include <map>
+#include <memory>
+#include <optional>
+#include <vector>
+
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
-#include "orca_engine/Project.hpp"
 #include "orca_engine/GCodePreview.hpp"
+#include "orca_engine/Project.hpp"
 #include "orca_viewport/Viewport.hpp"
 
 namespace orca::jni {
@@ -53,8 +61,25 @@ void native_set_bed(JNIEnv* env, jclass, jlong handle, jfloatArray outline, jflo
     v->set_bed(std::move(bed));
 }
 
-// Hands the project's triangles straight to the viewport, without a trip
-// through Kotlin.
+using orca::viewport::Part;
+using orca::viewport::PartMesh;
+using orca::viewport::PartRef;
+
+std::array<float, 16> to_float_matrix(const orca::engine::Placement& m)
+{
+    std::array<float, 16> out{};
+    for (int i = 0; i < 16; ++i)
+        out[i] = static_cast<float>(m[i]);
+    return out;
+}
+
+orca::engine::InstanceRef to_instance(const PartRef& ref)
+{
+    return {static_cast<std::size_t>(ref.object), static_cast<std::size_t>(ref.instance)};
+}
+
+// Hands the project's objects straight to the viewport, without a trip
+// through Kotlin: one mesh per object, one part per instance.
 void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
 {
     auto* v = viewport(handle);
@@ -62,20 +87,86 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
     if (v == nullptr)
         return;
     if (project == nullptr) {
-        v->clear_mesh();
+        v->clear_parts();
         return;
     }
-    orca::engine::RenderMesh source = project->render_mesh();
-    orca::viewport::Mesh mesh;
-    mesh.positions = std::move(source.positions);
-    mesh.normals = std::move(source.normals);
-    v->set_mesh(std::move(mesh));
+    std::map<std::size_t, std::shared_ptr<const PartMesh>> meshes;
+    std::vector<Part> parts;
+    for (const orca::engine::InstanceRef& ref : project->instances()) {
+        auto& mesh = meshes[ref.object];
+        if (!mesh)
+            mesh = std::make_shared<const PartMesh>(PartMesh{project->object_triangles(ref.object)});
+        parts.push_back({{static_cast<int>(ref.object), static_cast<int>(ref.instance)}, mesh,
+                         to_float_matrix(project->placement(ref))});
+    }
+    v->set_parts(std::move(parts));
 }
 
 void native_clear_mesh(JNIEnv*, jclass, jlong handle)
 {
     if (auto* v = viewport(handle))
-        v->clear_mesh();
+        v->clear_parts();
+}
+
+// The instance under a screen point as (object << 32 | instance), or -1.
+jlong native_pick(JNIEnv*, jclass, jlong handle, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return -1;
+    const std::optional<PartRef> hit = v->pick(x, y);
+    if (!hit)
+        return -1;
+    return (static_cast<jlong>(hit->object) << 32) | static_cast<jlong>(static_cast<uint32_t>(hit->instance));
+}
+
+void native_set_selection(JNIEnv*, jclass, jlong handle, jint object, jint instance)
+{
+    if (auto* v = viewport(handle))
+        v->set_selection(object < 0 ? std::nullopt : std::optional<PartRef>(PartRef{object, instance}));
+}
+
+// Slides the selected instance by the bed distance between two screen points.
+jboolean native_move_selection(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x0, jfloat y0, jfloat x1,
+                               jfloat y1)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const std::optional<PartRef> selection = v->selection();
+    const auto from = v->bed_point(x0, y0);
+    const auto to = v->bed_point(x1, y1);
+    if (!selection || !from || !to)
+        return JNI_FALSE;
+    try {
+        const orca::engine::InstanceRef ref = to_instance(*selection);
+        project->translate(ref, (*to)[0] - (*from)[0], (*to)[1] - (*from)[1]);
+        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        return JNI_TRUE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+}
+
+// Turns the selected instance about the vertical axis (counter-clockwise seen from above).
+jboolean native_rotate_selection(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat radians)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const std::optional<PartRef> selection = v->selection();
+    if (!selection)
+        return JNI_FALSE;
+    try {
+        const orca::engine::InstanceRef ref = to_instance(*selection);
+        project->rotate_z(ref, radians);
+        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        return JNI_TRUE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
 }
 
 // Shows a loaded G-code preview's toolpaths; they stay shared with the preview.
@@ -145,6 +236,10 @@ const JNINativeMethod kMethods[] = {
     {"nativeSetBed", "(J[FF)V", reinterpret_cast<void*>(native_set_bed)},
     {"nativeShowProject", "(JJ)V", reinterpret_cast<void*>(native_show_project)},
     {"nativeClearMesh", "(J)V", reinterpret_cast<void*>(native_clear_mesh)},
+    {"nativePick", "(JFF)J", reinterpret_cast<void*>(native_pick)},
+    {"nativeSetSelection", "(JII)V", reinterpret_cast<void*>(native_set_selection)},
+    {"nativeMoveSelection", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_selection)},
+    {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
     {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
     {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
     {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},

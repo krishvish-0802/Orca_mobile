@@ -7,6 +7,7 @@
 #include <cmath>
 #include <memory>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -14,6 +15,7 @@
 #include "BedGeometry.hpp"
 #include "Camera.hpp"
 #include "GlProgram.hpp"
+#include "Picking.hpp"
 #include "Shaders.hpp"
 #include "ToolpathRenderer.hpp"
 
@@ -92,21 +94,33 @@ constexpr Color kPlate{0.78f, 0.80f, 0.80f, 1.0f};
 constexpr Color kGrid{0.62f, 0.65f, 0.65f, 1.0f};
 constexpr Color kOutline{0.25f, 0.28f, 0.28f, 1.0f};
 constexpr Color kModel{0.00f, 0.55f, 0.55f, 1.0f};
+constexpr Color kSelected{0.95f, 0.55f, 0.10f, 1.0f};
+
+Eigen::Matrix4f to_matrix(const std::array<float, 16>& m)
+{
+    return Eigen::Map<const Eigen::Matrix4f>(m.data());   // column-major, like Eigen
+}
+
+// A part with what the viewport derives from it.
+struct PartState {
+    Part part;
+    Eigen::Matrix4f transform;
+    Eigen::AlignedBox3f local_box;
+};
 
 } // namespace
 
 struct Viewport::Impl {
-    std::mutex mutex;
+    mutable std::mutex mutex;
     Camera camera;
 
-    // Scene waiting to be uploaded on the GL thread.
+    // --- scene, guarded by `mutex` ---
     std::optional<Bed> pending_bed;
-    std::optional<Mesh> pending_mesh;
-    bool clear_mesh = false;
-    // CPU copy of the shown mesh, re-uploaded when Android recreates the GL context.
-    std::shared_ptr<const Mesh> shown_mesh;
-    // The pending mesh is that copy coming back after a context loss: keep the camera.
-    bool restoring_mesh = false;
+    BedGeometry bed_geometry;
+    bool has_bed = false;
+    std::vector<PartState> parts;
+    std::optional<PartRef> selection;
+    bool framed = false;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
     std::shared_ptr<const libvgcode::GCodeInputData> toolpaths;
@@ -115,34 +129,41 @@ struct Viewport::Impl {
     std::array<std::size_t, 2> layer_range{0, static_cast<std::size_t>(-1)};
     ToolpathColoring coloring = ToolpathColoring::FeatureType;
     bool toolpath_view_dirty = false;
-
-    // Bounds of what is shown, for fit().
-    BedGeometry bed_geometry;
-    bool has_bed = false;
-    Eigen::Vector3f mesh_min{0, 0, 0};
-    Eigen::Vector3f mesh_max{0, 0, 0};
-    bool has_mesh = false;
-    bool framed = false;
-
-    // GL state, touched only on the GL thread.
-    GlProgram lit_program;
-    GlProgram line_program;
-    GpuBatch plate, grid, outline, model;
-    ToolpathRenderer toolpath_renderer;
-    bool gl_ready = false;
-    // Toolpath bounds, known once uploaded.
     bool has_toolpaths = false;
     Eigen::Vector3f toolpaths_min{0, 0, 0};
     Eigen::Vector3f toolpaths_max{0, 0, 0};
 
+    // --- GL state, touched only on the GL thread ---
+    GlProgram lit_program;
+    GlProgram part_program;
+    GlProgram line_program;
+    GpuBatch plate, grid, outline;
+    // One vertex array per part mesh, shared by the instances that use it.
+    std::map<const PartMesh*, GpuBatch> part_batches;
+    ToolpathRenderer toolpath_renderer;
+    bool gl_ready = false;
+
+    Eigen::AlignedBox3f parts_box_locked() const
+    {
+        Eigen::AlignedBox3f box;
+        for (const PartState& state : parts) {
+            if (state.local_box.isEmpty())
+                continue;
+            for (int corner = 0; corner < 8; ++corner) {
+                const Eigen::Vector3f c = state.local_box.corner(static_cast<Eigen::AlignedBox3f::CornerType>(corner));
+                box.extend((state.transform * c.homogeneous()).head<3>());
+            }
+        }
+        return box;
+    }
+
     void frame_scene_locked()
     {
+        const Eigen::AlignedBox3f parts_box = parts_box_locked();
         if (has_toolpaths) {
-            const Eigen::Vector3f center = (toolpaths_min + toolpaths_max) * 0.5f;
-            camera.frame(center, (toolpaths_max - toolpaths_min).norm() * 0.5f);
-        } else if (has_mesh) {
-            const Eigen::Vector3f center = (mesh_min + mesh_max) * 0.5f;
-            camera.frame(center, (mesh_max - mesh_min).norm() * 0.5f);
+            camera.frame((toolpaths_min + toolpaths_max) * 0.5f, (toolpaths_max - toolpaths_min).norm() * 0.5f);
+        } else if (!parts_box.isEmpty()) {
+            camera.frame(parts_box.center(), parts_box.diagonal().norm() * 0.5f);
         } else if (has_bed) {
             const Eigen::Vector3f center((bed_geometry.min_x + bed_geometry.max_x) * 0.5f,
                                          (bed_geometry.min_y + bed_geometry.max_y) * 0.5f, 0.0f);
@@ -150,7 +171,28 @@ struct Viewport::Impl {
                                                    bed_geometry.max_y - bed_geometry.min_y);
             camera.frame(center, radius);
         }
-        framed = has_toolpaths || has_mesh || has_bed;
+        framed = has_toolpaths || !parts_box.isEmpty() || has_bed;
+    }
+
+    // GL thread: vertex arrays for exactly the meshes the parts use.
+    void sync_part_batches(const std::vector<PartState>& shown)
+    {
+        std::map<const PartMesh*, GpuBatch> next;
+        for (const PartState& state : shown) {
+            const PartMesh* mesh = state.part.mesh.get();
+            if (mesh == nullptr || next.count(mesh) != 0)
+                continue;
+            auto existing = part_batches.find(mesh);
+            if (existing != part_batches.end()) {
+                next.emplace(mesh, existing->second);
+                existing->second.abandon();   // ownership moved to `next`
+            } else {
+                next[mesh].upload(mesh->positions, nullptr);
+            }
+        }
+        for (auto& [mesh, batch] : part_batches)
+            batch.release();
+        part_batches = std::move(next);
     }
 };
 
@@ -164,27 +206,26 @@ void Viewport::on_surface_created()
     // renderer goes first, while nothing of ours exists in the new context yet.
     d.toolpath_renderer.on_context_created();
     d.lit_program.abandon();
+    d.part_program.abandon();
     d.line_program.abandon();
     d.plate.abandon();
     d.grid.abandon();
     d.outline.abandon();
-    d.model.abandon();
+    for (auto& [mesh, batch] : d.part_batches)
+        batch.abandon();
+    d.part_batches.clear();   // re-uploaded at the next frame
 
     std::string error;
     d.gl_ready = d.lit_program.build(shaders::kLitVertex, shaders::kLitFragment, error) &&
+                 d.part_program.build(shaders::kPartVertex, shaders::kPartFragment, error) &&
                  d.line_program.build(shaders::kLineVertex, shaders::kLineFragment, error);
     if (!d.gl_ready)
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Shader setup failed: %s", error.c_str());
 
-    // Re-upload what was shown before the context was lost.
     std::lock_guard<std::mutex> lock(d.mutex);
     if (d.has_bed && !d.pending_bed) {
         // The geometry is kept; an empty Bed re-uploads it in draw().
         d.pending_bed.emplace();
-    }
-    if (d.shown_mesh && !d.pending_mesh) {
-        d.pending_mesh = *d.shown_mesh;
-        d.restoring_mesh = true;
     }
     if (d.toolpaths) {
         d.toolpaths_restoring = !d.toolpaths_dirty;
@@ -204,6 +245,9 @@ void Viewport::draw()
 {
     Impl& d = *m_impl;
     Camera camera;
+    std::vector<PartState> parts;
+    std::optional<PartRef> selection;
+    bool show_toolpaths = false;
     {
         std::lock_guard<std::mutex> lock(d.mutex);
         if (d.pending_bed) {
@@ -215,30 +259,6 @@ void Viewport::draw()
             d.grid.upload(d.bed_geometry.grid_lines, nullptr);
             d.outline.upload(d.bed_geometry.outline_lines, nullptr);
             d.pending_bed.reset();
-        }
-        if (d.clear_mesh) {
-            d.model.release();
-            d.has_mesh = false;
-            d.shown_mesh.reset();
-            d.clear_mesh = false;
-        }
-        if (d.pending_mesh) {
-            d.model.upload(d.pending_mesh->positions, &d.pending_mesh->normals);
-            const auto& p = d.pending_mesh->positions;
-            constexpr float inf = std::numeric_limits<float>::infinity();
-            d.mesh_min = {inf, inf, inf};
-            d.mesh_max = {-inf, -inf, -inf};
-            for (size_t i = 0; i + 2 < p.size(); i += 3)
-                for (int c = 0; c < 3; ++c) {
-                    d.mesh_min[c] = std::min(d.mesh_min[c], p[i + c]);
-                    d.mesh_max[c] = std::max(d.mesh_max[c], p[i + c]);
-                }
-            d.has_mesh = !p.empty();
-            d.shown_mesh = std::make_shared<const Mesh>(std::move(*d.pending_mesh));
-            d.pending_mesh.reset();
-            if (!d.restoring_mesh)
-                d.frame_scene_locked();
-            d.restoring_mesh = false;
         }
         if (d.toolpaths_dirty) {
             d.toolpaths_dirty = false;
@@ -264,41 +284,55 @@ void Viewport::draw()
         if (!d.framed)
             d.frame_scene_locked();
         camera = d.camera;
+        parts = d.parts;
+        selection = d.selection;
+        show_toolpaths = d.has_toolpaths;
     }
 
     glClearColor(kBackground.r, kBackground.g, kBackground.b, kBackground.a);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     if (!d.gl_ready)
         return;
+    d.sync_part_batches(parts);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
     const Eigen::Matrix4f view = camera.view();
     const Eigen::Matrix4f projection = camera.projection();
-    const Eigen::Matrix4f mvp = projection * view;
+    const Eigen::Matrix4f view_proj = projection * view;
     const Eigen::Vector3f eye = camera.eye();
 
     d.lit_program.use();
-    glUniformMatrix4fv(d.lit_program.uniform("u_mvp"), 1, GL_FALSE, mvp.data());
-    const GLint lit_color = d.lit_program.uniform("u_color");
+    glUniformMatrix4fv(d.lit_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
     glUniform3f(d.lit_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
-    glUniform4f(lit_color, kPlate.r, kPlate.g, kPlate.b, kPlate.a);
+    glUniform4f(d.lit_program.uniform("u_color"), kPlate.r, kPlate.g, kPlate.b, kPlate.a);
     d.plate.draw(GL_TRIANGLES);
 
     d.line_program.use();
-    glUniformMatrix4fv(d.line_program.uniform("u_mvp"), 1, GL_FALSE, mvp.data());
+    glUniformMatrix4fv(d.line_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
     const GLint line_color = d.line_program.uniform("u_color");
     glUniform4f(line_color, kGrid.r, kGrid.g, kGrid.b, kGrid.a);
     d.grid.draw(GL_LINES);
     glUniform4f(line_color, kOutline.r, kOutline.g, kOutline.b, kOutline.a);
     d.outline.draw(GL_LINES);
 
-    if (d.has_toolpaths) {
+    if (show_toolpaths) {
         d.toolpath_renderer.render(view, projection);
-    } else {
-        d.lit_program.use();
-        glUniform4f(lit_color, kModel.r, kModel.g, kModel.b, kModel.a);
-        d.model.draw(GL_TRIANGLES);
+        return;
+    }
+    d.part_program.use();
+    glUniformMatrix4fv(d.part_program.uniform("u_view_proj"), 1, GL_FALSE, view_proj.data());
+    glUniform3f(d.part_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
+    const GLint model_matrix = d.part_program.uniform("u_model");
+    const GLint part_color = d.part_program.uniform("u_color");
+    for (const PartState& state : parts) {
+        auto batch = d.part_batches.find(state.part.mesh.get());
+        if (batch == d.part_batches.end())
+            continue;
+        const Color& c = selection && *selection == state.part.ref ? kSelected : kModel;
+        glUniform4f(part_color, c.r, c.g, c.b, c.a);
+        glUniformMatrix4fv(model_matrix, 1, GL_FALSE, state.transform.data());
+        batch->second.draw(GL_TRIANGLES);
     }
 }
 
@@ -309,19 +343,95 @@ void Viewport::set_bed(Bed bed)
     m_impl->framed = false;
 }
 
-void Viewport::set_mesh(Mesh mesh)
+void Viewport::set_parts(std::vector<Part> parts)
 {
+    std::map<const PartMesh*, Eigen::AlignedBox3f> boxes;
+    std::vector<PartState> states;
+    states.reserve(parts.size());
+    for (Part& part : parts) {
+        if (!part.mesh)
+            continue;
+        auto box = boxes.find(part.mesh.get());
+        if (box == boxes.end())
+            box = boxes.emplace(part.mesh.get(), bounds_of(*part.mesh)).first;
+        const Eigen::Matrix4f transform = to_matrix(part.transform);
+        states.push_back({std::move(part), transform, box->second});
+    }
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    m_impl->pending_mesh = std::move(mesh);
-    m_impl->clear_mesh = false;
-    m_impl->restoring_mesh = false;
+    Impl& d = *m_impl;
+    d.parts = std::move(states);
+    if (d.selection && std::none_of(d.parts.begin(), d.parts.end(),
+                                    [&](const PartState& s) { return s.part.ref == *d.selection; }))
+        d.selection.reset();
+    d.frame_scene_locked();
 }
 
-void Viewport::clear_mesh()
+void Viewport::clear_parts()
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    m_impl->pending_mesh.reset();
-    m_impl->clear_mesh = true;
+    m_impl->parts.clear();
+    m_impl->selection.reset();
+}
+
+void Viewport::set_part_transform(const PartRef& ref, const std::array<float, 16>& transform)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    for (PartState& state : m_impl->parts)
+        if (state.part.ref == ref) {
+            state.part.transform = transform;
+            state.transform = to_matrix(transform);
+        }
+}
+
+void Viewport::set_selection(std::optional<PartRef> selection)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->selection = selection;
+}
+
+std::optional<PartRef> Viewport::selection() const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->selection;
+}
+
+std::optional<PartRef> Viewport::pick(float x_px, float y_px) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return std::nullopt;   // the preview shows no parts
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        parts = m_impl->parts;
+    }
+    std::optional<PartRef> best;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts) {
+        const std::optional<float> t = intersect(*state.part.mesh, state.local_box, state.transform, origin, direction);
+        if (t && *t < nearest) {
+            nearest = *t;
+            best = state.part.ref;
+        }
+    }
+    return best;
+}
+
+std::optional<std::array<float, 2>> Viewport::bed_point(float x_px, float y_px) const
+{
+    Eigen::Vector3f origin, direction;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+    }
+    if (std::abs(direction.z()) < 1e-6f)
+        return std::nullopt;
+    const float t = -origin.z() / direction.z();
+    if (t <= 0)
+        return std::nullopt;
+    const Eigen::Vector3f hit = origin + direction * t;
+    return std::array<float, 2>{hit.x(), hit.y()};
 }
 
 void Viewport::set_toolpaths(std::shared_ptr<const libvgcode::GCodeInputData> toolpaths)

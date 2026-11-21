@@ -73,6 +73,18 @@ void Camera::frame(const Vec3& center, float radius)
     m_distance = std::clamp(std::max(radius, 1.0f) / std::sin(half_fov) * 1.1f, kMinDistance, kMaxDistance);
 }
 
+void Camera::ray(float x_px, float y_px, Vec3& origin, Vec3& direction) const
+{
+    const Vec3 f = forward();
+    const Vec3 right = f.cross(Vec3::UnitZ()).normalized();
+    const Vec3 up = right.cross(f);
+    // On the plane through the target, a pixel spans world_per_pixel().
+    const float wpp = world_per_pixel();
+    const Vec3 on_plane = m_target + right * (x_px - m_width * 0.5f) * wpp - up * (y_px - m_height * 0.5f) * wpp;
+    origin = eye();
+    direction = (on_plane - origin).normalized();
+}
+
 Camera::Mat4 Camera::view() const
 {
     const Vec3 e = eye();

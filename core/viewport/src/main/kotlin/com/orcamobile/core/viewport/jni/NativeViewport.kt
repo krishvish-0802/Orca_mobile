@@ -22,6 +22,18 @@ internal object NativeViewport {
 
     @JvmStatic external fun nativeClearMesh(handle: Long)
 
+    /** The instance under a screen point as (object shl 32 or instance), or -1. */
+    @JvmStatic external fun nativePick(handle: Long, x: Float, y: Float): Long
+
+    /** Highlights an instance; a negative [objectIndex] clears the selection. */
+    @JvmStatic external fun nativeSetSelection(handle: Long, objectIndex: Int, instanceIndex: Int)
+
+    /** Slides the selected instance of [projectHandle] by the bed distance between two screen points. */
+    @JvmStatic external fun nativeMoveSelection(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
+
+    /** Turns the selected instance about the vertical axis, counter-clockwise seen from above. */
+    @JvmStatic external fun nativeRotateSelection(handle: Long, projectHandle: Long, radians: Float): Boolean
+
     /** Shows the toolpaths of the G-code preview with native handle [previewHandle] instead of the model. */
     @JvmStatic external fun nativeShowPreview(handle: Long, previewHandle: Long)
 

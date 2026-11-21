@@ -54,6 +54,8 @@ class PrepareViewModel @Inject constructor(
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
+            is PrepareIntent.Select -> _state.update { it.copy(selection = intent.instance) }
+            PrepareIntent.PlateEdited -> onPlateEdited()
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
                 it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)
@@ -116,6 +118,21 @@ class PrepareViewModel @Inject constructor(
                 _state.update { it.copy(slice = slice) }
                 if (slice is SliceUiState.Done) loadPreview(slice.gcodePath)
             }
+        }
+    }
+
+    private fun onPlateEdited() {
+        if (sliceJob?.isActive == true) return   // the running slice took its snapshot already
+        val slice = _state.value.slice
+        if (slice is SliceUiState.Idle || slice is SliceUiState.Running) return
+        releasePreview()
+        _state.update {
+            it.copy(
+                slice = SliceUiState.Idle,
+                preview = PreviewUiState.None,
+                showingPreview = false,
+                printHost = it.printHost.copy(status = PrintHostStatus.Idle),
+            )
         }
     }
 

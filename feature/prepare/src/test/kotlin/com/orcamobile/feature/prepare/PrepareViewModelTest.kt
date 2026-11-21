@@ -16,6 +16,7 @@ import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
@@ -224,5 +225,19 @@ class PrepareViewModelTest {
         val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
         vm.onIntent(PrepareIntent.ShowPreview(true))
         assertEquals(false, vm.state.value.showingPreview)
+    }
+
+    @Test
+    fun `editing the plate after slicing drops the stale result`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.Slice)
+
+        vm.onIntent(PrepareIntent.PlateEdited)
+        val state = vm.state.value
+        assertEquals(SliceUiState.Idle, state.slice)
+        assertEquals(PreviewUiState.None, state.preview)
+        assertEquals(listOf(PreviewId("preview1")), previews.released)
+        assertEquals(InstanceRef(0, 0), state.selection)
     }
 }

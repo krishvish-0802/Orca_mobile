@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <optional>
 #include <vector>
 
 namespace libvgcode { struct GCodeInputData; }
@@ -15,11 +16,24 @@ struct Bed {
     float max_height = 0;
 };
 
-// Triangles to draw, world coordinates in mm: three vertices per triangle,
-// with a normal per vertex.
-struct Mesh {
+// An object's triangles in its own coordinates (mm): x, y, z per vertex, three
+// vertices per triangle. Shared by every instance of the object.
+struct PartMesh {
     std::vector<float> positions;
-    std::vector<float> normals;
+};
+
+// Identifies an instance on the plate: object and instance index, as the engine numbers them.
+struct PartRef {
+    int object = 0;
+    int instance = 0;
+    bool operator==(const PartRef& other) const { return object == other.object && instance == other.instance; }
+};
+
+// One instance to draw: its object's mesh and its placement, column-major 4x4.
+struct Part {
+    PartRef ref;
+    std::shared_ptr<const PartMesh> mesh;
+    std::array<float, 16> transform{};
 };
 
 // What colors the toolpaths. Values are shared with the app (ToolpathColoring.kt).
@@ -53,8 +67,19 @@ public:
 
     // --- any thread ---
     void set_bed(Bed bed);
-    void set_mesh(Mesh mesh);
-    void clear_mesh();
+    // Replaces the instances on the plate (and drops a selection that no longer exists).
+    void set_parts(std::vector<Part> parts);
+    void clear_parts();
+    // Moves an instance already on the plate.
+    void set_part_transform(const PartRef& ref, const std::array<float, 16>& transform);
+    // Highlights one instance, or none.
+    void set_selection(std::optional<PartRef> selection);
+    std::optional<PartRef> selection() const;
+
+    // The instance under a screen point, nearest first; none if the point hits no part.
+    std::optional<PartRef> pick(float x_px, float y_px) const;
+    // Where a screen point lands on the bed plane (z = 0), if it does.
+    std::optional<std::array<float, 2>> bed_point(float x_px, float y_px) const;
 
     // Sliced toolpaths, drawn instead of the model while set. Shared: the caller
     // may keep its copy, nothing here modifies it.

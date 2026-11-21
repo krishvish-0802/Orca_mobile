@@ -1,5 +1,6 @@
 package com.orcamobile.feature.prepare
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -78,8 +79,23 @@ fun PrepareScreen(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onBa
                     preview = preview?.summary?.id,
                     layers = preview?.layers,
                     coloring = preview?.coloring ?: ToolpathColoring.FeatureType,
+                    selection = state.selection,
+                    onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
+                    onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     modifier = Modifier.fillMaxSize(),
                 )
+                val selectedName = state.selectedObjectName
+                if (preview == null && selectedName != null) {
+                    Text(
+                        stringResource(R.string.prepare_selection_hint, selectedName),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(8.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), MaterialTheme.shapes.small)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
                 if (state.loading || state.preview is PreviewUiState.Loading) {
                     CircularProgressIndicator(Modifier.align(Alignment.Center))
                 }

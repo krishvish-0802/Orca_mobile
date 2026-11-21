@@ -182,7 +182,7 @@ SliceOutcome run_slice(const Project& project, const SliceRequest& request, Prog
                        CancelToken& cancel, PresetCatalog* catalog)
 {
     // Slice a copy: the project stays editable while (and after) it slices.
-    Slic3r::Model model = project.model();
+    Slic3r::Model model = project.model_copy();
     return slice_model(model, false, request, progress, cancel, catalog);
 }
 

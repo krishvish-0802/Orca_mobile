@@ -35,6 +35,36 @@ void main() {
 }
 )";
 
+// Model parts: object coordinates placed by u_model. Flat shading from screen
+// derivatives, so any placement (mirrored, scaled) lights correctly without normals.
+inline constexpr const char* kPartVertex = R"(#version 300 es
+uniform mat4 u_view_proj;
+uniform mat4 u_model;
+layout(location = 0) in vec3 a_position;
+out highp vec3 v_world;
+void main() {
+    vec4 world = u_model * vec4(a_position, 1.0);
+    v_world = world.xyz;
+    gl_Position = u_view_proj * world;
+}
+)";
+
+inline constexpr const char* kPartFragment = R"(#version 300 es
+precision highp float;
+uniform vec4 u_color;
+uniform vec3 u_eye;
+in vec3 v_world;
+out vec4 frag_color;
+void main() {
+    vec3 n = normalize(cross(dFdx(v_world), dFdy(v_world)));
+    if (dot(n, u_eye - v_world) < 0.0) n = -n;
+    float key = max(dot(n, normalize(vec3(-0.4, -0.6, 0.7))), 0.0);
+    float fill = max(dot(n, normalize(vec3(0.6, 0.3, 0.4))), 0.0);
+    float light = 0.32 + 0.55 * key + 0.25 * fill;
+    frag_color = vec4(u_color.rgb * light, u_color.a);
+}
+)";
+
 // Unlit lines (bed grid and outline).
 inline constexpr const char* kLineVertex = R"(#version 300 es
 uniform mat4 u_mvp;
