@@ -6,7 +6,7 @@ The goal is to slice on the phone itself: load a model, pick printer, filament a
 
 **Try it:** on an Android 10+ phone, download and install [orca-mobile-arm64-v8a.apk](https://github.com/krishvish-0802/Orca_mobile/releases/download/latest-build/orca-mobile-arm64-v8a.apk), the latest build of `main` that passed CI. Later builds install over it.
 
-> **Status: M1 (first slice on the phone) in progress.** Working today: OrcaSlicer's system printer, process and filament profiles; opening STL, 3MF, OBJ and STEP files; a 3D plate with touch gestures (orbit, pan, pinch zoom, tap to select, drag to move, twist to turn); slicing on the phone; a G-code preview drawn by OrcaSlicer's own renderer, with a layer range and coloring by line type, speed, height and more; and sending the G-code to Klipper (Moonraker) or OctoPrint. See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
+> **Status: M1 (first slice on the phone) in progress.** Working today: OrcaSlicer's system printer, process and filament profiles; opening STL, 3MF, OBJ and STEP files; a 3D plate with touch gestures (orbit, pan, pinch zoom, tap to select, drag to move, twist to turn); slicing on the phone; a G-code preview drawn by OrcaSlicer's own renderer, with a layer range and coloring by line type, speed, height and more; every print, filament and printer setting from OrcaSlicer's desktop tabs (same pages and groups, Simple / Advanced / Expert, search), changeable from the plate; and sending the G-code to Klipper (Moonraker), OctoPrint or an Elegoo Centauri Carbon (ElegooLink). See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
 
 ## How it fits together
 

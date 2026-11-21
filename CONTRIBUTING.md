@@ -60,7 +60,7 @@ OrcaSlicer is a pinned git submodule. To update it:
 1. Bump `third_party/OrcaSlicer` to the new commit.
 2. Compare upstream's top-level `CMakeLists.txt` against `native/cmake/OrcaUpstream.cmake`, and its `deps/` recipes against `deps/CMakeLists.txt`.
 3. Run the `Native engine` workflow and the parity tests.
-4. Regenerate anything that comes from upstream sources (for example `tools/extract_tab_layout.py`).
+4. Regenerate anything that comes from upstream sources. The settings layout: `python3 tools/extract_tab_layout.py third_party/OrcaSlicer/src/slic3r/GUI/Tab.cpp feature/settings/src/main/assets/settings_layout.json <pin>` (CI fails if it is out of date).
 
 ## Commits and pull requests
 
