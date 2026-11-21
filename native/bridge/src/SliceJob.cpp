@@ -151,10 +151,13 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
 
         print.process();
         Slic3r::GCodeProcessorResult result;
-        print.export_gcode(request.output_gcode_path, &result, nullptr);
+        // Upstream creates the output's parent folder and expects it to exist or be
+        // named; a bare file name has an empty parent, so resolve it first.
+        const std::string gcode_path = std::filesystem::absolute(request.output_gcode_path).string();
+        print.export_gcode(gcode_path, &result, nullptr);
 
         outcome.status = SliceOutcome::Status::Succeeded;
-        outcome.statistics = collect_statistics(print, result, request.output_gcode_path);
+        outcome.statistics = collect_statistics(print, result, gcode_path);
     } catch (const Slic3r::CanceledException&) {
         outcome.status = SliceOutcome::Status::Canceled;
     } catch (const std::exception& e) {
