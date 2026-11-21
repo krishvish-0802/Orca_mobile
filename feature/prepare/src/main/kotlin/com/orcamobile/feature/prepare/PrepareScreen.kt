@@ -266,7 +266,7 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
             value = host.address,
             onValueChange = { onIntent(PrepareIntent.SetHostAddress(it)) },
             label = { Text(stringResource(R.string.prepare_host_address)) },
-            placeholder = { Text("192.168.1.50:7125") },
+            placeholder = { Text("192.168.1.50") },
             singleLine = true,
             enabled = !busy,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),

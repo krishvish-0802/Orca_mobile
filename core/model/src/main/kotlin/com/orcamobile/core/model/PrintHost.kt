@@ -4,6 +4,8 @@ package com.orcamobile.core.model
 enum class PrintHostType(val displayName: String) {
     MOONRAKER("Klipper (Moonraker)"),
     OCTOPRINT("OctoPrint"),
+    /** Elegoo Centauri Carbon: HTTP upload on port 80, SDCP over WebSocket on 3030 to start. */
+    ELEGOO_LINK("Elegoo (ElegooLink)"),
 }
 
 /**

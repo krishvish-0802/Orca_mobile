@@ -3,6 +3,7 @@ package com.orcamobile.core.printer.di
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.printer.DefaultPrintHostClientFactory
 import com.orcamobile.core.printer.PrintHostAdapter
+import com.orcamobile.core.printer.elegoo.ElegooLinkAdapter
 import com.orcamobile.core.printer.moonraker.MoonrakerAdapter
 import com.orcamobile.core.printer.octoprint.OctoPrintAdapter
 import dagger.Binds
@@ -28,6 +29,10 @@ internal interface PrinterModule {
     @Binds
     @IntoSet
     fun octoPrint(adapter: OctoPrintAdapter): PrintHostAdapter
+
+    @Binds
+    @IntoSet
+    fun elegooLink(adapter: ElegooLinkAdapter): PrintHostAdapter
 }
 
 @Module
