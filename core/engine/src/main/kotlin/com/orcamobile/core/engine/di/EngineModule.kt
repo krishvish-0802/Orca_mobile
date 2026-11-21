@@ -2,7 +2,9 @@ package com.orcamobile.core.engine.di
 
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
+import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.engine.NativePresetCatalog
+import com.orcamobile.core.engine.NativeProjectRepository
 import com.orcamobile.core.engine.NativeSlicingEngine
 import dagger.Binds
 import dagger.Module
@@ -17,4 +19,7 @@ internal interface EngineModule {
 
     @Binds
     fun presetCatalog(impl: NativePresetCatalog): PresetCatalog
+
+    @Binds
+    fun projects(impl: NativeProjectRepository): ProjectRepository
 }

@@ -21,6 +21,8 @@ class AndroidFeatureConventionPlugin : Plugin<Project> {
             add("implementation", libs.library("androidx-lifecycle-viewmodel-compose"))
             add("implementation", libs.library("androidx-hilt-navigation-compose"))
             add("implementation", libs.library("kotlinx-coroutines-android"))
+            add("implementation", libs.library("compose-material-icons-core"))
+            add("implementation", libs.library("androidx-activity-compose"))
             add("testImplementation", libs.library("kotlinx-coroutines-test"))
             add("testImplementation", libs.library("turbine"))
         }

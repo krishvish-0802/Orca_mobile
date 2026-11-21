@@ -5,7 +5,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import com.orcamobile.core.designsystem.theme.OrcaTheme
-import com.orcamobile.feature.home.HomeRoute
+import com.orcamobile.app.navigation.OrcaNavHost
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -15,7 +15,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             OrcaTheme {
-                HomeRoute()
+                OrcaNavHost()
             }
         }
     }

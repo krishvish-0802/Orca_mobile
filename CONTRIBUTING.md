@@ -15,7 +15,7 @@ everything may use core:common and core:model
 ```
 
 - **`core:model` and `core:domain` are plain Kotlin** (no Android imports). Domain code is testable on the JVM and could later be shared with other platforms.
-- **Features depend on interfaces, never on implementations.** A feature module may use `core:domain`, `core:model`, `core:common` and `core:designsystem`. It must not depend on `core:data`, `core:engine` or another feature. The `orca.android.feature` convention plugin sets this up.
+- **Features depend on interfaces, never on implementations.** A feature module may use `core:domain`, `core:model`, `core:common` and `core:designsystem`, plus `core:viewport` (the 3D plate component). It must not depend on `core:data`, `core:engine`, `core:printer` or another feature. The `orca.android.feature` convention plugin sets this up.
 - **`app` is the composition root.** It is the only module that depends on implementation modules, and Hilt binds them there.
 - **Features don't depend on each other.** Shared UI goes in `core:designsystem` and shared logic in `core:domain`.
 

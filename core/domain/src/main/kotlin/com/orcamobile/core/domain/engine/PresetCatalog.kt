@@ -1,5 +1,6 @@
 package com.orcamobile.core.domain.engine
 
+import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 
 /**
@@ -13,4 +14,6 @@ interface PresetCatalog {
     suspend fun printers(vendor: String): Result<List<String>>
 
     suspend fun compatiblePresets(vendor: String, printer: String): Result<CompatiblePresets>
+
+    suspend fun bedShape(vendor: String, printer: String): Result<BedShape>
 }

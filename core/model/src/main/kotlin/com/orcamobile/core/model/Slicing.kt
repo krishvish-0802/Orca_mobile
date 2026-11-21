@@ -1,9 +1,18 @@
 package com.orcamobile.core.model
 
+/** What a slice reads its objects from. */
+sealed interface SliceSource {
+    /** A model file (STL/3MF/OBJ/STEP), centered on the bed for the slice. */
+    data class File(val path: String) : SliceSource
+
+    /** A loaded project, sliced as placed. */
+    data class Project(val id: ProjectId) : SliceSource
+}
+
 /**
  * One slicing job.
  *
- * @property modelPath absolute path to an STL/3MF/OBJ/STEP file.
+ * @property source the model file or loaded project to slice.
  * @property outputGcodePath where the engine writes G-code.
  * @property presets system presets to slice with; null slices with the engine
  *   defaults, which describe no real printer.
@@ -11,7 +20,7 @@ package com.orcamobile.core.model
  *   over the presets or the defaults, e.g. `"layer_height" to "0.2"`.
  */
 data class SliceRequest(
-    val modelPath: String,
+    val source: SliceSource,
     val outputGcodePath: String,
     val presets: PresetSelection? = null,
     val configOverrides: Map<String, String> = emptyMap(),

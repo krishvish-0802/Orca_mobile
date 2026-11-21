@@ -3,10 +3,12 @@ package com.orcamobile.core.engine
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.engine.jni.NativeEngine
+import com.orcamobile.core.engine.jni.NativeProgressListener
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import com.orcamobile.core.model.SliceResult
+import com.orcamobile.core.model.SliceSource
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,7 @@ import javax.inject.Singleton
 @Singleton
 class NativeSlicingEngine @Inject constructor(
     private val environment: EngineEnvironment,
+    private val projects: NativeProjectRegistry,
     private val dispatchers: CoroutineDispatchers,
 ) : SlicingEngine {
 
@@ -46,15 +49,19 @@ class NativeSlicingEngine @Inject constructor(
                         environment.ensureInitialized()
                         val keys = request.configOverrides.keys.toTypedArray()
                         val values = keys.map { request.configOverrides.getValue(it) }.toTypedArray()
-                        val payload = NativeEngine.nativeSlice(
-                            request.modelPath,
-                            request.outputGcodePath,
-                            EngineJson.encode(request.presets),
-                            keys,
-                            values,
-                            { percent, message -> trySend(SliceEvent.Progress(percent, message)) },
-                            token,
-                        )
+                        val presets = EngineJson.encode(request.presets)
+                        val listener = NativeProgressListener { percent, message ->
+                            trySend(SliceEvent.Progress(percent, message))
+                        }
+                        val payload = when (val source = request.source) {
+                            is SliceSource.File -> NativeEngine.nativeSlice(
+                                source.path, request.outputGcodePath, presets, keys, values, listener, token,
+                            )
+                            is SliceSource.Project -> NativeEngine.nativeSliceProject(
+                                projects.handleOf(source.id) ?: throw EngineException("The model is no longer loaded"),
+                                request.outputGcodePath, presets, keys, values, listener, token,
+                            )
+                        }
                         EngineJson.sliceResult(payload, request.outputGcodePath)
                     } catch (e: CancellationException) {
                         throw e

@@ -3,3 +3,4 @@
 -keep class com.orcamobile.core.engine.jni.NativeEngine { native <methods>; }
 -keep interface com.orcamobile.core.engine.jni.NativeProgressListener { *; }
 -keep class * implements com.orcamobile.core.engine.jni.NativeProgressListener { void onProgress(int, java.lang.String); }
+-keep class com.orcamobile.core.viewport.jni.NativeViewport { native <methods>; }

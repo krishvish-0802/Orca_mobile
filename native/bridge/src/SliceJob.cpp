@@ -5,6 +5,7 @@
 
 #include "ConfigBuilder.hpp"
 #include "PresetCatalogImpl.hpp"
+#include "orca_engine/Project.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
@@ -116,15 +117,19 @@ Slic3r::DynamicPrintConfig base_config(const SliceRequest& request, PresetCatalo
 
 } // namespace
 
-SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel, PresetCatalog* catalog)
+namespace {
+
+// The common pipeline: config, apply, validate, process, export.
+SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRequest& request,
+                         ProgressSink& progress, CancelToken& cancel, PresetCatalog* catalog)
 {
     SliceOutcome outcome;
     try {
         const int used_filaments = request.presets ? static_cast<int>(request.presets->filaments.size()) : 1;
         Slic3r::DynamicPrintConfig config =
             ConfigBuilder::build(base_config(request, catalog), request.config_overrides, used_filaments);
-        Slic3r::Model model = load_model(request.model_path);
-        model.center_instances_around_point(bed_center(config));
+        if (center_on_bed)
+            model.center_instances_around_point(bed_center(config));
 
         Slic3r::Print print;
         print.set_status_callback([&progress](const Slic3r::PrintBase::SlicingStatus& status) {
@@ -157,6 +162,28 @@ SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, Canc
         outcome.error = e.what();
     }
     return outcome;
+}
+
+} // namespace
+
+SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel, PresetCatalog* catalog)
+{
+    try {
+        Slic3r::Model model = load_model(request.model_path);
+        return slice_model(model, true, request, progress, cancel, catalog);
+    } catch (const std::exception& e) {
+        SliceOutcome outcome;
+        outcome.error = e.what();
+        return outcome;
+    }
+}
+
+SliceOutcome run_slice(const Project& project, const SliceRequest& request, ProgressSink& progress,
+                       CancelToken& cancel, PresetCatalog* catalog)
+{
+    // Slice a copy: the project stays editable while (and after) it slices.
+    Slic3r::Model model = project.model();
+    return slice_model(model, false, request, progress, cancel, catalog);
 }
 
 } // namespace orca::engine

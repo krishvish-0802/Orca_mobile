@@ -7,6 +7,7 @@
 
 #include "orca_engine/EngineInfo.hpp"
 #include "orca_engine/PresetCatalog.hpp"
+#include "orca_engine/Project.hpp"
 #include "orca_engine/SliceJob.hpp"
 
 namespace orca::engine::json {
@@ -17,6 +18,8 @@ std::string to_json(const EngineInfo& info);
 std::string to_json(const SliceOutcome& outcome);
 std::string to_json(const std::vector<std::string>& names);
 std::string to_json(const CompatiblePresets& presets);
+std::string to_json(const BedShape& bed);
+std::string to_json(const std::vector<ObjectSummary>& objects);
 
 // Parses {"vendor":..,"printer":..,"process":..,"filaments":[..]}. An empty
 // payload means no presets. Throws std::runtime_error on malformed input.

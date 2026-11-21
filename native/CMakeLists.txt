@@ -6,7 +6,7 @@
 #   ORCA_DEPS_PREFIX  Install prefix produced by deps/scripts/build_deps.sh
 #
 # Outputs:
-#   liborca_engine.so  JNI library loaded by :core:engine
+#   liborca_engine.so  JNI library loaded by :core:engine (engine + 3D viewport)
 #   orca_slice_cli     Command-line harness that slices one model on a device
 cmake_minimum_required(VERSION 3.22)
 project(OrcaMobileNative LANGUAGES C CXX)
@@ -56,4 +56,7 @@ endif ()
 
 include(cmake/OrcaUpstream.cmake)
 
+if (ANDROID)
+    add_subdirectory(viewport)
+endif ()
 add_subdirectory(bridge)

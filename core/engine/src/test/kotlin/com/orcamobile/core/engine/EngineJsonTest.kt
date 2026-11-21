@@ -1,6 +1,8 @@
 package com.orcamobile.core.engine
 
+import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SliceResult
@@ -70,5 +72,24 @@ class EngineJsonTest {
             EngineJson.encode(selection),
         )
         assertEquals("", EngineJson.encode(null))
+    }
+
+    @Test
+    fun `decodes a bed shape`() {
+        val payload = """{"outline":[[0,0],[235,0],[235,235],[0,235]],"maxHeight":250.0}"""
+        assertEquals(
+            BedShape(listOf(0.0 to 0.0, 235.0 to 0.0, 235.0 to 235.0, 0.0 to 235.0), 250.0),
+            EngineJson.bedShape(payload).getOrThrow(),
+        )
+        assertIs<EngineException>(EngineJson.bedShape("""{"error":"Unknown printer preset: X"}""").exceptionOrNull())
+    }
+
+    @Test
+    fun `decodes a loaded project with its handle as a string`() {
+        val payload = """{"handle":"546054451200","objects":[{"name":"3DBenchy","instances":1,"triangles":225154,""" +
+            """"size":[60.0,31.0,48.0]}]}"""
+        val loaded = EngineJson.loadedProject(payload).getOrThrow()
+        assertEquals(546054451200L, loaded.handle)
+        assertEquals(listOf(ModelObjectInfo("3DBenchy", 1, 225154, listOf(60.0, 31.0, 48.0))), loaded.objects)
     }
 }

@@ -62,10 +62,17 @@ struct SliceOutcome {
     std::optional<SliceStatistics> statistics;
 };
 
+class Project;
+
 // Loads a model, slices it with the given config and writes G-code.
 // `catalog` resolves request.presets and may be null when none are given.
 // Blocking; run it off the UI thread.
 SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, CancelToken& cancel,
                        PresetCatalog* catalog = nullptr);
+
+// Slices a loaded project as placed (objects are not re-centered);
+// request.model_path is ignored.
+SliceOutcome run_slice(const Project& project, const SliceRequest& request, ProgressSink& progress,
+                       CancelToken& cancel, PresetCatalog* catalog = nullptr);
 
 } // namespace orca::engine

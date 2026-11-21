@@ -1,5 +1,7 @@
 package com.orcamobile.feature.home
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,18 +15,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -34,19 +31,27 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.theme.OrcaTheme
 import com.orcamobile.core.model.EngineInfo
-import com.orcamobile.core.model.PrintHostType
-import com.orcamobile.core.model.SliceStatistics
-import java.util.Locale
 
 @Composable
-fun HomeRoute(viewModel: HomeViewModel = hiltViewModel()) {
+fun HomeRoute(onOpenModel: (path: String) -> Unit, viewModel: HomeViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    HomeScreen(state = state, onIntent = viewModel::onIntent)
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                is HomeEvent.OpenModel -> onOpenModel(event.path)
+            }
+        }
+    }
+    // Any document type: model files have no reliable MIME type.
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.onIntent(HomeIntent.ImportModel(it.toString())) }
+    }
+    HomeScreen(state = state, onIntent = viewModel::onIntent, onPickModel = { picker.launch(arrayOf("*/*")) })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
+fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: () -> Unit) {
     Scaffold(topBar = { TopAppBar(title = { Text(stringResource(R.string.home_title)) }) }) { padding ->
         Column(
             modifier = Modifier
@@ -59,14 +64,7 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit) {
             EngineCard(state.engine)
             if (state.engine is EngineUiState.Ready) {
                 PrinterSetupCard(state.printerSetup, onIntent)
-            }
-            SliceCard(
-                slice = state.slice,
-                engineReady = state.engine is EngineUiState.Ready,
-                onIntent = onIntent,
-            )
-            if (state.slice is SliceUiState.Done) {
-                PrintHostCard(state.printHost, onIntent)
+                OpenModelCard(state, onIntent, onPickModel)
             }
         }
     }
@@ -131,115 +129,20 @@ private fun PrinterSetupCard(setup: PrinterSetupUiState, onIntent: (HomeIntent) 
 }
 
 @Composable
-private fun SliceCard(slice: SliceUiState, engineReady: Boolean, onIntent: (HomeIntent) -> Unit) {
-    StatusCard(title = stringResource(R.string.home_slice_title)) {
-        Text(stringResource(R.string.home_slice_description), style = MaterialTheme.typography.bodyMedium)
-        when (slice) {
-            SliceUiState.Idle -> Unit
-            is SliceUiState.Running -> {
-                LinearProgressIndicator(
-                    progress = { slice.percent.coerceIn(0, 100) / 100f },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text("${slice.percent}% · ${slice.message}", style = MaterialTheme.typography.bodySmall)
-            }
-            is SliceUiState.Done -> SliceStatisticsView(slice.statistics)
-            SliceUiState.Canceled -> Text(stringResource(R.string.home_slice_canceled))
-            is SliceUiState.Failed -> Text(slice.message, color = MaterialTheme.colorScheme.error)
-        }
+private fun OpenModelCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: () -> Unit) {
+    StatusCard(title = stringResource(R.string.home_open_title)) {
+        Text(stringResource(R.string.home_open_description), style = MaterialTheme.typography.bodyMedium)
+        if (state.importing) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+        state.importError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val running = slice is SliceUiState.Running
-            Button(onClick = { onIntent(HomeIntent.SliceSample) }, enabled = engineReady && !running) {
-                Text(stringResource(R.string.home_slice_action))
+            Button(onClick = onPickModel, enabled = !state.importing) {
+                Text(stringResource(R.string.home_open_model))
             }
-            if (running) {
-                OutlinedButton(onClick = { onIntent(HomeIntent.CancelSlice) }) {
-                    Text(stringResource(R.string.home_slice_cancel))
-                }
+            OutlinedButton(onClick = { onIntent(HomeIntent.OpenSample) }, enabled = !state.importing) {
+                Text(stringResource(R.string.home_open_sample))
             }
         }
     }
-}
-
-@Composable
-private fun PrintHostCard(host: PrintHostUiState, onIntent: (HomeIntent) -> Unit) {
-    val busy = host.status is PrintHostStatus.Testing || host.status is PrintHostStatus.Sending
-    StatusCard(title = stringResource(R.string.home_host_title)) {
-        DropdownField(
-            label = stringResource(R.string.home_host_type),
-            options = PrintHostType.entries.map { it.displayName },
-            selected = host.type.displayName,
-            onSelect = { name ->
-                PrintHostType.entries.firstOrNull { it.displayName == name }?.let { onIntent(HomeIntent.SetHostType(it)) }
-            },
-            enabled = !busy,
-        )
-        OutlinedTextField(
-            value = host.address,
-            onValueChange = { onIntent(HomeIntent.SetHostAddress(it)) },
-            label = { Text(stringResource(R.string.home_host_address)) },
-            placeholder = { Text("192.168.1.50:7125") },
-            singleLine = true,
-            enabled = !busy,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = host.apiKey,
-            onValueChange = { onIntent(HomeIntent.SetHostApiKey(it)) },
-            label = { Text(stringResource(R.string.home_host_api_key)) },
-            singleLine = true,
-            enabled = !busy,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Switch(
-                checked = host.startPrint,
-                onCheckedChange = { onIntent(HomeIntent.SetStartPrint(it)) },
-                enabled = !busy,
-            )
-            Text(stringResource(R.string.home_host_start_print))
-        }
-        when (val status = host.status) {
-            PrintHostStatus.Idle -> Unit
-            PrintHostStatus.Testing -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            is PrintHostStatus.Connected -> Text(stringResource(R.string.home_host_connected, status.description))
-            is PrintHostStatus.Sending -> {
-                LinearProgressIndicator(progress = { status.percent / 100f }, modifier = Modifier.fillMaxWidth())
-                Text(stringResource(R.string.home_host_sending, status.percent), style = MaterialTheme.typography.bodySmall)
-            }
-            is PrintHostStatus.Sent -> Text(
-                stringResource(if (status.printing) R.string.home_host_sent_printing else R.string.home_host_sent),
-            )
-            is PrintHostStatus.Failed -> Text(status.message, color = MaterialTheme.colorScheme.error)
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            val ready = host.config != null && !busy
-            OutlinedButton(onClick = { onIntent(HomeIntent.TestPrintHost) }, enabled = ready) {
-                Text(stringResource(R.string.home_host_test))
-            }
-            Button(onClick = { onIntent(HomeIntent.SendToPrinter) }, enabled = ready) {
-                Text(stringResource(R.string.home_host_send))
-            }
-        }
-    }
-}
-
-@Composable
-private fun SliceStatisticsView(statistics: SliceStatistics) {
-    val minutes = (statistics.printTimeSeconds / 60).toInt()
-    Text(stringResource(R.string.home_stats_time, minutes / 60, minutes % 60))
-    Text(
-        stringResource(
-            R.string.home_stats_filament,
-            String.format(Locale.ROOT, "%.2f", statistics.filamentUsedMm / 1000),
-            String.format(Locale.ROOT, "%.1f", statistics.filamentUsedGrams),
-        ),
-    )
-    Text(stringResource(R.string.home_stats_layers, statistics.layerCount))
-    Text(stringResource(R.string.home_stats_size, statistics.gcodeBytes / 1024))
 }
 
 @Preview
@@ -249,9 +152,10 @@ private fun HomeScreenPreview() {
         HomeScreen(
             state = HomeUiState(
                 engine = EngineUiState.Ready(EngineInfo("OrcaSlicer", "2.6.0-dev", "02.08.01.55", "0c62aa085ea9")),
-                slice = SliceUiState.Done(SliceStatistics(1834.0, 3120.0, 9.3, 100, 812_000), "/gcode/cube.gcode"),
+                printerSetup = PrinterSetupUiState(vendors = listOf("Creality"), vendor = "Creality"),
             ),
             onIntent = {},
+            onPickModel = {},
         )
     }
 }

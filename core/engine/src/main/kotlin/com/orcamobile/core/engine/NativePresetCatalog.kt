@@ -3,6 +3,7 @@ package com.orcamobile.core.engine
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.engine.jni.NativeEngine
+import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
@@ -23,6 +24,9 @@ class NativePresetCatalog @Inject constructor(
 
     override suspend fun compatiblePresets(vendor: String, printer: String): Result<CompatiblePresets> =
         call { EngineJson.compatiblePresets(NativeEngine.nativeCompatiblePresets(vendor, printer)) }
+
+    override suspend fun bedShape(vendor: String, printer: String): Result<BedShape> =
+        call { EngineJson.bedShape(NativeEngine.nativePrinterBed(vendor, printer)) }
 
     private suspend fun <T> call(query: () -> Result<T>): Result<T> = withContext(dispatchers.io) {
         if (!BuildConfig.NATIVE_ENGINE_BUNDLED) {

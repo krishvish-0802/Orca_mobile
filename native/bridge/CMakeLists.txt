@@ -9,6 +9,7 @@ add_library(orca_engine_core STATIC
     src/JsonCodec.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
+    src/Project.cpp
 )
 target_include_directories(orca_engine_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -19,8 +20,16 @@ target_compile_definitions(orca_engine_core PRIVATE
 
 if (ANDROID)
     find_library(ANDROID_LOG_LIB log)
-    add_library(orca_engine SHARED jni/OrcaEngineJni.cpp jni/JniUtils.hpp)
-    target_link_libraries(orca_engine PRIVATE orca_engine_core ${ANDROID_LOG_LIB})
+    add_library(orca_engine SHARED
+        jni/EngineJni.cpp
+        jni/EngineState.cpp
+        jni/EngineState.hpp
+        jni/JniOnLoad.cpp
+        jni/JniRegistry.hpp
+        jni/JniUtils.hpp
+        jni/ProjectJni.cpp
+        jni/ViewportJni.cpp)
+    target_link_libraries(orca_engine PRIVATE orca_engine_core orca_viewport nlohmann_json ${ANDROID_LOG_LIB})
     # Only the JNI entry points are exported from the .so.
     set_target_properties(orca_engine PROPERTIES
         CXX_VISIBILITY_PRESET hidden

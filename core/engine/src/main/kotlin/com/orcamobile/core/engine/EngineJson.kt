@@ -1,6 +1,8 @@
 package com.orcamobile.core.engine
 
+import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SliceResult
@@ -55,6 +57,30 @@ internal object EngineJson {
         )
     }
 
+    fun bedShape(payload: String): Result<BedShape> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(BedShapeDto.serializer(), element)
+        BedShape(dto.outline.map { it[0] to it[1] }, dto.maxHeight)
+    }
+
+    /** A loaded project: its native handle and objects. */
+    data class LoadedProject(val handle: Long, val objects: List<ModelObjectInfo>)
+
+    fun loadedProject(payload: String): Result<LoadedProject> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(LoadedProjectDto.serializer(), element)
+        LoadedProject(dto.handle.toLong(), dto.objects.map { it.toModel() })
+    }
+
+    fun projectObjects(payload: String): Result<List<ModelObjectInfo>> = decodeOrError(payload) { element ->
+        json.decodeFromJsonElement(ObjectsDto.serializer(), element).objects.map { it.toModel() }
+    }
+
+    private fun <T> decodeOrError(payload: String, decode: (kotlinx.serialization.json.JsonElement) -> T): Result<T> =
+        runCatching {
+            val element = json.parseToJsonElement(payload)
+            if (element is JsonObject && "error" in element) throw EngineException(element.errorMessage())
+            decode(element)
+        }
+
     fun encode(selection: PresetSelection?): String =
         selection?.let {
             json.encodeToString(
@@ -65,6 +91,25 @@ internal object EngineJson {
 
     private fun JsonObject.errorMessage(): String =
         this["error"]?.jsonPrimitive?.contentOrNull ?: "Unknown engine error"
+
+    @Serializable
+    private data class BedShapeDto(val outline: List<List<Double>>, val maxHeight: Double = 0.0)
+
+    @Serializable
+    private data class ObjectDto(
+        val name: String,
+        val instances: Int,
+        val triangles: Long,
+        val size: List<Double>,
+    ) {
+        fun toModel() = ModelObjectInfo(name, instances, triangles, size)
+    }
+
+    @Serializable
+    private data class ObjectsDto(val objects: List<ObjectDto>)
+
+    @Serializable
+    private data class LoadedProjectDto(val handle: String, val objects: List<ObjectDto>)
 
     @Serializable
     private data class CompatiblePresetsDto(

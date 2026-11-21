@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <memory>
 #include <string>
 #include <vector>
@@ -21,6 +22,13 @@ struct CompatiblePresets {
     std::vector<std::string> filaments;
     std::string default_process;         // empty when the profile names none that is compatible
     std::string default_filament;
+};
+
+// The printable area of a printer: its bed outline (mm, usually a rectangle)
+// and maximum print height.
+struct BedShape {
+    std::vector<std::array<double, 2>> outline;
+    double max_height = 0;
 };
 
 // OrcaSlicer's bundled system profiles (resources/profiles), loaded one vendor
@@ -45,6 +53,10 @@ public:
     // Processes and filaments compatible with `printer`. Throws std::runtime_error
     // if the vendor or printer is unknown.
     CompatiblePresets compatible_presets(const std::string& vendor, const std::string& printer);
+
+    // The printer's printable_area and printable_height. Throws std::runtime_error
+    // if the vendor or printer is unknown.
+    BedShape bed_shape(const std::string& vendor, const std::string& printer);
 
     // Internal: implementation shared with the config builder.
     struct Impl;

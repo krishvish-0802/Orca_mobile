@@ -36,6 +36,8 @@ dependencies {
     implementation(project(":core:engine"))
     implementation(project(":core:printer"))
     implementation(project(":feature:home"))
+    implementation(project(":feature:prepare"))
+    implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.kotlinx.coroutines.android)

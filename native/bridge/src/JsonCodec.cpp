@@ -63,6 +63,27 @@ std::string to_json(const CompatiblePresets& presets)
     return j.dump();
 }
 
+std::string to_json(const BedShape& bed)
+{
+    nlohmann::json outline = nlohmann::json::array();
+    for (const auto& point : bed.outline)
+        outline.push_back({point[0], point[1]});
+    return nlohmann::json{{"outline", outline}, {"maxHeight", bed.max_height}}.dump();
+}
+
+std::string to_json(const std::vector<ObjectSummary>& objects)
+{
+    nlohmann::json list = nlohmann::json::array();
+    for (const ObjectSummary& object : objects)
+        list.push_back({
+            {"name", object.name},
+            {"instances", object.instance_count},
+            {"triangles", object.triangle_count},
+            {"size", {object.size[0], object.size[1], object.size[2]}},
+        });
+    return nlohmann::json{{"objects", list}}.dump();
+}
+
 std::optional<PresetSelection> preset_selection_from_json(const std::string& payload)
 {
     if (payload.empty())

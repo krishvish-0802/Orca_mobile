@@ -32,6 +32,18 @@ internal object NativeEngine {
     /** `{"processes":[..],"filaments":[..],"defaultProcess":..,"defaultFilament":..}` or `{"error": ...}`. */
     @JvmStatic external fun nativeCompatiblePresets(vendor: String, printer: String): String
 
+    /** `{"outline":[[x,y],..],"maxHeight":h}` or `{"error": ...}`. */
+    @JvmStatic external fun nativePrinterBed(vendor: String, printer: String): String
+
+    /** `{"handle":"<id>","objects":[..]}` or `{"error": ...}`. Release the handle with [nativeProjectRelease]. */
+    @JvmStatic external fun nativeProjectLoad(path: String): String
+
+    @JvmStatic external fun nativeProjectObjects(handle: Long): String
+
+    @JvmStatic external fun nativeProjectCenterOn(handle: Long, x: Double, y: Double)
+
+    @JvmStatic external fun nativeProjectRelease(handle: Long)
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)
@@ -41,6 +53,17 @@ internal object NativeEngine {
     /** [presetSelectionJson] is `{"vendor","printer","process","filaments":[..]}`, or empty for engine defaults. */
     @JvmStatic external fun nativeSlice(
         modelPath: String,
+        outputPath: String,
+        presetSelectionJson: String,
+        overrideKeys: Array<String>,
+        overrideValues: Array<String>,
+        listener: NativeProgressListener,
+        cancelToken: Long,
+    ): String
+
+    /** Like [nativeSlice], for a loaded project sliced as placed. */
+    @JvmStatic external fun nativeSliceProject(
+        projectHandle: Long,
         outputPath: String,
         presetSelectionJson: String,
         overrideKeys: Array<String>,

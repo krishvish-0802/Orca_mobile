@@ -152,4 +152,19 @@ CompatiblePresets PresetCatalog::compatible_presets(const std::string& vendor, c
     return result;
 }
 
+BedShape PresetCatalog::bed_shape(const std::string& vendor, const std::string& printer)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    const PresetBundle& bundle = m_impl->bundle_for(vendor);
+    const Slic3r::DynamicPrintConfig& config = require_preset(bundle.printers, printer, "printer").config;
+
+    BedShape shape;
+    if (const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area"))
+        for (const Slic3r::Vec2d& point : area->values)
+            shape.outline.push_back({point.x(), point.y()});
+    if (const auto* height = config.option<Slic3r::ConfigOptionFloat>("printable_height"))
+        shape.max_height = height->value;
+    return shape;
+}
+
 } // namespace orca::engine
