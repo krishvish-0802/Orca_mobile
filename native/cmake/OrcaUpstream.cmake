@@ -115,7 +115,8 @@ endif ()
 # header it includes; ${ORCA_SOURCE_DIR}/src/libvgcode resolves its
 # "../../src/libvgcode/..." includes.
 add_library(orca_vgcode_convert STATIC
-    "${ORCA_SOURCE_DIR}/src/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp")
+    "${ORCA_SOURCE_DIR}/src/slic3r/GUI/LibVGCode/LibVGCodeWrapper.cpp"
+    "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/AdjustColor.cpp")
 target_include_directories(orca_vgcode_convert BEFORE PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/include")
 target_include_directories(orca_vgcode_convert PRIVATE "${ORCA_SOURCE_DIR}/src/libvgcode")
