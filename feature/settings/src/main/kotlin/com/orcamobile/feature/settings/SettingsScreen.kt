@@ -1,5 +1,6 @@
 package com.orcamobile.feature.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -88,7 +90,8 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
 
     Scaffold(
         topBar = {
-            Column {
+            // Opaque, so the list scrolling underneath never shows through the tabs.
+            Column(Modifier.background(MaterialTheme.colorScheme.surface)) {
                 TopAppBar(
                     title = {
                         if (searchOpen) {
@@ -138,6 +141,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                     },
                 )
                 if (!state.searching && !state.loading && state.error == null) TabsHeader(state, onIntent)
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         },
     ) { padding ->
@@ -222,7 +226,7 @@ private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Uni
             }
         }
         Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
