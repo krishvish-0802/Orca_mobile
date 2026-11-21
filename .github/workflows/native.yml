@@ -21,18 +21,24 @@ concurrency:
 permissions:
   contents: read
 
-# Not named ABI/API: autotools packages (GMP) read an ABI environment variable.
 env:
-  ORCA_ABI: arm64-v8a
   ORCA_API: "29"
   DEPS_BUILD_DIR: /home/runner/orca-deps-build
   DEPS_PREFIX: /home/runner/orca-deps-prefix
 
 jobs:
   engine:
-    name: Dependencies, engine and APK (arm64-v8a)
+    name: Dependencies, engine and APK (${{ matrix.abi }})
     runs-on: ubuntu-latest
     timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64-v8a ships to phones; x86_64 runs on the CI emulator.
+        abi: [arm64-v8a, x86_64]
+    # Not named ABI: autotools packages (GMP) read an ABI environment variable.
+    env:
+      ORCA_ABI: ${{ matrix.abi }}
     steps:
       - name: Free disk space
         run: |
@@ -45,7 +51,7 @@ jobs:
           fetch-depth: 1
 
       - name: Install build tools
-        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool
+        run: sudo apt-get update && sudo apt-get install -y ninja-build autoconf automake libtool ccache
 
       - name: Select NDK and engine pin
         run: |
@@ -83,6 +89,23 @@ jobs:
       - name: Free dependency build tree
         run: rm -rf "${DEPS_BUILD_DIR}"
 
+      # Compiler cache for the engine sources: a run that changes only the bridge
+      # or one upstream file recompiles that, not all of libslic3r.
+      - name: Restore compiler cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ github.sha }}
+          restore-keys: ccache-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-
+
+      - name: Configure compiler cache
+        run: |
+          echo "CCACHE_DIR=/home/runner/.ccache" >> "${GITHUB_ENV}"
+          echo "CCACHE_MAXSIZE=3G" >> "${GITHUB_ENV}"
+          # Build directories differ between the CMake and Gradle builds.
+          echo "CCACHE_BASEDIR=${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CCACHE_NOHASHDIR=true" >> "${GITHUB_ENV}"
+
       - name: Build the engine and the on-device CLI harness (plain CMake)
         run: |
           ci/run_step.sh engine-cli bash -c '
@@ -90,7 +113,8 @@ jobs:
               -DCMAKE_BUILD_TYPE=Release \
               -DCMAKE_TOOLCHAIN_FILE="${ANDROID_NDK_HOME}/build/cmake/android.toolchain.cmake" \
               -DANDROID_ABI="${ORCA_ABI}" -DANDROID_PLATFORM="android-${ORCA_API}" -DANDROID_STL=c++_shared \
-              -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" &&
+              -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" \
+              -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache &&
             cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
 
       - uses: actions/setup-java@v5
@@ -109,7 +133,14 @@ jobs:
         run: >
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
-          -Porca.ndkVersion="${NDK_REVISION}"
+          -Porca.ndkVersion="${NDK_REVISION}" -Porca.ccache=true
+
+      - name: Save compiler cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /home/runner/.ccache
+          key: ccache-${{ env.ORCA_ABI }}-${{ env.NDK_REVISION }}-${{ github.sha }}
 
       - name: Check 16 KB page alignment
         run: |
@@ -123,8 +154,60 @@ jobs:
           name: orca-mobile-debug-${{ env.ORCA_ABI }}
           path: app/build/outputs/apk/debug/*.apk
 
+      - name: Collect CLI harness and its C++ runtime
+        run: |
+          case "${ORCA_ABI}" in
+            arm64-v8a) triple=aarch64-linux-android ;;
+            x86_64) triple=x86_64-linux-android ;;
+          esac
+          mkdir -p "${RUNNER_TEMP}/cli-bundle"
+          cp "${RUNNER_TEMP}/native-cli/bridge/orca_slice_cli" "${RUNNER_TEMP}/cli-bundle/"
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${triple}/libc++_shared.so" \
+             "${RUNNER_TEMP}/cli-bundle/"
+
       - name: Upload CLI harness
         uses: actions/upload-artifact@v4
         with:
           name: orca_slice_cli-${{ env.ORCA_ABI }}
-          path: ${{ runner.temp }}/native-cli/bridge/orca_slice_cli
+          path: ${{ runner.temp }}/cli-bundle/
+
+  emulator-smoke:
+    name: Slice on an Android emulator (x86_64)
+    needs: engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: orca_slice_cli-x86_64
+          path: smoke
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: orca-mobile-debug-x86_64
+          path: smoke
+
+      - name: Run the engine and the app on the emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ci/run_step.sh emulator-smoke ci/emulator_smoke_test.sh smoke
+
+      - name: Upload smoke-test G-code
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-test-gcode-x86_64
+          path: smoke/*.gcode
+          if-no-files-found: ignore
