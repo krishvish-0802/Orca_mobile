@@ -4,16 +4,16 @@ A full 3D-printing slicer for **Android**, built on the slicing engine from [Orc
 
 The goal is to slice on the phone itself: load a model, pick printer, filament and process profiles, slice it, preview the toolpaths, and send the G-code to the printer. No desktop or cloud service is needed.
 
-> **Status: M0 (foundation) in progress.** The repository has the module skeleton, the Android dependency build, the native bridge and CI. See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
+> **Status: M1 (first slice on the phone) in progress.** Working today: OrcaSlicer's system printer, process and filament profiles; opening STL, 3MF, OBJ and STEP files; a 3D plate with touch gestures (orbit, pan, pinch zoom, tap to select, drag to move, twist to turn); slicing on the phone; a G-code preview drawn by OrcaSlicer's own renderer, with a layer range and coloring by line type, speed, height and more; and sending the G-code to Klipper (Moonraker) or OctoPrint. See [the plan](docs/proposal/tech-stack-and-architecture.md) for milestones M0–M6.
 
 ## How it fits together
 
 ```
 Android app (Kotlin, Jetpack Compose)        app/, feature/*, core/*
         │  JNI: a few functions, JSON results
-native/bridge (C++17): orca_engine facade    native/
+native/bridge (C++17): orca_engine facade    native/bridge, native/viewport
         │
-OrcaSlicer libslic3r, unmodified             third_party/OrcaSlicer (git submodule, pinned)
+OrcaSlicer libslic3r + libvgcode, unmodified third_party/OrcaSlicer (git submodule, pinned)
         │
 Boost, TBB, CGAL, OCCT, OpenCV, …            deps/ (built with the Android NDK)
 ```
@@ -31,14 +31,19 @@ Orca_mobile/
 │   ├── common/           coroutine dispatchers and other plain-Kotlin helpers
 │   ├── model/            domain types (EngineInfo, SliceRequest, SliceResult, …)
 │   ├── domain/           use cases + interfaces (SlicingEngine, repositories)
-│   ├── data/             repository implementations (files, bundled samples)
-│   ├── engine/           SlicingEngine backed by the native engine (JNI)
+│   ├── data/             repository implementations (files, imports, settings)
+│   ├── engine/           slicing, presets, projects and previews over the native engine (JNI)
+│   ├── printer/          print hosts: Moonraker, OctoPrint
+│   ├── viewport/         the 3D plate composable and its touch gestures
 │   └── designsystem/     theme and shared Compose components
 ├── feature/
-│   └── home/             start screen; currently the on-device engine check
+│   ├── home/             start screen: engine status, printer choice, open a model
+│   └── prepare/          plate, slicing, G-code preview, sending to the printer
 ├── native/
 │   ├── CMakeLists.txt    builds libslic3r without the desktop top-level project
 │   ├── cmake/            upstream compatibility layer
+│   ├── upstream_glue/    small pieces upstream keeps in its desktop GUI
+│   ├── viewport/         OpenGL ES 3.0 plate view: bed, models, toolpaths, picking
 │   └── bridge/           orca_engine facade, JNI glue, orca_slice_cli harness
 ├── deps/                 Android superbuild reusing upstream dependency recipes
 ├── third_party/OrcaSlicer   pinned upstream sources (submodule)
@@ -73,7 +78,9 @@ deps/scripts/build_deps.sh --abi arm64-v8a --prefix "$HOME/orca-deps/arm64-v8a"
 ./gradlew :app:assembleDebug -Porca.native=true -Porca.depsPrefix="$HOME/orca-deps/arm64-v8a"
 ```
 
-The `Native engine` GitHub workflow runs the same steps, caches the dependency prefix between runs, and uploads an APK with the engine. To try it on a phone, download the `orca-mobile-debug-arm64-v8a` artifact from the workflow run and install it. Then tap **Slice test cube** on the start screen.
+The engine is always compiled optimized, even in the debug app. If Gradle's bundled CMake is older than the one that built the dependencies, point it at yours with `cmake.dir=/path/to/cmake` in `local.properties`. A library built separately can be packaged instead with `-Porca.prebuiltEngineDir=<dir>` (holding `<abi>/liborca_engine.so` and `libc++_shared.so`), which is what CI does.
+
+The `Native engine` GitHub workflow builds the dependencies (cached between runs), the engine, an APK for each ABI, and slices test models on an emulator. To try it on a phone, download the `orca-mobile-debug-arm64-v8a` artifact from a workflow run and install it. Pick a printer on the start screen, then open a model or the sample cube.
 
 ## License
 

@@ -14,6 +14,11 @@ val depsPrefix = providers.gradleProperty("orca.depsPrefix")
 val maxCompileJobs = providers.gradleProperty("orca.maxCompileJobs").orNull
 val useCcache = providers.gradleProperty("orca.ccache").map(String::toBoolean).getOrElse(false)
 val abis = providers.gradleProperty("orca.abis").getOrElse("arm64-v8a").split(',').map(String::trim)
+// CI builds liborca_engine.so once with plain CMake (with the CLI harness) and
+// passes it here as <dir>/<abi>/liborca_engine.so plus libc++_shared.so, instead
+// of compiling the engine a second time through Gradle.
+val prebuiltEngineDir = providers.gradleProperty("orca.prebuiltEngineDir").orNull
+val buildEngineWithGradle = nativeEnabled && prebuiltEngineDir == null
 
 android {
     namespace = "com.orcamobile.core.engine"
@@ -21,8 +26,8 @@ android {
     defaultConfig {
         consumerProguardFiles("consumer-rules.pro")
         buildConfigField("boolean", "NATIVE_ENGINE_BUNDLED", nativeEnabled.toString())
-        if (nativeEnabled) {
-            ndk { abiFilters += abis }
+        if (nativeEnabled) ndk { abiFilters += abis }
+        if (buildEngineWithGradle) {
             externalNativeBuild {
                 cmake {
                     val prefix = depsPrefix.orNull
@@ -31,6 +36,10 @@ android {
                         "-DORCA_DEPS_PREFIX=$prefix",
                         "-DANDROID_STL=c++_shared",
                         "-DORCA_BUILD_CLI=OFF",
+                        // The engine is always optimized: at -O0 libslic3r slices far too slowly
+                        // on a phone, and its full debug info makes a multi-gigabyte link.
+                        // Kotlin and the app keep their debug variant.
+                        "-DCMAKE_BUILD_TYPE=Release",
                     )
                     if (maxCompileJobs != null) arguments += "-DORCA_MAX_COMPILE_JOBS=$maxCompileJobs"
                     if (useCcache) {
@@ -47,9 +56,14 @@ android {
     if (nativeEnabled) {
         // NDK r28+ links 16 KB-aligned libraries, which Google Play requires.
         ndkVersion = providers.gradleProperty("orca.ndkVersion").get()
+    }
+    if (buildEngineWithGradle) {
         externalNativeBuild {
             cmake { path = file("../../native/CMakeLists.txt") }
         }
+    }
+    if (prebuiltEngineDir != null) {
+        sourceSets["main"].jniLibs.srcDir(prebuiltEngineDir)
     }
 }
 

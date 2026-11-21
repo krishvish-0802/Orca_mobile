@@ -127,7 +127,21 @@ jobs:
               -DORCA_DEPS_PREFIX="${DEPS_PREFIX}" \
               -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
               -DORCA_MAX_COMPILE_JOBS=3 &&
-            cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli'
+            cmake --build "${RUNNER_TEMP}/native-cli" --target orca_slice_cli orca_engine'
+
+      # The app packages the library built above rather than compiling the
+      # engine a second time through Gradle.
+      - name: Stage the engine library for the APK
+        run: |
+          case "${ORCA_ABI}" in
+            arm64-v8a) triple=aarch64-linux-android ;;
+            x86_64) triple=x86_64-linux-android ;;
+          esac
+          libs="${RUNNER_TEMP}/engine-libs/${ORCA_ABI}"
+          mkdir -p "${libs}"
+          cp "${RUNNER_TEMP}/native-cli/bridge/liborca_engine.so" "${libs}/"
+          cp "${ANDROID_NDK_HOME}/toolchains/llvm/prebuilt/linux-x86_64/sysroot/usr/lib/${triple}/libc++_shared.so" "${libs}/"
+          ls -l "${libs}"
 
       - uses: actions/setup-java@v5
         with:
@@ -136,16 +150,14 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      # AGP's bundled CMake is older than the one the dependencies were built
-      # with; point it at the runner's CMake so their package configs load.
-      - name: Use the runner's CMake for Gradle
-        run: echo "cmake.dir=$(dirname "$(dirname "$(command -v cmake)")")" >> local.properties
+      - name: Disk space before the APK build
+        run: df -h / /mnt
 
       - name: Build APK with the native engine
         run: >
           ci/run_step.sh engine-apk ./gradlew --stacktrace :app:assembleDebug
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
-          -Porca.ndkVersion="${NDK_REVISION}" -Porca.ccache=true -Porca.maxCompileJobs=3
+          -Porca.ndkVersion="${NDK_REVISION}" -Porca.prebuiltEngineDir="${RUNNER_TEMP}/engine-libs"
 
       - name: Save compiler cache
         if: always()
