@@ -6,6 +6,7 @@ import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.PresetSelection
 import kotlinx.coroutines.withContext
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -17,10 +18,10 @@ class NativeConfigOptionCatalog @Inject constructor(
 ) : ConfigOptionCatalog {
 
     /** Definitions do not change while the app runs. */
-    private val described = java.util.concurrent.ConcurrentHashMap<String, ConfigOption>()
+    private val described = ConcurrentHashMap<String, ConfigOption>()
 
     override suspend fun describe(keys: List<String>): Result<List<ConfigOption>> = call {
-        val missing = keys.filter { it !in described }
+        val missing = keys.filterNot { described.containsKey(it) }
         if (missing.isNotEmpty()) {
             EngineJson.configOptions(NativeEngine.nativeDescribeOptions(missing.toTypedArray())).getOrThrow()
                 .forEach { described[it.key] = it }
