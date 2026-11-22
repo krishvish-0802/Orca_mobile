@@ -41,6 +41,13 @@
     <string name="prepare_parts_from_file">From a file…</string>
     <string name="prepare_parts_add_hint">New shapes appear at the object\'s front right corner. Tap one in the list to move or size it.</string>
     <string name="prepare_parts_cancel">Cancel</string>
+    <string name="prepare_parts_split_objects">Split to objects</string>
+    <string name="prepare_parts_split_parts">Split to parts</string>
+    <string name="prepare_tool_splitting">Splitting…</string>
+    <plurals name="prepare_notice_split">
+        <item quantity="one">Split into %1$d object.</item>
+        <item quantity="other">Split into %1$d objects.</item>
+    </plurals>
     <string name="prepare_tool_paint">Paint</string>
     <string name="prepare_paint_title">Painting %1$s</string>
     <string name="prepare_paint_kind_supports">Supports</string>

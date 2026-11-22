@@ -98,6 +98,18 @@ jstring native_plate_add_copies(JNIEnv* env, jclass, jlong handle, jint object, 
     }
 }
 
+// Split to objects: {"placed": how many objects it made, "objects": [...]}.
+jstring native_plate_split(JNIEnv* env, jclass, jlong handle, jint object)
+{
+    if (object < 0)
+        return to_jstring(env, json::error_json("No such object on the plate"));
+    return plate_call(env, handle, [&](Project& project) {
+        PlateChange change;
+        change.placed = project.split_to_objects(std::size_t(object)).size();
+        return change;
+    });
+}
+
 jstring native_project_remove(JNIEnv* env, jclass, jlong handle, jint object, jint instance)
 {
     if (object < 0 || instance < 0)
@@ -114,6 +126,7 @@ const JNINativeMethod kMethods[] = {
     {"nativePlateOrient", "(JII" STR "[" STR "[" STR ")" STR, reinterpret_cast<void*>(native_plate_orient)},
     {"nativePlateAddCopies", "(JIII" STR "[" STR "[" STR STR ")" STR, reinterpret_cast<void*>(native_plate_add_copies)},
     {"nativeProjectRemove", "(JII)" STR, reinterpret_cast<void*>(native_project_remove)},
+    {"nativePlateSplit", "(JI)" STR, reinterpret_cast<void*>(native_plate_split)},
 };
 #undef STR
 

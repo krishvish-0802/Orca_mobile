@@ -38,5 +38,8 @@ class PlateToolsUseCase @Inject constructor(
     suspend fun transform(project: ProjectId, instance: InstanceRef, edit: TransformEdit? = null): Result<TransformUpdate> =
         editor.transform(project, instance, edit)
 
+    suspend fun splitToObjects(project: ProjectId, objectIndex: Int): Result<PlateUpdate> =
+        editor.splitToObjects(project, objectIndex)
+
     suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate> = editor.remove(project, instance)
 }

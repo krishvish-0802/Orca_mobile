@@ -60,6 +60,13 @@ class NativePlateEditor @Inject constructor(
         }
     }
 
+    override suspend fun splitToObjects(project: ProjectId, objectIndex: Int) = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
+            EngineJson.plateUpdate(NativeEngine.nativePlateSplit(handle, objectIndex)).getOrThrow()
+        }
+    }
+
     override suspend fun remove(project: ProjectId, instance: InstanceRef) = withContext(dispatchers.io) {
         runCatching {
             val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")

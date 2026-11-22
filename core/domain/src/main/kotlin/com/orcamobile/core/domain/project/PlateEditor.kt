@@ -34,6 +34,12 @@ interface PlateEditor {
     /** Reads [instance]'s transform, after applying [edit] when given. */
     suspend fun transform(project: ProjectId, instance: InstanceRef, edit: TransformEdit?): Result<TransformUpdate>
 
+    /**
+     * Splits an object into one object per separate piece (per part, for an object
+     * with several), where they lie. [PlateUpdate.placed] is how many it made.
+     */
+    suspend fun splitToObjects(project: ProjectId, objectIndex: Int): Result<PlateUpdate>
+
     /** Takes [instance] off the plate, and its object with its last instance. */
     suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate>
 }

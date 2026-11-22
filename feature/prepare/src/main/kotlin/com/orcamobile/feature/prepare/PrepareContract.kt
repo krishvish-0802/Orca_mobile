@@ -72,7 +72,7 @@ data class PrepareUiState(
         get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
 }
 
-enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE }
+enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE, SPLIT }
 
 sealed interface PlateNotice {
     /** Arranging left [count] instances beside the bed: they did not fit. */
@@ -80,6 +80,9 @@ sealed interface PlateNotice {
 
     /** [added] copies are on the bed; [beside] more did not fit and lie beside it. */
     data class CopiesAdded(val added: Int, val beside: Int) : PlateNotice
+
+    /** The object came apart into [count] objects. */
+    data class Split(val count: Int) : PlateNotice
 
     /** Fill bed found no room for another copy. */
     data object BedFull : PlateNotice
@@ -171,6 +174,9 @@ sealed interface PrepareIntent {
     data class AddCopies(val count: Int?) : PrepareIntent
 
     data object DeleteSelected : PrepareIntent
+
+    /** The selected object becomes one object per separate piece (per part, when it has several). */
+    data object SplitToObjects : PrepareIntent
 
     data object DismissPlateNotice : PrepareIntent
 

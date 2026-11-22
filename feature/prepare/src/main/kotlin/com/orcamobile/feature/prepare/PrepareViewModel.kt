@@ -138,6 +138,11 @@ class PrepareViewModel @Inject constructor(
                 runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ -> plateTools.remove(project, selected) }
             }
             PrepareIntent.DismissPlateNotice -> _state.update { it.copy(plateNotice = null) }
+            PrepareIntent.SplitToObjects -> _state.value.selection?.let { selected ->
+                runPlateTool(PlateTask.SPLIT, keepSelection = false) { project, _ ->
+                    plateTools.splitToObjects(project, selected.objectIndex)
+                }
+            }
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
                 it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)
@@ -289,6 +294,7 @@ class PrepareViewModel @Inject constructor(
         PlateTask.ARRANGE -> update.notPlaced.takeIf { it > 0 }?.let(PlateNotice::NotPlaced)
         PlateTask.COPY -> PlateNotice.CopiesAdded(update.placed, update.notPlaced)
         PlateTask.FILL_BED -> if (update.placed > 0) PlateNotice.CopiesAdded(update.placed, 0) else PlateNotice.BedFull
+        PlateTask.SPLIT -> PlateNotice.Split(update.placed)
         PlateTask.ORIENT, PlateTask.DELETE -> null
     }
 

@@ -61,6 +61,8 @@ void apply_edit(Project& project, std::size_t object, const nlohmann::json& edit
     } else if (name == "addFile") {
         const std::string path = a.at("path").get<std::string>();
         run_on_engine_thread([&] { project.add_volume_from_file(object, kind(), path); });
+    } else if (name == "splitToParts") {
+        run_on_engine_thread([&] { project.split_to_parts(object, a.at("volume").get<std::size_t>()); });
     } else if (name == "removeVolume") {
         project.remove_volume(object, a.at("volume").get<std::size_t>());
     } else if (name == "setKind") {

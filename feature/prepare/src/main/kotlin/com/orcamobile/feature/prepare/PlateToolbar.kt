@@ -183,6 +183,7 @@ private fun PlateTask.runningLabel(): Int = when (this) {
     PlateTask.COPY -> R.string.prepare_tool_copying
     PlateTask.FILL_BED -> R.string.prepare_tool_filling
     PlateTask.DELETE -> R.string.prepare_tool_deleting
+    PlateTask.SPLIT -> R.string.prepare_tool_splitting
 }
 
 @Composable
@@ -194,6 +195,7 @@ private fun noticeText(notice: PlateNotice): String = when (notice) {
         pluralStringResource(R.plurals.prepare_notice_copies_added, notice.added, notice.added)
     }
     PlateNotice.BedFull -> stringResource(R.string.prepare_notice_bed_full)
+    is PlateNotice.Split -> pluralStringResource(R.plurals.prepare_notice_split, notice.count, notice.count)
     is PlateNotice.Failed -> stringResource(R.string.prepare_notice_failed, notice.message)
 }
 

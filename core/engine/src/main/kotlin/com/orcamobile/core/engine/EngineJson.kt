@@ -138,6 +138,7 @@ internal object EngineJson {
             )
             is ObjectEdit.AddFile -> "addFile" to mapOf("kind" to JsonPrimitive(edit.kind.nativeValue), "path" to JsonPrimitive(edit.path))
             is ObjectEdit.RemoveVolume -> "removeVolume" to mapOf("volume" to JsonPrimitive(edit.volume))
+            is ObjectEdit.SplitToParts -> "splitToParts" to mapOf("volume" to JsonPrimitive(edit.volume))
             is ObjectEdit.SetKind -> "setKind" to mapOf("volume" to JsonPrimitive(edit.volume), "kind" to JsonPrimitive(edit.kind.nativeValue))
             is ObjectEdit.Rename -> "rename" to buildMap {
                 edit.volume?.let { put("volume", JsonPrimitive(it)) }

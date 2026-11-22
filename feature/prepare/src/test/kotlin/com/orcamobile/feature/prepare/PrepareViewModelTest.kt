@@ -200,6 +200,8 @@ class PrepareViewModelTest {
 
         override suspend fun remove(project: ProjectId, instance: InstanceRef) = answer("remove $instance")
 
+        override suspend fun splitToObjects(project: ProjectId, objectIndex: Int) = answer("split $objectIndex")
+
         val edits = mutableListOf<TransformEdit?>()
         var transform = InstanceTransform(
             position = Axes(110.0, 110.0, 24.0),
@@ -574,5 +576,20 @@ class PrepareViewModelTest {
     fun `colour painting is offered only with more than one filament`() {
         val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
         assertTrue(com.orcamobile.core.model.PaintKind.COLOR !in vm.state.value.paintKinds)
+    }
+
+    @Test
+    fun `split to objects reports how many it made and clears the selection`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        plateEditor.next = PlateUpdate(
+            listOf(ModelObjectInfo("benchy_1", 1, 100, listOf(10.0, 10.0, 10.0)), ModelObjectInfo("benchy_2", 1, 100, listOf(10.0, 10.0, 10.0))),
+            placed = 2,
+        )
+        vm.onIntent(PrepareIntent.SplitToObjects)
+        assertEquals("split 0", plateEditor.calls.single())
+        assertEquals(PlateNotice.Split(2), vm.state.value.plateNotice)
+        assertNull(vm.state.value.selection)
+        assertEquals(2, vm.state.value.project?.objects?.size)
     }
 }

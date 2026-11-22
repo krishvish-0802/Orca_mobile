@@ -86,6 +86,9 @@ sealed interface ObjectEdit {
 
     data class RemoveVolume(val volume: Int) : ObjectEdit
 
+    /** A part's separate pieces become parts of their own. */
+    data class SplitToParts(val volume: Int) : ObjectEdit
+
     data class SetKind(val volume: Int, val kind: VolumeKind) : ObjectEdit
 
     /** Renames a volume, or the object when [volume] is null. */

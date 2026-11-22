@@ -249,6 +249,48 @@ void Project::remove_volume(std::size_t object_index, std::size_t volume_index)
     m_impl->settle_all(object_index);
 }
 
+std::size_t Project::split_to_parts(std::size_t object_index, std::size_t volume_index)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    ModelObject& object = m_impl->object(object_index);
+    ModelVolume& volume = volume_of(object, volume_index);
+    if (!volume.is_model_part())
+        throw std::invalid_argument("Only a part can be split");
+    // One extruder: every piece keeps the part's own, as the desktop does.
+    const std::size_t pieces = volume.split(1, true);
+    if (pieces <= 1)
+        throw std::invalid_argument("This part is one piece and cannot be split");
+    object.invalidate_bounding_box();
+    m_impl->settle_all(object_index);
+    return pieces;
+}
+
+std::vector<std::size_t> Project::split_to_objects(std::size_t object_index)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    Slic3r::Model& model = m_impl->model;
+    ModelObject& object = m_impl->object(object_index);
+    const std::size_t before = model.objects.size();
+    Slic3r::ModelObjectPtrs created;
+    object.split(&created, true);
+    if (created.size() <= 1) {
+        // Nothing came apart: take back what split() added.
+        while (model.objects.size() > before)
+            model.delete_object(model.objects.size() - 1);
+        throw std::invalid_argument("This object is one piece and cannot be split");
+    }
+    model.delete_object(object_index);
+    std::vector<std::size_t> indices;
+    for (std::size_t i = before - 1; i < model.objects.size(); ++i) {
+        ModelObject& piece = *model.objects[i];
+        piece.invalidate_bounding_box();
+        for (std::size_t k = 0; k < piece.instances.size(); ++k)
+            m_impl->settle({i, k});
+        indices.push_back(i);
+    }
+    return indices;
+}
+
 void Project::set_volume_kind(std::size_t object_index, std::size_t volume_index, VolumeKind kind)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

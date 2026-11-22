@@ -207,6 +207,50 @@ class NativePlateToolsDeviceTest {
         assertTrue(NativeEngine.nativeSliceProject(handle, blocked.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
     }
 
+    @Test
+    fun splitsSeparatePiecesIntoObjectsOrParts() {
+        load(twoCubes())
+        // Into parts of the same object first...
+        val parts = EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"splitToParts":{"volume":0}}""")).getOrThrow()
+        assertEquals(2, parts.details.partCount)
+        // ...then each part into an object of its own, where it lies.
+        val split = EngineJson.plateUpdate(NativeEngine.nativePlateSplit(handle, 0)).getOrThrow()
+        assertEquals(2, split.placed)
+        assertEquals(2, split.objects.size)
+        assertTrue(split.objects.all { it.sizeMm[0] < 11.0 })
+        // A single piece does not split.
+        assertTrue(EngineJson.plateUpdate(NativeEngine.nativePlateSplit(handle, 0)).isFailure)
+        val gcode = File(work, "split.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+    }
+
+    /** Two 10 mm cubes 20 mm apart in one STL. */
+    private fun twoCubes(): File {
+        val text = buildString {
+            appendLine("solid two")
+            for (dx in listOf(0f, 30f)) {
+                val v = listOf(
+                    floatArrayOf(dx, 0f, 0f), floatArrayOf(dx + 10, 0f, 0f), floatArrayOf(dx + 10, 10f, 0f), floatArrayOf(dx, 10f, 0f),
+                    floatArrayOf(dx, 0f, 10f), floatArrayOf(dx + 10, 0f, 10f), floatArrayOf(dx + 10, 10f, 10f), floatArrayOf(dx, 10f, 10f),
+                )
+                val faces = listOf(
+                    intArrayOf(0, 2, 1), intArrayOf(0, 3, 2), intArrayOf(4, 5, 6), intArrayOf(4, 6, 7),
+                    intArrayOf(0, 1, 5), intArrayOf(0, 5, 4), intArrayOf(1, 2, 6), intArrayOf(1, 6, 5),
+                    intArrayOf(2, 3, 7), intArrayOf(2, 7, 6), intArrayOf(3, 0, 4), intArrayOf(3, 4, 7),
+                )
+                for (f in faces) {
+                    appendLine("facet normal 0 0 0")
+                    appendLine("outer loop")
+                    for (i in f) appendLine("vertex ${v[i][0]} ${v[i][1]} ${v[i][2]}")
+                    appendLine("endloop")
+                    appendLine("endfacet")
+                }
+            }
+            appendLine("endsolid two")
+        }
+        return File(work, "two.stl").apply { writeText(text) }
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }

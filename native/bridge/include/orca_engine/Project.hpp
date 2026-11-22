@@ -181,6 +181,15 @@ public:
     // Every object in a model file, as one volume, placed like a generic shape.
     void add_volume_from_file(std::size_t object, VolumeKind kind, const std::string& path);
     void remove_volume(std::size_t object, std::size_t volume);
+    // The desktop's Split to parts: a part's separate pieces become parts of
+    // their own. Returns how many there are now; throws std::invalid_argument
+    // when it is one piece.
+    std::size_t split_to_parts(std::size_t object, std::size_t volume);
+    // The desktop's Split to objects: each separate piece (each part, for an
+    // object with several) becomes an object where it lies; modifiers and other
+    // volumes are dropped, as there. The new objects come last; returns their
+    // indices. Throws std::invalid_argument when there is nothing to split.
+    std::vector<std::size_t> split_to_objects(std::size_t object);
     void set_volume_kind(std::size_t object, std::size_t volume, VolumeKind kind);
     void rename(std::size_t object, std::optional<std::size_t> volume, const std::string& name);
     // A volume's placement in its object: position (mm), rotation, scale.

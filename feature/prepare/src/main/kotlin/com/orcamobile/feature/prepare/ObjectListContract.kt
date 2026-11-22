@@ -60,6 +60,9 @@ sealed interface ObjectListIntent {
 
     data class RemoveVolume(val volume: Int) : ObjectListIntent
 
+    /** The part's separate pieces become parts of their own. */
+    data class SplitToParts(val volume: Int) : ObjectListIntent
+
     /** A change in the placement panel, applied to the selected volume within its object. */
     data class EditVolume(val edit: TransformEdit) : ObjectListIntent
 

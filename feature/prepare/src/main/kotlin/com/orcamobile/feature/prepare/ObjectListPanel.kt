@@ -67,6 +67,23 @@ internal fun PartsTab(
     val enabled = plateEditable && !list.busy
     var adding by rememberSaveable { mutableStateOf<VolumeKind?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // The desktop's Split to objects and Split to parts.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TonalPillButton(
+                stringResource(R.string.prepare_parts_split_objects),
+                onClick = { onIntent(PrepareIntent.SplitToObjects) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            val splitPart = list.selectedVolume?.takeIf { list.volume?.kind == VolumeKind.PART }
+                ?: details.volumes.indexOfFirst { it.kind == VolumeKind.PART }.takeIf { details.partCount == 1 && it >= 0 }
+            TonalPillButton(
+                stringResource(R.string.prepare_parts_split_parts),
+                onClick = { splitPart?.let { onListIntent(ObjectListIntent.SplitToParts(it)) } },
+                enabled = enabled && splitPart != null,
+                modifier = Modifier.weight(1f),
+            )
+        }
         Text(
             stringResource(if (list.selectedVolume == null) R.string.prepare_parts_hint else R.string.prepare_parts_hint_selected),
             style = MaterialTheme.typography.bodySmall,

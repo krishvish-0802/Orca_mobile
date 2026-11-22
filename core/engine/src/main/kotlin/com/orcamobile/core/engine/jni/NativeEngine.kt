@@ -66,6 +66,9 @@ internal object NativeEngine {
     /** The setting keys an object (0), a part (1) or a height range (2) takes, as a JSON array. */
     @JvmStatic external fun nativeSettingKeys(scope: Int): String
 
+    /** Splits an object into one object per piece: `{"placed": how many, "objects":[..]}` or `{"error": ...}`. */
+    @JvmStatic external fun nativePlateSplit(handle: Long, objectIndex: Int): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 
