@@ -45,7 +45,7 @@ public:
         for (auto& vertex : its.vertices)
             vertex = (base * vertex.cast<double>()).cast<float>();
         if (base.linear().determinant() < 0.0)
-            its_flip_triangles(its);
+            Slic3r::its_flip_triangles(its);
         auto measuring = std::make_shared<const M::Measuring>(its);
         m_entries.emplace_front(key, measuring);
         if (m_entries.size() > kSize)
