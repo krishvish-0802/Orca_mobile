@@ -507,7 +507,7 @@ class PrepareViewModelTest {
 
         vm.onIntent(PrepareIntent.Select(null))
         assertNull(vm.state.value.transform)
-        assertEquals(listOf(null, TransformEdit.Scale(Axes(2.0, 2.0, 2.0))), plateEditor.edits)
+        assertEquals(listOf<TransformEdit?>(null, TransformEdit.Scale(Axes(2.0, 2.0, 2.0))), plateEditor.edits)
     }
 
     @Test
