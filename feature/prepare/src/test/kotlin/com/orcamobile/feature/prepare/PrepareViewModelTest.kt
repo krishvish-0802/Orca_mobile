@@ -435,6 +435,11 @@ class PrepareViewModelTest {
         val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
         vm.onIntent(PrepareIntent.Slice)
         assertIs<SliceUiState.Done>(vm.state.value.slice)
+        // The toolpath preview has no plate tools; back on the model they work.
+        if (vm.state.value.showingPreview) {
+            assertFalse(vm.state.value.plateEditable)
+            vm.onIntent(PrepareIntent.ShowPreview(false))
+        }
         vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
 
         plateEditor.next = PlateUpdate(emptyList())
