@@ -187,4 +187,16 @@ class ObjectListViewModelTest {
         vm.onIntent(ObjectListIntent.Show(context().copy(objectIndex = 1)))
         assertNull(vm.state.value.selectedVolume)
     }
+
+    @Test
+    fun `painted fuzzy skin is offered to be enabled when the object has it disabled`() {
+        objects.details = objects.details.copy(settings = mapOf("fuzzy_skin" to "disabled_fuzzy"))
+        vm.onIntent(ObjectListIntent.Show(context()))
+        assertTrue(vm.state.value.fuzzySkinDisabled)
+        vm.onIntent(ObjectListIntent.EnablePaintedFuzzySkin)
+        assertEquals(
+            ObjectEdit.SetSetting(com.orcamobile.core.model.SettingTarget.OBJECT, "fuzzy_skin", "none"),
+            objects.edits.single(),
+        )
+    }
 }

@@ -192,6 +192,8 @@ class NativePlateToolsDeviceTest {
         val plain = File(work, "plain.gcode")
         assertTrue(NativeEngine.nativeSliceProject(handle, plain.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
 
+        // As the desktop's "Enable painted fuzzy skin for this object": the default disables it.
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"fuzzy_skin","value":"none"}}""")).getOrThrow()
         assertTrue(NativeEngine.nativePaintEverything(handle, 0, 2, 1))       // fuzzy skin everywhere
         assertTrue(!NativeEngine.nativePaintEverything(handle, 0, 2, 1))      // nothing new the second time
         val fuzzy = File(work, "fuzzy.gcode")

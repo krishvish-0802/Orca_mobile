@@ -63,6 +63,8 @@
     <string name="prepare_paint_overhangs">Only on overhangs</string>
     <string name="prepare_paint_overhang_angle">Overhangs steeper than %1$d°</string>
     <string name="prepare_paint_clear">Clear all</string>
+    <string name="prepare_paint_fuzzy_disabled">Fuzzy skin is disabled for this object, so painted fuzzy skin will not print.</string>
+    <string name="prepare_paint_fuzzy_enable">Enable painted fuzzy skin for this object</string>
     <string name="prepare_paint_done">Done</string>
     <string name="prepare_paint_gestures">One finger paints · two fingers turn and zoom</string>
     <string name="prepare_paint_hint_supports">Enforcers add support where you paint, blockers keep it away. They need Enable support on; with a manual support type, support goes only where you paint.</string>

@@ -265,7 +265,9 @@ fun PrepareScreen(
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
                 if (preview == null && state.paint != null) {
-                    PaintPanel(state, onIntent)
+                    PaintPanel(state, onIntent, list.fuzzySkinDisabled) {
+                        onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)
+                    }
                 } else if (preview == null) {
                     ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
                 }

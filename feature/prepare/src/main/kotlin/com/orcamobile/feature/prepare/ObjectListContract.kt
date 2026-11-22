@@ -19,6 +19,8 @@ data class ObjectListUiState(
     val selectedVolume: Int? = null,
     val busy: Boolean = false,
     val error: String? = null,
+    /** Fuzzy skin is disabled for the object, so painted fuzzy skin would not print. */
+    val fuzzySkinDisabled: Boolean = false,
 ) {
     val volume: VolumeInfo?
         get() = selectedVolume?.let { details?.volumes?.getOrNull(it) }
@@ -74,6 +76,9 @@ sealed interface ObjectListIntent {
 
     /** Reads the object again (back from its settings): an earlier slice is stale if they changed. */
     data object Refresh : ObjectListIntent
+
+    /** Lets painted fuzzy skin print on this object (fuzzy skin "none" instead of disabled), as the desktop offers. */
+    data object EnablePaintedFuzzySkin : ObjectListIntent
 }
 
 /** One-off news for the Prepare screen. */

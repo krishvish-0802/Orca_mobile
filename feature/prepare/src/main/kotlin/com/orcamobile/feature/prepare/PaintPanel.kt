@@ -36,7 +36,12 @@ import java.util.Locale
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-internal fun PaintPanel(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
+internal fun PaintPanel(
+    state: PrepareUiState,
+    onIntent: (PrepareIntent) -> Unit,
+    fuzzySkinDisabled: Boolean = false,
+    onEnableFuzzySkin: () -> Unit = {},
+) {
     val brush = state.paint ?: return
     val set: (PaintBrush) -> Unit = { onIntent(PrepareIntent.SetBrush(it)) }
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
@@ -123,6 +128,18 @@ internal fun PaintPanel(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit
                 }
             }
 
+            if (brush.kind == PaintKind.FUZZY_SKIN && fuzzySkinDisabled) {
+                Text(
+                    stringResource(R.string.prepare_paint_fuzzy_disabled),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+                TonalPillButton(
+                    stringResource(R.string.prepare_paint_fuzzy_enable),
+                    onClick = onEnableFuzzySkin,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Text(
                 stringResource(hintFor(brush.kind)),
                 style = MaterialTheme.typography.bodySmall,

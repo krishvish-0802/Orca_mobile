@@ -83,6 +83,9 @@ class ObjectListViewModel @Inject constructor(
             is ObjectListIntent.RemoveRange -> edit(changesShape = false) { ObjectEdit.RemoveRange(intent.range) }
             ObjectListIntent.DismissError -> _state.update { it.copy(error = null) }
             ObjectListIntent.Refresh -> refresh()
+            ObjectListIntent.EnablePaintedFuzzySkin -> edit(changesShape = false) {
+                ObjectEdit.SetSetting(SettingTarget.OBJECT, FUZZY_SKIN, "none")
+            }
         }
     }
 
@@ -145,15 +148,25 @@ class ObjectListViewModel @Inject constructor(
         }
     }
 
-    private fun apply(update: ObjectUpdate) {
+    private suspend fun apply(update: ObjectUpdate) {
+        val fuzzyDisabled = effectiveFuzzySkin(update) == FUZZY_SKIN_DISABLED
         _state.update {
             val volumes = update.details.volumes.size
             it.copy(
                 details = update.details,
                 busy = false,
                 selectedVolume = it.selectedVolume?.takeIf { v -> v < volumes },
+                fuzzySkinDisabled = fuzzyDisabled,
             )
         }
+    }
+
+    /** The object's fuzzy skin setting: its own, else the user's change, else the presets'. */
+    private suspend fun effectiveFuzzySkin(update: ObjectUpdate): String? {
+        update.details.settings[FUZZY_SKIN]?.let { return it }
+        val presets = context?.presets
+        return configs.configFor(presets).overrides[FUZZY_SKIN]
+            ?: catalog.values(presets, listOf(FUZZY_SKIN)).getOrNull()?.get(FUZZY_SKIN)
     }
 
     /** The placement panel's edits, made relative to the selected volume's current placement. */
@@ -191,6 +204,8 @@ class ObjectListViewModel @Inject constructor(
         private const val DEFAULT_BED_MM = 220.0
         private const val SHAPE_FRACTION = 0.1
         private const val DEFAULT_LAYER_HEIGHT = "0.2"
+        private const val FUZZY_SKIN = "fuzzy_skin"
+        private const val FUZZY_SKIN_DISABLED = "disabled_fuzzy"
 
         /** The kinds a volume may be changed to: what it is, a part, or anything but a part. */
         fun kindsFor(kind: VolumeKind): List<VolumeKind> = VolumeKind.addable.let { if (kind in it) it else it + kind }
