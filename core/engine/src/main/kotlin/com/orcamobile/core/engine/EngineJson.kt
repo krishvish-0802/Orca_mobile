@@ -9,7 +9,11 @@ import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.ObjectDetails
+import com.orcamobile.core.model.ObjectEdit
+import com.orcamobile.core.model.ObjectUpdate
 import com.orcamobile.core.model.OptionChoice
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.OptionType
@@ -17,10 +21,13 @@ import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
+import com.orcamobile.core.model.SettingTarget
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
+import com.orcamobile.core.model.VolumeInfo
+import com.orcamobile.core.model.VolumeKind
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -98,17 +105,65 @@ internal object EngineJson {
 
     fun transformUpdate(payload: String): Result<TransformUpdate> = decodeOrError(payload) { element ->
         val dto = json.decodeFromJsonElement(TransformUpdateDto.serializer(), element)
-        val t = dto.transform
-        TransformUpdate(
-            InstanceTransform(
-                position = t.position.axes(),
-                rotationDegrees = t.rotation.axes(),
-                scale = t.scale.axes(),
-                size = t.size.axes(),
-                mirrored = Axis.entries.filterIndexed { i, _ -> t.mirrored.getOrElse(i) { false } }.toSet(),
+        TransformUpdate(dto.transform.toModel(), dto.objects.map { it.toModel() })
+    }
+
+    fun objectUpdate(payload: String): Result<ObjectUpdate> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(ObjectUpdateDto.serializer(), element)
+        val o = dto.`object`
+        ObjectUpdate(
+            ObjectDetails(
+                name = o.name,
+                settings = o.settings,
+                volumes = o.volumes.map {
+                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel())
+                },
+                layerRanges = o.layerRanges.map { LayerRange(it.min, it.max, it.settings) },
             ),
             dto.objects.map { it.toModel() },
         )
+    }
+
+    /** The edit as native_object_edit reads it (native/bridge/jni/ObjectJni.cpp). */
+    fun encodeObjectEdit(edit: ObjectEdit): String {
+        fun target(target: SettingTarget): Map<String, JsonElement> = buildMap {
+            target.volume?.let { put("volume", JsonPrimitive(it)) }
+            target.range?.let { put("range", JsonPrimitive(it)) }
+        }
+        val (name, arguments) = when (edit) {
+            is ObjectEdit.AddPrimitive -> "addPrimitive" to mapOf(
+                "kind" to JsonPrimitive(edit.kind.nativeValue),
+                "shape" to JsonPrimitive(edit.shape.nativeValue),
+                "size" to JsonPrimitive(edit.sizeMm),
+            )
+            is ObjectEdit.AddFile -> "addFile" to mapOf("kind" to JsonPrimitive(edit.kind.nativeValue), "path" to JsonPrimitive(edit.path))
+            is ObjectEdit.RemoveVolume -> "removeVolume" to mapOf("volume" to JsonPrimitive(edit.volume))
+            is ObjectEdit.SetKind -> "setKind" to mapOf("volume" to JsonPrimitive(edit.volume), "kind" to JsonPrimitive(edit.kind.nativeValue))
+            is ObjectEdit.Rename -> "rename" to buildMap {
+                edit.volume?.let { put("volume", JsonPrimitive(it)) }
+                put("name", JsonPrimitive(edit.name))
+            }
+            is ObjectEdit.VolumeTransform -> "volumeTransform" to mapOf(
+                "volume" to JsonPrimitive(edit.volume),
+                "position" to edit.position.json(),
+                "rotation" to edit.rotationDegrees.json(),
+                "scale" to edit.scale.json(),
+            )
+            is ObjectEdit.SetSetting -> "set" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key), "value" to JsonPrimitive(edit.value))
+            is ObjectEdit.ResetSetting -> "reset" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key))
+            is ObjectEdit.AddRange -> "addRange" to mapOf(
+                "min" to JsonPrimitive(edit.minZ),
+                "max" to JsonPrimitive(edit.maxZ),
+                "layerHeight" to JsonPrimitive(edit.layerHeight),
+            )
+            is ObjectEdit.SetRange -> "setRange" to mapOf(
+                "range" to JsonPrimitive(edit.range),
+                "min" to JsonPrimitive(edit.minZ),
+                "max" to JsonPrimitive(edit.maxZ),
+            )
+            is ObjectEdit.RemoveRange -> "removeRange" to mapOf("range" to JsonPrimitive(edit.range))
+        }
+        return JsonObject(mapOf(name to JsonObject(arguments))).toString()
     }
 
     /** The edit as native_instance_transform reads it; "" reads without a change. */
@@ -206,7 +261,38 @@ internal object EngineJson {
         val scale: List<Double>,
         val size: List<Double>,
         val mirrored: List<Boolean>,
+    ) {
+        fun toModel() = InstanceTransform(
+            position = position.axes(),
+            rotationDegrees = rotation.axes(),
+            scale = scale.axes(),
+            size = size.axes(),
+            mirrored = Axis.entries.filterIndexed { i, _ -> mirrored.getOrElse(i) { false } }.toSet(),
+        )
+    }
+
+    @Serializable
+    private data class VolumeDto(
+        val name: String,
+        val kind: Int,
+        val triangles: Long = 0,
+        val settings: Map<String, String> = emptyMap(),
+        val transform: TransformDto,
     )
+
+    @Serializable
+    private data class LayerRangeDto(val min: Double, val max: Double, val settings: Map<String, String> = emptyMap())
+
+    @Serializable
+    private data class ObjectDetailsDto(
+        val name: String,
+        val settings: Map<String, String> = emptyMap(),
+        val volumes: List<VolumeDto> = emptyList(),
+        val layerRanges: List<LayerRangeDto> = emptyList(),
+    )
+
+    @Serializable
+    private data class ObjectUpdateDto(val `object`: ObjectDetailsDto, val objects: List<ObjectDto>)
 
     @Serializable
     private data class TransformUpdateDto(val transform: TransformDto, val objects: List<ObjectDto>)

@@ -163,4 +163,42 @@ class EngineJsonTest {
         assertEquals("""{"mirror":2}""", EngineJson.encodeEdit(com.orcamobile.core.model.TransformEdit.Mirror(com.orcamobile.core.model.Axis.Z)))
         assertEquals("""{"reset":true}""", EngineJson.encodeEdit(com.orcamobile.core.model.TransformEdit.Reset))
     }
+
+    @Test
+    fun `decodes an object's volumes and ranges and encodes object edits`() {
+        val transform = """{"position":[0,0,0],"rotation":[0,0,0],"scale":[1,1,1],"size":[20,20,20],"mirrored":[false,false,false]}"""
+        val update = EngineJson.objectUpdate(
+            """{"objects":[],"object":{"name":"cube","settings":{"wall_loops":"3"},""" +
+                """"volumes":[{"name":"cube","kind":0,"triangles":12,"settings":{},"transform":$transform},""" +
+                """{"name":"Generic-Cube","kind":2,"triangles":12,"settings":{"sparse_infill_density":"50%"},"transform":$transform}],""" +
+                """"layerRanges":[{"min":0,"max":2,"settings":{"layer_height":"0.1"}}]}}""",
+        ).getOrThrow()
+        val details = update.details
+        assertEquals("3", details.settings["wall_loops"])
+        assertEquals(com.orcamobile.core.model.VolumeKind.MODIFIER, details.volumes[1].kind)
+        assertEquals("50%", details.volumes[1].settings["sparse_infill_density"])
+        assertEquals(1, details.partCount)
+        assertEquals(2.0, details.layerRanges.single().maxZ)
+
+        assertEquals(
+            """{"addPrimitive":{"kind":2,"shape":0,"size":20.0}}""",
+            EngineJson.encodeObjectEdit(
+                com.orcamobile.core.model.ObjectEdit.AddPrimitive(
+                    com.orcamobile.core.model.VolumeKind.MODIFIER, com.orcamobile.core.model.PrimitiveShape.CUBE, 20.0,
+                ),
+            ),
+        )
+        assertEquals(
+            """{"set":{"volume":1,"key":"sparse_infill_density","value":"50%"}}""",
+            EngineJson.encodeObjectEdit(
+                com.orcamobile.core.model.ObjectEdit.SetSetting(
+                    com.orcamobile.core.model.SettingTarget(volume = 1), "sparse_infill_density", "50%",
+                ),
+            ),
+        )
+        assertEquals(
+            """{"rename":{"name":"Body"}}""",
+            EngineJson.encodeObjectEdit(com.orcamobile.core.model.ObjectEdit.Rename(null, "Body")),
+        )
+    }
 }

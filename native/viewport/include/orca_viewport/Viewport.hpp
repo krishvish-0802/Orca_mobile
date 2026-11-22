@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <memory>
@@ -16,10 +17,50 @@ struct Bed {
     float max_height = 0;
 };
 
+// What a volume of an object is, as OrcaSlicer's ModelVolumeType: values are
+// shared with the bridge (orca_engine::VolumeKind).
+enum class VolumeKind : int {
+    ModelPart = 0,
+    NegativeVolume = 1,
+    ParameterModifier = 2,
+    SupportBlocker = 3,
+    SupportEnforcer = 4,
+    SeamCenter = 5,
+    SeamLeft = 6,
+    SeamRight = 7,
+    SeamEnforced = 8,
+    SeamBlocked = 9,
+    SeamNeutral = 10,
+    PaintedModifier = 11,
+};
+
+// A run of an object mesh's triangles that belongs to one of its volumes.
+struct MeshPiece {
+    int volume = 0;                  // index in the object's volumes
+    VolumeKind kind = VolumeKind::ModelPart;
+    std::size_t first_triangle = 0;
+    std::size_t triangle_count = 0;
+};
+
 // An object's triangles in its own coordinates (mm): x, y, z per vertex, three
-// vertices per triangle. Shared by every instance of the object.
+// vertices per triangle. Shared by every instance of the object. `pieces` says
+// which volume each run of triangles is, model parts first; without pieces the
+// whole mesh is one model part. Only model parts can be picked.
 struct PartMesh {
     std::vector<float> positions;
+    std::vector<MeshPiece> pieces;
+
+    // Triangles from the start that belong to model parts.
+    std::size_t pickable_triangles() const
+    {
+        if (pieces.empty())
+            return positions.size() / 9;
+        std::size_t count = 0;
+        for (const MeshPiece& piece : pieces)
+            if (piece.kind == VolumeKind::ModelPart)
+                count = std::max(count, piece.first_triangle + piece.triangle_count);
+        return count;
+    }
 };
 
 // Identifies an instance on the plate: object and instance index, as the engine numbers them.
@@ -74,6 +115,9 @@ public:
     void set_part_transform(const PartRef& ref, const std::array<float, 16>& transform);
     // Highlights one instance, or none.
     void set_selection(std::optional<PartRef> selection);
+    // Highlights one volume of the selected instance's object (index in its
+    // volumes), or none.
+    void set_highlighted_volume(std::optional<int> volume);
     std::optional<PartRef> selection() const;
 
     // The instance under a screen point, nearest first; none if the point hits no part.

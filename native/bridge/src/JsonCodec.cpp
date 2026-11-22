@@ -157,16 +157,54 @@ std::string to_json(const PlateChange& change, const std::vector<ObjectSummary>&
     return result.dump();
 }
 
-std::string to_json(const InstanceTransform& transform, const std::vector<ObjectSummary>& objects)
+namespace {
+
+nlohmann::json transform_json(const InstanceTransform& transform)
 {
-    nlohmann::json result = nlohmann::json::parse(to_json(objects));
-    result["transform"] = {
+    return {
         {"position", transform.position},
         {"rotation", transform.rotation_deg},
         {"scale", transform.scale},
         {"size", transform.size},
         {"mirrored", transform.mirrored},
     };
+}
+
+} // namespace
+
+std::string to_json(const ObjectDetails& details, const std::vector<InstanceTransform>& volume_transforms,
+                    const std::vector<ObjectSummary>& objects)
+{
+    nlohmann::json volumes = nlohmann::json::array();
+    for (std::size_t i = 0; i < details.volumes.size(); ++i) {
+        const VolumeInfo& volume = details.volumes[i];
+        nlohmann::json entry = {
+            {"name", volume.name},
+            {"kind", static_cast<int>(volume.kind)},
+            {"triangles", volume.triangle_count},
+            {"settings", volume.settings},
+        };
+        if (i < volume_transforms.size())
+            entry["transform"] = transform_json(volume_transforms[i]);
+        volumes.push_back(std::move(entry));
+    }
+    nlohmann::json ranges = nlohmann::json::array();
+    for (const LayerRangeInfo& range : details.layer_ranges)
+        ranges.push_back({{"min", range.min_z}, {"max", range.max_z}, {"settings", range.settings}});
+    nlohmann::json result = nlohmann::json::parse(to_json(objects));
+    result["object"] = {
+        {"name", details.name},
+        {"settings", details.settings},
+        {"volumes", volumes},
+        {"layerRanges", ranges},
+    };
+    return result.dump();
+}
+
+std::string to_json(const InstanceTransform& transform, const std::vector<ObjectSummary>& objects)
+{
+    nlohmann::json result = nlohmann::json::parse(to_json(objects));
+    result["transform"] = transform_json(transform);
     return result.dump();
 }
 

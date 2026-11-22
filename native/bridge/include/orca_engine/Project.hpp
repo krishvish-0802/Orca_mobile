@@ -3,7 +3,9 @@
 #include <array>
 #include <cstddef>
 #include <functional>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -17,6 +19,80 @@ struct ObjectSummary {
     std::size_t instance_count = 0;
     std::size_t triangle_count = 0;
     std::array<double, 3> size{};     // mm, of the first instance
+};
+
+// What a volume of an object is, as OrcaSlicer's ModelVolumeType. The values
+// are shared with the viewport (orca_viewport::VolumeKind) and the app.
+enum class VolumeKind : int {
+    ModelPart = 0,          // printed
+    NegativeVolume = 1,     // cut out of the parts
+    ParameterModifier = 2,  // other settings inside it
+    SupportBlocker = 3,     // no support inside it
+    SupportEnforcer = 4,    // support inside it
+    // Precise seam modifiers: where the seam goes inside them.
+    SeamCenter = 5,
+    SeamLeft = 6,
+    SeamRight = 7,
+    SeamEnforced = 8,
+    SeamBlocked = 9,
+    SeamNeutral = 10,
+    PaintedModifier = 11,   // settings for an area painted on a part
+};
+
+// The desktop's "Add part / modifier / ..." generic shapes.
+enum class PrimitiveShape : int { Cube = 0, Cylinder = 1, Sphere = 2, Slab = 3, Cone = 4, Torus = 5, Disc = 6 };
+
+// Serialized setting values by key, as preset files hold them.
+using SettingValues = std::map<std::string, std::string>;
+
+struct VolumeInfo {
+    std::string name;
+    VolumeKind kind = VolumeKind::ModelPart;
+    std::size_t triangle_count = 0;
+    SettingValues settings;
+};
+
+// A height range of an object with settings of its own (layer height and
+// region settings), as the desktop's "Height range modifier".
+struct LayerRangeInfo {
+    double min_z = 0;
+    double max_z = 0;
+    SettingValues settings;
+};
+
+// An object as the desktop's object list shows it.
+struct ObjectDetails {
+    std::string name;
+    SettingValues settings;                  // per-object settings
+    std::vector<VolumeInfo> volumes;         // in the object's order
+    std::vector<LayerRangeInfo> layer_ranges;  // from the bottom up
+};
+
+// Where a per-object setting lives: on the object, one of its volumes, or one
+// of its height ranges.
+struct SettingTarget {
+    std::size_t object = 0;
+    std::optional<std::size_t> volume;
+    std::optional<std::size_t> layer_range;
+};
+
+// Which settings a target takes, as the desktop's object, part and layer tabs:
+// object = PrintObjectConfig + PrintRegionConfig; volume = PrintRegionConfig
+// (and the extruder); height range = layer_height + PrintRegionConfig.
+enum class SettingScope : int { Object = 0, Volume = 1, LayerRange = 2 };
+std::vector<std::string> setting_keys(SettingScope scope);
+
+// An object's mesh for drawing: every volume's triangles in object
+// coordinates, model parts first, with which volume each run is.
+struct ObjectMesh {
+    struct Piece {
+        std::size_t volume = 0;
+        VolumeKind kind = VolumeKind::ModelPart;
+        std::size_t first_triangle = 0;
+        std::size_t triangle_count = 0;
+    };
+    std::vector<float> positions;   // x, y, z per vertex, three vertices per triangle
+    std::vector<Piece> pieces;
 };
 
 // One instance of one object on the plate.
@@ -85,6 +161,32 @@ public:
     // Takes an instance off the plate; the object goes too when it was its last.
     // Throws std::out_of_range for a bad reference.
     void remove(const InstanceRef& ref);
+
+    // --- An object's composition (the desktop's object list) ---
+    // Throw std::out_of_range for a bad index and std::invalid_argument for a
+    // change the desktop refuses too (an object's last part, a setting the
+    // target does not take, a range that is empty).
+    ObjectDetails details(std::size_t object) const;
+    ObjectMesh object_mesh(std::size_t object) const;
+    // A generic shape `size_mm` across (Slab: 1.5 x the object's footprint),
+    // next to the object's front right corner, standing on the bed.
+    void add_primitive(std::size_t object, VolumeKind kind, PrimitiveShape shape, double size_mm);
+    // Every object in a model file, as one volume, placed like a generic shape.
+    void add_volume_from_file(std::size_t object, VolumeKind kind, const std::string& path);
+    void remove_volume(std::size_t object, std::size_t volume);
+    void set_volume_kind(std::size_t object, std::size_t volume, VolumeKind kind);
+    void rename(std::size_t object, std::optional<std::size_t> volume, const std::string& name);
+    // A volume's placement in its object: position (mm), rotation, scale.
+    InstanceTransform volume_transform(std::size_t object, std::size_t volume) const;
+    void set_volume_transform(std::size_t object, std::size_t volume, const std::array<double, 3>& position,
+                              const std::array<double, 3>& rotation_deg, const std::array<double, 3>& scale);
+
+    void set_setting(const SettingTarget& target, const std::string& key, const std::string& value);
+    void reset_setting(const SettingTarget& target, const std::string& key);
+    // Adds a height range with its own layer height; returns its index.
+    std::size_t add_layer_range(std::size_t object, double min_z, double max_z, const std::string& layer_height);
+    void set_layer_range(std::size_t object, std::size_t range, double min_z, double max_z);
+    void remove_layer_range(std::size_t object, std::size_t range);
 
     // A snapshot of the model, for the slicing pipeline inside the bridge.
     Slic3r::Model model_copy() const;

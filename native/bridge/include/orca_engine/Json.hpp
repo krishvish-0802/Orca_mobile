@@ -30,6 +30,11 @@ std::string to_json(const PresetOptionKeys& keys);
 std::string to_json(const PlateChange& change, const std::vector<ObjectSummary>& objects);
 // {"transform":{"position":[..],"rotation":[..],"scale":[..],"size":[..],"mirrored":[..]},"objects":[...]}
 std::string to_json(const InstanceTransform& transform, const std::vector<ObjectSummary>& objects);
+// {"object":{"name":..,"settings":{..},"volumes":[{"name","kind","triangles","settings",
+// "transform"}],"layerRanges":[{"min","max","settings"}]},"objects":[...]}. `volume_transforms`
+// pairs with details.volumes.
+std::string to_json(const ObjectDetails& details, const std::vector<InstanceTransform>& volume_transforms,
+                    const std::vector<ObjectSummary>& objects);
 // {"values":{key:value}}
 std::string values_to_json(const std::map<std::string, std::string>& values);
 

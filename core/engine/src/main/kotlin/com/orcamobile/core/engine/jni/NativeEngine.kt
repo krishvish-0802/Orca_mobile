@@ -50,6 +50,16 @@ internal object NativeEngine {
      */
     @JvmStatic external fun nativeInstanceTransform(handle: Long, objectIndex: Int, instanceIndex: Int, editJson: String): String
 
+    // Object list (native/bridge/jni/ObjectJni.cpp): `{"object":{..},"objects":[..]}` or `{"error": ...}`.
+
+    @JvmStatic external fun nativeObjectDetails(handle: Long, objectIndex: Int): String
+
+    /** Applies one edit (EngineJson.encodeObjectEdit) and returns the object after it. */
+    @JvmStatic external fun nativeObjectEdit(handle: Long, objectIndex: Int, editJson: String): String
+
+    /** The setting keys an object (0), a part (1) or a height range (2) takes, as a JSON array. */
+    @JvmStatic external fun nativeSettingKeys(scope: Int): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

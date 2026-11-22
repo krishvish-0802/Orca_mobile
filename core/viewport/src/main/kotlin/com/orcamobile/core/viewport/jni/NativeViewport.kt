@@ -25,6 +25,9 @@ internal object NativeViewport {
     /** The instance under a screen point as (object shl 32 or instance), or -1. */
     @JvmStatic external fun nativePick(handle: Long, x: Float, y: Float): Long
 
+    /** Highlights a volume (index in its object) of the selected instance; negative for none. */
+    @JvmStatic external fun nativeHighlightVolume(handle: Long, volume: Int)
+
     /** Highlights an instance; a negative [objectIndex] clears the selection. */
     @JvmStatic external fun nativeSetSelection(handle: Long, objectIndex: Int, instanceIndex: Int)
 

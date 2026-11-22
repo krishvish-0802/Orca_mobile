@@ -1,5 +1,6 @@
 #include "Picking.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 
@@ -59,7 +60,8 @@ std::optional<float> intersect(const PartMesh& mesh, const Eigen::AlignedBox3f& 
     constexpr float kEpsilon = 1e-9f;
     float nearest = std::numeric_limits<float>::infinity();
     const auto& p = mesh.positions;
-    for (size_t i = 0; i + 8 < p.size(); i += 9) {
+    const size_t end = std::min(p.size(), mesh.pickable_triangles() * 9);
+    for (size_t i = 0; i + 8 < end; i += 9) {
         const Eigen::Vector3f v0(p[i], p[i + 1], p[i + 2]);
         const Eigen::Vector3f e1 = Eigen::Vector3f(p[i + 3], p[i + 4], p[i + 5]) - v0;
         const Eigen::Vector3f e2 = Eigen::Vector3f(p[i + 6], p[i + 7], p[i + 8]) - v0;

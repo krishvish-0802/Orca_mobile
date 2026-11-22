@@ -123,6 +123,14 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         return InstanceRef((packed ushr 32).toInt(), (packed and 0xFFFFFFFFL).toInt())
     }
 
+    private var highlightedVolume: Int? = null
+
+    fun setHighlightedVolume(volume: Int?) {
+        if (volume == highlightedVolume) return
+        highlightedVolume = volume
+        gesture { NativeViewport.nativeHighlightVolume(it, volume ?: -1) }
+    }
+
     fun setSelection(ref: InstanceRef?) {
         if (ref == selection) return
         selection = ref

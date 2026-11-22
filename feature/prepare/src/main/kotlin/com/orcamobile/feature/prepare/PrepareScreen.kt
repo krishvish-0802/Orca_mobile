@@ -1,5 +1,7 @@
 package com.orcamobile.feature.prepare
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +41,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -63,14 +66,65 @@ import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
+import com.orcamobile.core.model.VolumeKind
 import com.orcamobile.core.viewport.PlateViewport
 import java.util.Locale
 import kotlin.math.roundToInt
 
 @Composable
-fun PrepareRoute(onBack: () -> Unit, onOpenSettings: () -> Unit, viewModel: PrepareViewModel = hiltViewModel()) {
+fun PrepareRoute(
+    onBack: () -> Unit,
+    onOpenSettings: () -> Unit,
+    viewModel: PrepareViewModel = hiltViewModel(),
+    objectList: ObjectListViewModel = hiltViewModel(),
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    PrepareScreen(state = state, onIntent = viewModel::onIntent, onBack = onBack, onOpenSettings = onOpenSettings)
+    val list by objectList.state.collectAsStateWithLifecycle()
+
+    // The object list follows the selected object; its changes reach the plate.
+    val context = state.project?.let { project ->
+        state.selection?.let { selection ->
+            ObjectListContext(
+                project = project.id,
+                objectIndex = selection.objectIndex,
+                presets = state.presets,
+                bedSizeMm = state.bed?.outline?.let { outline ->
+                    maxOf(outline.maxOf { it.first } - outline.minOf { it.first }, outline.maxOf { it.second } - outline.minOf { it.second })
+                } ?: 220.0,
+                editable = state.plateEditable,
+                revision = state.plateRevision,
+            )
+        }
+    }
+    LaunchedEffect(context) { objectList.onIntent(ObjectListIntent.Show(context)) }
+    LaunchedEffect(objectList) {
+        objectList.events.collect { event ->
+            when (event) {
+                is ObjectListEvent.PlateChanged -> viewModel.onIntent(PrepareIntent.ObjectChanged(event.objects))
+                ObjectListEvent.SettingsChanged -> viewModel.onIntent(PrepareIntent.ObjectSettingsChanged)
+            }
+        }
+    }
+    // Any document type: model files have no reliable MIME type.
+    var pickingFor by rememberSaveable { mutableStateOf<VolumeKind?>(null) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val kind = pickingFor
+        pickingFor = null
+        if (uri != null && kind != null) objectList.onIntent(ObjectListIntent.AddFile(kind, uri.toString()))
+    }
+
+    PrepareScreen(
+        state = state,
+        list = list,
+        onIntent = viewModel::onIntent,
+        onListIntent = objectList::onIntent,
+        onPickFile = { kind ->
+            pickingFor = kind
+            picker.launch(arrayOf("*/*"))
+        },
+        onBack = onBack,
+        onOpenSettings = onOpenSettings,
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -80,6 +134,9 @@ fun PrepareScreen(
     onIntent: (PrepareIntent) -> Unit,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    list: ObjectListUiState = ObjectListUiState(),
+    onListIntent: (ObjectListIntent) -> Unit = {},
+    onPickFile: (VolumeKind) -> Unit = {},
 ) {
     Scaffold(
         topBar = {
@@ -116,6 +173,7 @@ fun PrepareScreen(
                     locked = state.plateTask != null,
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
+                    highlightedVolume = list.selectedVolume,
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null) {
@@ -159,7 +217,7 @@ fun PrepareScreen(
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
-                if (preview == null) ObjectPanel(state, onIntent)
+                if (preview == null) ObjectPanel(state, list, onIntent, onListIntent, onPickFile)
                 preview?.let { PreviewCard(it, onIntent) }
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)

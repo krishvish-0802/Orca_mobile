@@ -1,4 +1,5 @@
 #include "orca_engine/Project.hpp"
+#include "ProjectImpl.hpp"
 
 #include <cmath>
 #include <mutex>
@@ -10,30 +11,6 @@
 
 namespace orca::engine {
 
-struct Project::Impl {
-    mutable std::mutex mutex;
-    std::string source_path;
-    Slic3r::Model model;
-
-    Slic3r::ModelInstance& instance(const InstanceRef& ref) const
-    {
-        if (ref.object >= model.objects.size() || ref.instance >= model.objects[ref.object]->instances.size())
-            throw std::out_of_range("No such instance on the plate");
-        return *model.objects[ref.object]->instances[ref.instance];
-    }
-
-    // After a change to the instance's transform: back onto the bed (only this
-    // instance; its siblings may stand differently).
-    void settle(const InstanceRef& ref)
-    {
-        Slic3r::ModelObject& object = *model.objects[ref.object];
-        object.invalidate_bounding_box();
-        const double min_z = object.instance_bounding_box(ref.instance).min.z();
-        if (std::isfinite(min_z) && min_z != 0.0)
-            object.translate_instance(ref.instance, Slic3r::Vec3d(0, 0, -min_z));
-        object.invalidate_bounding_box();
-    }
-};
 
 namespace {
 

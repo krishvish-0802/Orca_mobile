@@ -72,6 +72,8 @@ fun PlateViewport(
     locked: Boolean = false,
     layOnFace: Boolean = false,
     onLaidOnFace: (InstanceRef) -> Unit = {},
+    /** A volume of the selected object to highlight (its index in the object), for the object list. */
+    highlightedVolume: Int? = null,
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -103,6 +105,7 @@ fun PlateViewport(
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
+                view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null })
             },
             modifier = Modifier.fillMaxSize(),
         )

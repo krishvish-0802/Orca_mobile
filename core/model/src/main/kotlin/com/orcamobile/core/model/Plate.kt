@@ -68,7 +68,8 @@ data class InstanceTransform(
 
 /** A change to one instance's transform. Every change leaves it standing on the bed. */
 sealed interface TransformEdit {
-    data class Position(val x: Double, val y: Double) : TransformEdit
+    /** [z] applies to volumes inside an object; an object always stands on the bed. */
+    data class Position(val x: Double, val y: Double, val z: Double? = null) : TransformEdit
 
     data class Rotation(val degrees: Axes) : TransformEdit
 

@@ -146,6 +146,46 @@ class NativePlateToolsDeviceTest {
         assertTrue(result, result.contains("\"status\":\"succeeded\""))
     }
 
+    @Test
+    fun objectListEditsChangeWhatIsSliced() {
+        load(box("cube", 20f, 20f, 20f))
+        fun edit(json: String) = EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, json))
+        fun slice(name: String): String {
+            val gcode = File(work, "$name.gcode")
+            return NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L)
+        }
+        val plain = slice("plain")
+        assertTrue(plain, plain.contains("\"layerCount\":100"))
+
+        // A height range with finer layers adds layers.
+        val ranged = edit("""{"addRange":{"min":0,"max":4,"layerHeight":"0.1"}}""").getOrThrow()
+        assertEquals("0.1", ranged.details.layerRanges.single().settings["layer_height"])
+        val fine = slice("fine")
+        assertTrue(fine, fine.contains("\"status\":\"succeeded\""))
+        assertTrue(fine, !fine.contains("\"layerCount\":100"))
+        assertTrue(edit("""{"addRange":{"min":3,"max":5,"layerHeight":"0.1"}}""").isFailure)   // overlaps
+        edit("""{"removeRange":{"range":0}}""").getOrThrow()
+
+        // A modifier with its own infill, and a negative volume.
+        val modified = edit("""{"addPrimitive":{"kind":2,"shape":0,"size":10}}""").getOrThrow()
+        assertEquals(com.orcamobile.core.model.VolumeKind.MODIFIER, modified.details.volumes[1].kind)
+        edit("""{"set":{"volume":1,"key":"sparse_infill_density","value":"80%"}}""").getOrThrow()
+        assertTrue(edit("""{"set":{"volume":1,"key":"printable_height","value":"10"}}""").isFailure)   // not a part setting
+        val negative = edit("""{"addPrimitive":{"kind":1,"shape":1,"size":8}}""").getOrThrow()
+        assertEquals(3, negative.details.volumes.size)
+        edit("""{"set":{"key":"wall_loops","value":"4"}}""").getOrThrow()
+        val withVolumes = slice("volumes")
+        assertTrue(withVolumes, withVolumes.contains("\"status\":\"succeeded\""))
+
+        // An object keeps at least one part.
+        assertTrue(edit("""{"removeVolume":{"volume":0}}""").isFailure)
+        assertTrue(edit("""{"setKind":{"volume":0,"kind":2}}""").isFailure)
+        val trimmed = edit("""{"removeVolume":{"volume":2}}""").getOrThrow()
+        assertEquals(2, trimmed.details.volumes.size)
+        assertEquals("4", trimmed.details.settings["wall_loops"])
+        assertTrue(EngineJson.stringList(NativeEngine.nativeSettingKeys(2)).getOrThrow().first() == "layer_height")
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }

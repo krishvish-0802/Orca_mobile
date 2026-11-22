@@ -51,6 +51,16 @@ public:
         glBindVertexArray(0);
     }
 
+    // Vertices first .. first + count.
+    void draw(GLenum mode, GLint first, GLsizei count) const
+    {
+        if (m_count == 0 || count <= 0 || first >= m_count)
+            return;
+        glBindVertexArray(m_vao);
+        glDrawArrays(mode, first, std::min(count, m_count - first));
+        glBindVertexArray(0);
+    }
+
     void release()
     {
         if (m_vao != 0)
@@ -96,6 +106,32 @@ constexpr Color kOutline{0.25f, 0.28f, 0.28f, 1.0f};
 constexpr Color kFloor{0.80f, 0.83f, 0.83f, 1.0f};    // faint: just a sense of ground
 constexpr Color kModel{0.00f, 0.55f, 0.55f, 1.0f};
 constexpr Color kSelected{0.95f, 0.55f, 0.10f, 1.0f};
+// Volumes that are not printed themselves, drawn see-through (desktop colors, roughly).
+constexpr Color kModifier{0.95f, 0.80f, 0.20f, 0.45f};
+constexpr Color kNegative{0.25f, 0.25f, 0.28f, 0.50f};
+constexpr Color kEnforcer{0.20f, 0.80f, 0.30f, 0.45f};
+constexpr Color kBlocker{0.90f, 0.25f, 0.25f, 0.45f};
+constexpr Color kSeam{0.65f, 0.35f, 0.90f, 0.45f};
+constexpr Color kHighlightedVolume{0.30f, 0.60f, 1.00f, 0.75f};
+
+const Color& volume_color(VolumeKind kind)
+{
+    switch (kind) {
+    case VolumeKind::ParameterModifier: return kModifier;
+    case VolumeKind::NegativeVolume: return kNegative;
+    case VolumeKind::SupportEnforcer: return kEnforcer;
+    case VolumeKind::SupportBlocker: return kBlocker;
+    case VolumeKind::SeamCenter:
+    case VolumeKind::SeamLeft:
+    case VolumeKind::SeamRight:
+    case VolumeKind::SeamEnforced:
+    case VolumeKind::SeamBlocked:
+    case VolumeKind::SeamNeutral: return kSeam;
+    case VolumeKind::PaintedModifier: return kModifier;
+    case VolumeKind::ModelPart: break;
+    }
+    return kModel;
+}
 
 Eigen::Matrix4f to_matrix(const std::array<float, 16>& m)
 {
@@ -121,6 +157,7 @@ struct Viewport::Impl {
     bool has_bed = false;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::optional<int> highlighted_volume;
     bool framed = false;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
@@ -249,6 +286,7 @@ void Viewport::draw()
     Camera camera;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::optional<int> highlighted_volume;
     bool show_toolpaths = false;
     {
         std::lock_guard<std::mutex> lock(d.mutex);
@@ -289,6 +327,7 @@ void Viewport::draw()
         camera = d.camera;
         parts = d.parts;
         selection = d.selection;
+        highlighted_volume = d.highlighted_volume;
         show_toolpaths = d.has_toolpaths;
     }
 
@@ -337,14 +376,44 @@ void Viewport::draw()
     glUniform3f(d.part_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
     const GLint model_matrix = d.part_program.uniform("u_model");
     const GLint part_color = d.part_program.uniform("u_color");
-    for (const PartState& state : parts) {
-        auto batch = d.part_batches.find(state.part.mesh.get());
-        if (batch == d.part_batches.end())
-            continue;
-        const Color& c = selection && *selection == state.part.ref ? kSelected : kModel;
-        glUniform4f(part_color, c.r, c.g, c.b, c.a);
-        glUniformMatrix4fv(model_matrix, 1, GL_FALSE, state.transform.data());
-        batch->second.draw(GL_TRIANGLES);
+    // Opaque model parts first, then the see-through volumes over them.
+    for (int pass = 0; pass < 2; ++pass) {
+        const bool see_through = pass == 1;
+        if (see_through) {
+            glEnable(GL_BLEND);
+            glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+            glDepthMask(GL_FALSE);
+        }
+        for (const PartState& state : parts) {
+            auto batch = d.part_batches.find(state.part.mesh.get());
+            if (batch == d.part_batches.end())
+                continue;
+            const bool selected = selection && *selection == state.part.ref;
+            glUniformMatrix4fv(model_matrix, 1, GL_FALSE, state.transform.data());
+            const PartMesh& mesh = *state.part.mesh;
+            if (mesh.pieces.empty()) {
+                if (see_through)
+                    continue;
+                const Color& c = selected ? kSelected : kModel;
+                glUniform4f(part_color, c.r, c.g, c.b, c.a);
+                batch->second.draw(GL_TRIANGLES);
+                continue;
+            }
+            for (const MeshPiece& piece : mesh.pieces) {
+                if ((piece.kind != VolumeKind::ModelPart) != see_through)
+                    continue;
+                Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
+                if (selected && highlighted_volume && *highlighted_volume == piece.volume)
+                    c = piece.kind == VolumeKind::ModelPart ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kHighlightedVolume;
+                glUniform4f(part_color, c.r, c.g, c.b, c.a);
+                batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
+                                   static_cast<GLsizei>(piece.triangle_count * 3));
+            }
+        }
+        if (see_through) {
+            glDepthMask(GL_TRUE);
+            glDisable(GL_BLEND);
+        }
     }
 }
 
@@ -399,6 +468,12 @@ void Viewport::set_selection(std::optional<PartRef> selection)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->selection = selection;
+}
+
+void Viewport::set_highlighted_volume(std::optional<int> volume)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->highlighted_volume = volume;
 }
 
 std::optional<PartRef> Viewport::selection() const

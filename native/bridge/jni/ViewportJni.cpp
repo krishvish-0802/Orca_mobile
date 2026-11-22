@@ -94,8 +94,16 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
     std::vector<Part> parts;
     for (const orca::engine::InstanceRef& ref : project->instances()) {
         auto& mesh = meshes[ref.object];
-        if (!mesh)
-            mesh = std::make_shared<const PartMesh>(PartMesh{project->object_triangles(ref.object)});
+        if (!mesh) {
+            orca::engine::ObjectMesh object = project->object_mesh(ref.object);
+            PartMesh part;
+            part.positions = std::move(object.positions);
+            for (const auto& piece : object.pieces)
+                part.pieces.push_back({static_cast<int>(piece.volume),
+                                       static_cast<orca::viewport::VolumeKind>(static_cast<int>(piece.kind)),
+                                       piece.first_triangle, piece.triangle_count});
+            mesh = std::make_shared<const PartMesh>(std::move(part));
+        }
         parts.push_back({{static_cast<int>(ref.object), static_cast<int>(ref.instance)}, mesh,
                          to_float_matrix(project->placement(ref))});
     }
@@ -118,6 +126,13 @@ jlong native_pick(JNIEnv*, jclass, jlong handle, jfloat x, jfloat y)
     if (!hit)
         return -1;
     return (static_cast<jlong>(hit->object) << 32) | static_cast<jlong>(static_cast<uint32_t>(hit->instance));
+}
+
+// Highlights a volume of the selected object, or none for a negative index.
+void native_highlight_volume(JNIEnv*, jclass, jlong handle, jint volume)
+{
+    if (auto* v = viewport(handle))
+        v->set_highlighted_volume(volume < 0 ? std::nullopt : std::optional<int>(volume));
 }
 
 void native_set_selection(JNIEnv*, jclass, jlong handle, jint object, jint instance)
@@ -262,6 +277,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeMoveSelection", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_selection)},
     {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
     {"nativeLayOnFace", "(JJFF)J", reinterpret_cast<void*>(native_lay_on_face)},
+    {"nativeHighlightVolume", "(JI)V", reinterpret_cast<void*>(native_highlight_volume)},
     {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
     {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
     {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},

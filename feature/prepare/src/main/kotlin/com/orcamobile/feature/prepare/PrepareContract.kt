@@ -6,6 +6,7 @@ import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PresetSelection
@@ -169,6 +170,12 @@ sealed interface PrepareIntent {
 
     /** The plate laid [instance] on a face. */
     data class LaidOnFace(val instance: InstanceRef) : PrepareIntent
+
+    /** The object list changed an object's shape or volumes: redraw, and an earlier slice is stale. */
+    data class ObjectChanged(val objects: List<ModelObjectInfo>) : PrepareIntent
+
+    /** The object list changed only settings: an earlier slice is stale. */
+    data object ObjectSettingsChanged : PrepareIntent
 
     data object CancelSlice : PrepareIntent
 
