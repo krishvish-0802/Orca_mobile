@@ -69,6 +69,14 @@ internal object NativeEngine {
     /** Splits an object into one object per piece: `{"placed": how many, "objects":[..]}` or `{"error": ...}`. */
     @JvmStatic external fun nativePlateSplit(handle: Long, objectIndex: Int): String
 
+    // Mesh tools (native/bridge/jni/MeshJni.cpp); requests are MeshToolsJson.encode.
+
+    /** The cut's checks: `{"canCut","reason","problems",..}` or `{"error": ...}`. */
+    @JvmStatic external fun nativeCutPreview(handle: Long, requestJson: String): String
+
+    /** Cuts: `{"placed": how many pieces, "objects":[..]}` or `{"error": ...}`. */
+    @JvmStatic external fun nativeCutPerform(handle: Long, requestJson: String): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

@@ -94,6 +94,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 ToolButton(OrcaIcons.Paint, stringResource(R.string.prepare_tool_paint), enabled) {
                     onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SUPPORTS))
                 }
+                ToolButton(OrcaIcons.Cut, stringResource(R.string.prepare_tool_cut), enabled) {
+                    onIntent(PrepareIntent.OpenMeshTool(MeshTool.CUT))
+                }
                 ToolButton(OrcaIcons.Copies, stringResource(R.string.prepare_tool_copies), enabled) {
                     sheet = PlateSheet.COPIES
                 }
@@ -196,6 +199,7 @@ private fun noticeText(notice: PlateNotice): String = when (notice) {
     }
     PlateNotice.BedFull -> stringResource(R.string.prepare_notice_bed_full)
     is PlateNotice.Split -> pluralStringResource(R.plurals.prepare_notice_split, notice.count, notice.count)
+    is PlateNotice.Cut -> pluralStringResource(R.plurals.prepare_notice_cut, notice.count, notice.count)
     is PlateNotice.Failed -> stringResource(R.string.prepare_notice_failed, notice.message)
 }
 

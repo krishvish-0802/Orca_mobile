@@ -40,9 +40,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.orcamobile.core.engine.EngineLibrary
+import com.orcamobile.core.engine.MeshToolsJson
 import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.CutCheck
+import com.orcamobile.core.model.CutPlanePoint
+import com.orcamobile.core.model.CutRequest
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PreviewId
@@ -52,6 +56,8 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.exp
 
@@ -113,6 +119,20 @@ fun PlateViewport(
     /** Grows to erase everything painted of the brush's kind. */
     clearPaintRequest: Int = 0,
     onPainted: () -> Unit = {},
+    /**
+     * Cutting with this plane, connectors and options: the plate shows the
+     * plane, the cut face and the connectors, the object above the plane in
+     * orange and below in blue. One finger orbits, two pan and zoom, a tap on
+     * the plane reports where ([onCutPlaneTap]), and a handle at the plate's
+     * edge drags the plane up or down ([onCutHeightDrag], mm). [onCutChecked]
+     * gets the engine's checks of each cut shown.
+     */
+    cut: CutRequest? = null,
+    /** Hide what is above the plane so its cut face shows, for placing connectors. */
+    cutShowsFace: Boolean = false,
+    onCutChecked: (CutCheck) -> Unit = {},
+    onCutPlaneTap: (CutPlanePoint) -> Unit = {},
+    onCutHeightDrag: (Double) -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -143,6 +163,24 @@ fun PlateViewport(
     val paletteArray = remember(paintPalette) {
         paintPalette.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
     }
+    val cutting = cut != null && project != null && preview == null
+    val currentOnCutChecked by rememberUpdatedState(onCutChecked)
+    val currentOnCutPlaneTap by rememberUpdatedState(onCutPlaneTap)
+    val currentOnCutHeightDrag by rememberUpdatedState(onCutHeightDrag)
+    var cutCenter by remember { mutableStateOf<List<Double>?>(null) }
+    // The engine sections the object for every change: off the main thread.
+    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, project, projectRevision) {
+        val request = cut.takeIf { cutting }
+        val checks = withContext(Dispatchers.Default) { surface.showCut(request?.let(MeshToolsJson::encode), cutShowsFace) }
+        if (request == null) {
+            cutCenter = null
+        } else {
+            checks?.let(MeshToolsJson::cutCheck)?.getOrNull()?.let { check ->
+                cutCenter = check.center
+                currentOnCutChecked(check)
+            }
+        }
+    }
     LaunchedEffect(clearPaintRequest) {
         if (clearPaintRequest > 0 && surface.isPainting && surface.clearPaintAndCommit()) currentOnPainted()
     }
@@ -155,13 +193,45 @@ fun PlateViewport(
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
-                view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null })
+                view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
                 view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray)
             },
             modifier = Modifier.fillMaxSize(),
         )
         // Gestures are read here, above the GL view, so they stay in Compose.
-        if (painting) {
+        if (cutting) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) {
+                        detectTapGestures(
+                            onDoubleTap = { surface.fit() },
+                            onTap = { position ->
+                                surface.cutPointAt(position.x, position.y)?.let(MeshToolsJson::planePoint)?.let(currentOnCutPlaneTap)
+                            },
+                        )
+                    }
+                    .pointerInput(surface) {
+                        plateGestures(
+                            grabsSelection = { false },
+                            onDrag = { _, _ -> false },
+                            onTwist = { false },
+                            onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
+                            onPan = { delta -> surface.pan(delta.x, delta.y) },
+                            onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
+                            onEdited = {},
+                        )
+                    },
+            )
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+                DragHandle("Cut", "↕", AXIS_COLORS[2], onEdited = {}) { from, to, _ ->
+                    val center = cutCenter
+                    val dz = center?.let { surface.verticalDrag(it, from.x, from.y, to.x, to.y) }
+                    if (dz != null && dz != 0f) currentOnCutHeightDrag(dz.toDouble())
+                    false
+                }
+            }
+        } else if (painting) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -246,7 +316,7 @@ fun PlateViewport(
                     },
             )
         }
-        if (editable && selection != null && !painting) {
+        if (editable && selection != null && !painting && !cutting) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),

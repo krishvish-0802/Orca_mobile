@@ -221,6 +221,8 @@ public:
     // Runs `change` on the model under the project's lock, for the bridge's plate
     // tools (see PlateTools.hpp).
     void edit(const std::function<void(Slic3r::Model&)>& change);
+    // Runs `look` on the model under the project's lock, without changing it.
+    void inspect(const std::function<void(const Slic3r::Model&)>& look) const;
 
 private:
     Project();

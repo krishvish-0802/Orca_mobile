@@ -79,6 +79,29 @@ struct PaintOverlayMesh {
     std::vector<Run> runs;
 };
 
+// Tool geometry drawn over the plate (a cut plane and its section, connectors,
+// measured features), in world coordinates.
+struct Overlay {
+    struct Shape {
+        std::vector<float> positions;      // x, y, z per vertex
+        bool lines = false;                // pairs of vertices; else triples
+        std::array<float, 4> color{1, 1, 1, 1};   // alpha < 1 draws it see-through
+        bool on_top = false;               // not hidden by the model
+    };
+    std::vector<Shape> shapes;
+};
+
+// An object split by a cut plane: its parts above the plane drawn in one color,
+// below in another, a side that is not kept greyed. `plane` is (a, b, c, d) with
+// a x + b y + c z + d > 0 above, in world coordinates.
+struct CutView {
+    int object = 0;
+    std::array<float, 4> plane{0, 0, 1, 0};
+    bool keep_above = true;
+    bool keep_below = true;
+    bool hide_above = false;   // show the cut face: nothing above the plane is drawn
+};
+
 // What colors the toolpaths. Values are shared with the app (ToolpathColoring.kt).
 enum class ToolpathColoring : int {
     FeatureType = 0,
@@ -167,6 +190,17 @@ public:
     std::optional<FaceHit> pick_face(float x_px, float y_px) const;
     // Where a screen point lands on the bed plane (z = 0), if it does.
     std::optional<std::array<float, 2>> bed_point(float x_px, float y_px) const;
+
+    // Tool geometry over the plate; null removes it.
+    void set_overlay(std::shared_ptr<const Overlay> overlay);
+    // Splits an object's colors by a cut plane, or stops.
+    void set_cut_view(std::optional<CutView> view);
+    // Where a screen point lands on the plane through `origin` with `normal`
+    // (world), if it does, in front of the camera.
+    std::optional<std::array<float, 3>> plane_point(float x_px, float y_px, const std::array<float, 3>& origin,
+                                                    const std::array<float, 3>& normal) const;
+    // The camera's eye and the ray through a screen point (unit), in world coordinates.
+    void ray(float x_px, float y_px, std::array<float, 3>& origin, std::array<float, 3>& direction) const;
 
     // Sliced toolpaths, drawn instead of the model while set. Shared: the caller
     // may keep its copy, nothing here modifies it.

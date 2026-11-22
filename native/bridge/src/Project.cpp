@@ -60,6 +60,12 @@ void Project::edit(const std::function<void(Slic3r::Model&)>& change)
     change(m_impl->model);
 }
 
+void Project::inspect(const std::function<void(const Slic3r::Model&)>& look) const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    look(m_impl->model);
+}
+
 void Project::remove(const InstanceRef& ref)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

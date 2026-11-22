@@ -6,6 +6,13 @@ import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.engine.jni.NativeProgressListener
 import com.orcamobile.core.engine.resources.EngineResources
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.ConnectorProblem
+import com.orcamobile.core.model.CutConnector
+import com.orcamobile.core.model.CutConnectorType
+import com.orcamobile.core.model.CutMode
+import com.orcamobile.core.model.CutPlane
+import com.orcamobile.core.model.CutRequest
+import com.orcamobile.core.model.InstanceRef
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -222,6 +229,55 @@ class NativePlateToolsDeviceTest {
         assertTrue(EngineJson.plateUpdate(NativeEngine.nativePlateSplit(handle, 0)).isFailure)
         val gcode = File(work, "split.gcode")
         assertTrue(NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+    }
+
+    @Test
+    fun cutsWithAPlaneConnectorsAndADovetail() {
+        load(box("cube", 20f, 20f, 20f))
+        val at = InstanceRef(0, 0)
+        fun check(request: CutRequest) = MeshToolsJson.cutCheck(NativeEngine.nativeCutPreview(handle, MeshToolsJson.encode(request))).getOrThrow()
+        fun cut(request: CutRequest) = EngineJson.plateUpdate(NativeEngine.nativeCutPerform(handle, MeshToolsJson.encode(request)))
+        fun slices(name: String) =
+            NativeEngine.nativeSliceProject(handle, File(work, "$name.gcode").path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\"")
+
+        val level = CutRequest(at, CutPlane(10.0))
+        val checked = check(level)
+        assertTrue(checked.reason, checked.canCut)
+        assertEquals(20.0, checked.heightRange.endInclusive, 0.01)
+        // A plane above the object, or a connector off the cut face, cannot cut.
+        assertTrue(!check(CutRequest(at, CutPlane(30.0))).canCut)
+        val offFace = check(level.copy(connectors = listOf(CutConnector(u = 40.0))))
+        assertEquals(listOf(ConnectorProblem.OUTSIDE_SECTION), offFace.problems)
+        assertTrue(cut(level.copy(connectors = listOf(CutConnector(u = 40.0)))).isFailure)
+
+        // Plain: two 10 mm pieces standing where the cube was.
+        val halves = cut(level).getOrThrow()
+        assertEquals(2, halves.placed)
+        assertTrue(halves.objects.all { kotlin.math.abs(it.sizeMm[2] - 10.0) < 0.05 })
+        assertTrue(slices("halves"))
+
+        // A plug: it stands on the lower piece, its hole is in the upper one.
+        NativeEngine.nativeProjectRelease(handle)
+        load(box("cube", 20f, 20f, 20f))
+        val plug = cut(level.copy(connectors = listOf(CutConnector(sizeMm = 5.0, depthMm = 4.0)))).getOrThrow()
+        assertEquals(2, plug.placed)
+        assertTrue("sizes ${plug.objects.map { it.sizeMm }}", plug.objects.any { kotlin.math.abs(it.sizeMm[2] - 14.0) < 0.1 })
+        assertTrue(slices("plug"))
+
+        // A dowel is a pin of its own.
+        NativeEngine.nativeProjectRelease(handle)
+        load(box("cube", 20f, 20f, 20f))
+        val dowel = cut(level.copy(connectors = listOf(CutConnector(type = CutConnectorType.DOWEL, sizeMm = 4.0, depthMm = 3.0)))).getOrThrow()
+        assertEquals(3, dowel.placed)
+        assertTrue(slices("dowel"))
+
+        // A dovetail along the plane, tilted.
+        NativeEngine.nativeProjectRelease(handle)
+        load(box("bar", 40f, 20f, 20f))
+        val dovetail = CutRequest(at, CutPlane(10.0, tiltXDegrees = 90.0), mode = CutMode.DOVETAIL)
+        assertTrue(check(dovetail).reason, check(dovetail).canCut)
+        assertEquals(2, cut(dovetail).getOrThrow().placed)
+        assertTrue(slices("dovetail"))
     }
 
     /** Two 10 mm cubes 20 mm apart in one STL. */

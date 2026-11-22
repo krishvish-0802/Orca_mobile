@@ -113,6 +113,7 @@ constexpr Color kEnforcer{0.20f, 0.80f, 0.30f, 0.45f};
 constexpr Color kBlocker{0.90f, 0.25f, 0.25f, 0.45f};
 constexpr Color kSeam{0.65f, 0.35f, 0.90f, 0.45f};
 constexpr Color kHighlightedVolume{0.30f, 0.60f, 1.00f, 0.75f};
+constexpr Color kDiscarded{0.62f, 0.64f, 0.66f, 1.0f};
 
 const Color& volume_color(VolumeKind kind)
 {
@@ -182,6 +183,8 @@ struct Viewport::Impl {
     bool framed = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
+    std::shared_ptr<const Overlay> overlay;
+    std::optional<CutView> cut_view;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
     std::shared_ptr<const libvgcode::GCodeInputData> toolpaths;
@@ -202,6 +205,9 @@ struct Viewport::Impl {
     // One vertex array per part mesh, shared by the instances that use it.
     std::map<const PartMesh*, GpuBatch> part_batches;
     std::map<const PaintOverlayMesh*, GpuBatch> paint_batches;
+    // The overlay shown and its vertex arrays, one per shape.
+    const Overlay* overlay_uploaded = nullptr;
+    std::vector<GpuBatch> overlay_batches;
     ToolpathRenderer toolpath_renderer;
     bool gl_ready = false;
 
@@ -259,6 +265,70 @@ struct Viewport::Impl {
         paint_batches = std::move(next);
     }
 
+    // GL thread: opaque shapes first, then see-through ones, then those on top.
+    void draw_overlay(const Overlay& shown, const Eigen::Matrix4f& view_proj, const Eigen::Vector3f& eye)
+    {
+        const Eigen::Matrix4f identity = Eigen::Matrix4f::Identity();
+        for (int pass = 0; pass < 3; ++pass) {
+            for (std::size_t i = 0; i < shown.shapes.size() && i < overlay_batches.size(); ++i) {
+                const Overlay::Shape& shape = shown.shapes[i];
+                const bool see_through = shape.color[3] < 1.0f;
+                const int shape_pass = shape.on_top ? 2 : see_through ? 1 : 0;
+                if (shape_pass != pass)
+                    continue;
+                if (see_through) {
+                    glEnable(GL_BLEND);
+                    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+                    glDepthMask(GL_FALSE);
+                }
+                if (shape.on_top)
+                    glDisable(GL_DEPTH_TEST);
+                if (shape.lines) {
+                    line_program.use();
+                    glUniformMatrix4fv(line_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
+                    glUniform4f(line_program.uniform("u_color"), shape.color[0], shape.color[1], shape.color[2], shape.color[3]);
+                    glLineWidth(3.0f);
+                    overlay_batches[i].draw(GL_LINES);
+                    glLineWidth(1.0f);
+                } else {
+                    part_program.use();
+                    glUniformMatrix4fv(part_program.uniform("u_view_proj"), 1, GL_FALSE, view_proj.data());
+                    glUniformMatrix4fv(part_program.uniform("u_model"), 1, GL_FALSE, identity.data());
+                    glUniform3f(part_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
+                    glUniform4f(part_program.uniform("u_plane"), 0.0f, 0.0f, 0.0f, 0.0f);
+                    glUniform1f(part_program.uniform("u_clip_above"), 0.0f);
+                    glUniform4f(part_program.uniform("u_color"), shape.color[0], shape.color[1], shape.color[2], shape.color[3]);
+                    // Lies on the model's surfaces (a section on a cut face): pulled toward the camera.
+                    glEnable(GL_POLYGON_OFFSET_FILL);
+                    glPolygonOffset(-1.0f, -2.0f);
+                    overlay_batches[i].draw(GL_TRIANGLES);
+                    glDisable(GL_POLYGON_OFFSET_FILL);
+                }
+                if (shape.on_top)
+                    glEnable(GL_DEPTH_TEST);
+                if (see_through) {
+                    glDepthMask(GL_TRUE);
+                    glDisable(GL_BLEND);
+                }
+            }
+        }
+    }
+
+    void sync_overlay(const std::shared_ptr<const Overlay>& shown)
+    {
+        if (shown.get() == overlay_uploaded && overlay_batches.size() == (shown ? shown->shapes.size() : 0))
+            return;
+        for (GpuBatch& batch : overlay_batches)
+            batch.release();
+        overlay_batches.clear();
+        overlay_uploaded = shown.get();
+        if (!shown)
+            return;
+        overlay_batches.resize(shown->shapes.size());
+        for (std::size_t i = 0; i < shown->shapes.size(); ++i)
+            overlay_batches[i].upload(shown->shapes[i].positions, nullptr);
+    }
+
     void sync_part_batches(const std::vector<PartState>& shown)
     {
         std::map<const PartMesh*, GpuBatch> next;
@@ -302,6 +372,10 @@ void Viewport::on_surface_created()
     for (auto& [mesh, batch] : d.paint_batches)
         batch.abandon();
     d.paint_batches.clear();
+    for (GpuBatch& batch : d.overlay_batches)
+        batch.abandon();
+    d.overlay_batches.clear();
+    d.overlay_uploaded = nullptr;
 
     std::string error;
     d.gl_ready = d.lit_program.build(shaders::kLitVertex, shaders::kLitFragment, error) &&
@@ -338,6 +412,8 @@ void Viewport::draw()
     std::optional<int> highlighted_volume;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
+    std::shared_ptr<const Overlay> overlay;
+    std::optional<CutView> cut_view;
     bool show_toolpaths = false;
     {
         std::lock_guard<std::mutex> lock(d.mutex);
@@ -381,6 +457,8 @@ void Viewport::draw()
         highlighted_volume = d.highlighted_volume;
         paint_overlays = d.paint_overlays;
         paint_palette = d.paint_palette;
+        overlay = d.overlay;
+        cut_view = d.cut_view;
         show_toolpaths = d.has_toolpaths;
     }
 
@@ -390,6 +468,7 @@ void Viewport::draw()
         return;
     d.sync_part_batches(parts);
     d.sync_paint_batches(paint_overlays);
+    d.sync_overlay(overlay);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -430,6 +509,11 @@ void Viewport::draw()
     glUniform3f(d.part_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
     const GLint model_matrix = d.part_program.uniform("u_model");
     const GLint part_color = d.part_program.uniform("u_color");
+    const GLint cut_plane = d.part_program.uniform("u_plane");
+    const GLint color_above = d.part_program.uniform("u_color_above");
+    const GLint clip_above = d.part_program.uniform("u_clip_above");
+    glUniform4f(cut_plane, 0.0f, 0.0f, 0.0f, 0.0f);
+    glUniform1f(clip_above, 0.0f);
     // Opaque model parts first, then the see-through volumes over them.
     for (int pass = 0; pass < 2; ++pass) {
         const bool see_through = pass == 1;
@@ -452,9 +536,23 @@ void Viewport::draw()
                 Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
                 if (selected && highlighted_volume && *highlighted_volume == piece.volume)
                     c = piece.kind == VolumeKind::ModelPart ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kHighlightedVolume;
+                const bool cut = cut_view && cut_view->object == state.part.ref.object && piece.kind == VolumeKind::ModelPart;
+                if (cut) {
+                    // Above the plane: the selection's color; below: blue. A side not kept is grey.
+                    const Color below = cut_view->keep_below ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kDiscarded;
+                    const Color above = cut_view->keep_above ? kSelected : kDiscarded;
+                    c = below;
+                    glUniform4f(cut_plane, cut_view->plane[0], cut_view->plane[1], cut_view->plane[2], cut_view->plane[3]);
+                    glUniform4f(color_above, above.r, above.g, above.b, above.a);
+                    glUniform1f(clip_above, cut_view->hide_above ? 1.0f : 0.0f);
+                }
                 glUniform4f(part_color, c.r, c.g, c.b, c.a);
                 batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
                                    static_cast<GLsizei>(piece.triangle_count * 3));
+                if (cut) {
+                    glUniform4f(cut_plane, 0.0f, 0.0f, 0.0f, 0.0f);
+                    glUniform1f(clip_above, 0.0f);
+                }
             }
         }
         if (see_through) {
@@ -486,6 +584,8 @@ void Viewport::draw()
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
     }
+    if (overlay)
+        d.draw_overlay(*overlay, view_proj, eye);
 }
 
 void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay)
@@ -741,6 +841,49 @@ std::optional<std::array<float, 2>> Viewport::bed_point(float x_px, float y_px) 
         return std::nullopt;
     const Eigen::Vector3f hit = origin + direction * t;
     return std::array<float, 2>{hit.x(), hit.y()};
+}
+
+void Viewport::set_overlay(std::shared_ptr<const Overlay> overlay)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->overlay = std::move(overlay);
+}
+
+void Viewport::set_cut_view(std::optional<CutView> view)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->cut_view = view;
+}
+
+void Viewport::ray(float x_px, float y_px, std::array<float, 3>& origin, std::array<float, 3>& direction) const
+{
+    Eigen::Vector3f o, d;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        m_impl->camera.ray(x_px, y_px, o, d);
+    }
+    origin = {o.x(), o.y(), o.z()};
+    direction = {d.x(), d.y(), d.z()};
+}
+
+std::optional<std::array<float, 3>> Viewport::plane_point(float x_px, float y_px, const std::array<float, 3>& origin,
+                                                          const std::array<float, 3>& normal) const
+{
+    Eigen::Vector3f o, d;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        m_impl->camera.ray(x_px, y_px, o, d);
+    }
+    const Eigen::Vector3f n(normal[0], normal[1], normal[2]);
+    const Eigen::Vector3f p(origin[0], origin[1], origin[2]);
+    const float denominator = d.dot(n);
+    if (std::abs(denominator) < 1e-6f)
+        return std::nullopt;
+    const float t = (p - o).dot(n) / denominator;
+    if (t <= 0)
+        return std::nullopt;
+    const Eigen::Vector3f hit = o + d * t;
+    return std::array<float, 3>{hit.x(), hit.y(), hit.z()};
 }
 
 void Viewport::set_toolpaths(std::shared_ptr<const libvgcode::GCodeInputData> toolpaths)

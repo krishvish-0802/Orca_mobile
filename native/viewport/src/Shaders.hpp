@@ -49,19 +49,27 @@ void main() {
 }
 )";
 
+// A cut plane (u_plane, zero when there is none) colors what lies above it with
+// u_color_above, or hides it (u_clip_above) so the cut face shows.
 inline constexpr const char* kPartFragment = R"(#version 300 es
 precision highp float;
 uniform vec4 u_color;
+uniform vec4 u_plane;
+uniform vec4 u_color_above;
+uniform float u_clip_above;
 uniform vec3 u_eye;
 in vec3 v_world;
 out vec4 frag_color;
 void main() {
+    bool above = dot(vec4(v_world, 1.0), u_plane) > 0.0;
+    if (above && u_clip_above > 0.5) discard;
     vec3 n = normalize(cross(dFdx(v_world), dFdy(v_world)));
     if (dot(n, u_eye - v_world) < 0.0) n = -n;
     float key = max(dot(n, normalize(vec3(-0.4, -0.6, 0.7))), 0.0);
     float fill = max(dot(n, normalize(vec3(0.6, 0.3, 0.4))), 0.0);
     float light = 0.32 + 0.55 * key + 0.25 * fill;
-    frag_color = vec4(u_color.rgb * light, u_color.a);
+    vec4 color = above ? u_color_above : u_color;
+    frag_color = vec4(color.rgb * light, color.a);
 }
 )";
 

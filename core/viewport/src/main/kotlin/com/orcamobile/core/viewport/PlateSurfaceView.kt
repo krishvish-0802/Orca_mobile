@@ -52,6 +52,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
             if (previewHandle != 0L) applyPreview()
             selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
+            cutJson?.let { json -> if (projectHandle != 0L) NativeViewport.nativeCutShow(handle, projectHandle, json, cutShowsFace) }
         }
         super.onAttachedToWindow()
     }
@@ -59,10 +60,55 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow() // stops and joins the GL thread
         stopPainting()
-        if (handle != 0L) {
-            NativeViewport.nativeDestroy(handle)
-            handle = 0L
+        synchronized(toolLock) {
+            if (handle != 0L) {
+                NativeViewport.nativeDestroy(handle)
+                handle = 0L
+            }
         }
+    }
+
+    /** Guards the viewport against mesh-tool calls from other threads while it is destroyed. */
+    private val toolLock = Any()
+    private var cutJson: String? = null
+    private var cutShowsFace = false
+
+    /**
+     * Shows the cut [requestJson] (MeshToolsJson.encode) on the plate, or hides
+     * it for null. Returns the engine's checks as JSON, or null when nothing is
+     * shown. May run off the main thread.
+     */
+    fun showCut(requestJson: String?, showFace: Boolean = false): String? = synchronized(toolLock) {
+        cutJson = requestJson
+        cutShowsFace = showFace
+        val h = handle
+        val project = projectHandle
+        if (h == 0L) return null
+        val checks = if (requestJson == null || project == 0L) {
+            NativeViewport.nativeCutHide(h)
+            null
+        } else {
+            NativeViewport.nativeCutShow(h, project, requestJson, showFace)
+        }
+        requestRender()
+        checks
+    }
+
+    /** Where a screen point lands on the shown cut's plane, as JSON (`{}` on a miss). */
+    fun cutPointAt(x: Float, y: Float): String? = synchronized(toolLock) {
+        val json = cutJson ?: return null
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return null
+        NativeViewport.nativeCutPointAt(h, project, json, x, y)
+    }
+
+    /** How far (mm) a vertical drag between two screen points moves [anchor] (world) up or down. */
+    fun verticalDrag(anchor: List<Double>, x0: Float, y0: Float, x1: Float, y1: Float): Float? {
+        val h = handle
+        if (h == 0L || anchor.size < 3) return null
+        return NativeViewport.nativeVerticalDrag(h, anchor[0].toFloat(), anchor[1].toFloat(), anchor[2].toFloat(), x0, y0, x1, y1)
+            .takeIf { it.isFinite() }
     }
 
     fun setBed(outline: FloatArray?, maxHeight: Float) {

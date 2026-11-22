@@ -143,6 +143,23 @@ class PrepareViewModel @Inject constructor(
                     plateTools.splitToObjects(project, selected.objectIndex)
                 }
             }
+            is PrepareIntent.OpenMeshTool -> _state.update {
+                if (it.selection != null && it.plateEditable) it.copy(meshTool = intent.tool, layingOnFace = false) else it
+            }
+            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null) }
+            is PrepareIntent.Cut -> {
+                _state.update {
+                    it.copy(
+                        meshTool = null,
+                        project = it.project?.copy(objects = intent.objects),
+                        selection = null,
+                        plateRevision = it.plateRevision + 1,
+                        plateNotice = PlateNotice.Cut(intent.pieces),
+                    )
+                }
+                dropStaleResult()
+                loadTransform()
+            }
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
                 it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)

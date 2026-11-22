@@ -108,6 +108,24 @@ object OrcaIcons {
         }
     }
 
+    /** Cut: a block split by a slanted plane, its top lifted away. */
+    val Cut: ImageVector by lazy {
+        icon("Cut") {
+            // Upper piece.
+            moveTo(4f, 3f)
+            horizontalLineTo(20f)
+            verticalLineTo(8f)
+            lineTo(4f, 11f)
+            close()
+            // Lower piece.
+            moveTo(4f, 14f)
+            lineTo(20f, 11f)
+            verticalLineTo(21f)
+            horizontalLineTo(4f)
+            close()
+        }
+    }
+
     private fun icon(name: String, build: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
             .path(fill = SolidColor(Color.Black), pathBuilder = build)

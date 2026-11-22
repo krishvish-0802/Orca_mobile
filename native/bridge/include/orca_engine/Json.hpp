@@ -8,6 +8,7 @@
 #include "orca_engine/ConfigOptions.hpp"
 #include "orca_engine/EngineInfo.hpp"
 #include "orca_engine/GCodePreview.hpp"
+#include "orca_engine/MeshTools.hpp"
 #include "orca_engine/PlateTools.hpp"
 #include "orca_engine/PresetCatalog.hpp"
 #include "orca_engine/Project.hpp"
@@ -45,6 +46,15 @@ std::optional<PresetSelection> preset_selection_from_json(const std::string& pay
 // Parses {"spacingMm":..,"allowRotation":..,"alignToYAxis":..}; missing fields
 // keep their defaults. Throws std::runtime_error on malformed input.
 ArrangeOptions arrange_options_from_json(const std::string& payload);
+
+// The cut tool (MeshToolsJson.cpp). Parses {"object","instance","plane":{"height",
+// "tiltX","tiltY"},"mode","options":{"keepUpper",..},"connectors":[{"u","v","type",
+// "style","shape","size","depth","sizeTolerance","depthTolerance","rotation"}],
+// "dovetail":{..}}; throws std::runtime_error on malformed input.
+CutRequest cut_request_from_json(const std::string& payload);
+// The preview without its geometry: {"boxMin","boxMax","center","normal","axisX",
+// "axisY","problems":[..],"canCut","reason","dovetailDepth"}.
+std::string to_json(const CutPreview& preview);
 
 // {"error": message}, for calls that fail before producing their own result.
 std::string error_json(const std::string& message);

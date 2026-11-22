@@ -5,11 +5,13 @@ add_library(orca_engine_core STATIC
     src/ConfigBuilder.hpp
     src/ConfigOptions.cpp
     src/ConfigValues.hpp
+    src/CutTool.cpp
     src/EngineInfo.cpp
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/MeshToolsJson.cpp
     src/PaintSession.cpp
     src/PlateTools.cpp
     src/ProjectImpl.hpp
@@ -37,6 +39,7 @@ if (ANDROID)
         jni/JniOnLoad.cpp
         jni/JniRegistry.hpp
         jni/JniUtils.hpp
+        jni/MeshJni.cpp
         jni/ObjectJni.cpp
         jni/PaintJni.cpp
         jni/PlateJni.cpp

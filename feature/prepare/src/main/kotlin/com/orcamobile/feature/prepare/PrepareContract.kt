@@ -57,11 +57,13 @@ data class PrepareUiState(
     val paint: PaintBrush? = null,
     /** Grows to erase everything painted of the brush's kind on the selected object. */
     val paintClearRequest: Int = 0,
+    /** A mesh tool open on the selected object; the plate belongs to it meanwhile. */
+    val meshTool: MeshTool? = null,
 ) {
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
         get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
-            paint == null
+            paint == null && meshTool == null
 
     /** The paint kinds offered: colour needs more than one filament. */
     val paintKinds: List<PaintKind>
@@ -74,6 +76,9 @@ data class PrepareUiState(
 
 enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE, SPLIT }
 
+/** The desktop's mesh tools, each with a view model of its own. */
+enum class MeshTool { CUT }
+
 sealed interface PlateNotice {
     /** Arranging left [count] instances beside the bed: they did not fit. */
     data class NotPlaced(val count: Int) : PlateNotice
@@ -83,6 +88,9 @@ sealed interface PlateNotice {
 
     /** The object came apart into [count] objects. */
     data class Split(val count: Int) : PlateNotice
+
+    /** A cut left [count] objects. */
+    data class Cut(val count: Int) : PlateNotice
 
     /** Fill bed found no room for another copy. */
     data object BedFull : PlateNotice
@@ -179,6 +187,14 @@ sealed interface PrepareIntent {
     data object SplitToObjects : PrepareIntent
 
     data object DismissPlateNotice : PrepareIntent
+
+    /** Opens a mesh tool on the selected object. */
+    data class OpenMeshTool(val tool: MeshTool) : PrepareIntent
+
+    data object CloseMeshTool : PrepareIntent
+
+    /** The cut tool replaced the object by [pieces] objects; the plate holds [objects] now. */
+    data class Cut(val objects: List<ModelObjectInfo>, val pieces: Int) : PrepareIntent
 
     /** Changes the selected object's position, rotation, scale or mirroring. */
     data class EditTransform(val edit: TransformEdit) : PrepareIntent

@@ -49,6 +49,31 @@ internal object NativeViewport {
     /** Turns the highlighted volume about the vertical, counter-clockwise seen from above. */
     @JvmStatic external fun nativeRotateVolume(handle: Long, projectHandle: Long, radians: Float): Boolean
 
+    // Mesh tools (native/bridge/jni/MeshJni.cpp); requests are MeshToolsJson.encode.
+
+    /**
+     * Shows a cut on the plate (plane, section, connectors) and returns its checks, or `{"error"}`.
+     * [showFace] hides what is above the plane, so the cut face shows.
+     */
+    @JvmStatic external fun nativeCutShow(handle: Long, projectHandle: Long, requestJson: String, showFace: Boolean): String
+
+    @JvmStatic external fun nativeCutHide(handle: Long)
+
+    /** Where a screen point lands on the cut plane: `{"u","v","inside"}`, or `{}`. */
+    @JvmStatic external fun nativeCutPointAt(handle: Long, projectHandle: Long, requestJson: String, x: Float, y: Float): String
+
+    /** How far (mm) a vertical drag moves a point at (ax, ay, az) up or down; NaN when it cannot tell. */
+    @JvmStatic external fun nativeVerticalDrag(
+        handle: Long,
+        ax: Float,
+        ay: Float,
+        az: Float,
+        x0: Float,
+        y0: Float,
+        x1: Float,
+        y1: Float,
+    ): Float
+
     // Painting (native/bridge/jni/PaintJni.cpp).
 
     /** Opens a paint session on an object for a PaintKind and shows its paint; 0 on failure. */

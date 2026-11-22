@@ -82,9 +82,31 @@ fun PrepareRoute(
     onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
+    cutTool: CutViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
+    val cut by cutTool.state.collectAsStateWithLifecycle()
+
+    // The cut tool works on the selected object while the Prepare screen has it open.
+    val cutTarget = state.project?.id?.let { project ->
+        state.selection?.takeIf { state.meshTool == MeshTool.CUT }?.let { project to it }
+    }
+    LaunchedEffect(cutTarget) {
+        val current = cutTool.state.value
+        when {
+            cutTarget == null -> if (current.active) cutTool.onIntent(CutIntent.Close)
+            current.project != cutTarget.first || current.request?.instance != cutTarget.second ->
+                cutTool.onIntent(CutIntent.Start(cutTarget.first, cutTarget.second))
+        }
+    }
+    LaunchedEffect(cutTool) {
+        cutTool.events.collect { event ->
+            when (event) {
+                is CutEvent.Cut -> viewModel.onIntent(PrepareIntent.Cut(event.objects, event.pieces))
+            }
+        }
+    }
 
     // The object list follows the selected object; its changes reach the plate.
     val context = state.project?.let { project ->
@@ -132,6 +154,11 @@ fun PrepareRoute(
             if (intent == PrepareIntent.PlateEdited) objectList.onIntent(ObjectListIntent.Refresh)
         },
         onListIntent = objectList::onIntent,
+        cut = cut,
+        onCutIntent = { intent ->
+            cutTool.onIntent(intent)
+            if (intent == CutIntent.Close) viewModel.onIntent(PrepareIntent.CloseMeshTool)
+        },
         onPickFile = { kind ->
             pickingFor = kind
             picker.launch(arrayOf("*/*"))
@@ -155,6 +182,8 @@ fun PrepareScreen(
     onOpenSettings: () -> Unit,
     list: ObjectListUiState = ObjectListUiState(),
     onListIntent: (ObjectListIntent) -> Unit = {},
+    cut: CutUiState = CutUiState(),
+    onCutIntent: (CutIntent) -> Unit = {},
     onPickFile: (VolumeKind) -> Unit = {},
     /** The selected object's settings, or one of its parts' ([volume]) or height ranges' ([range]). */
     onOpenObjectSettings: (volume: Int?, range: Int?) -> Unit = { _, _ -> },
@@ -203,14 +232,19 @@ fun PrepareScreen(
                     onVolumeSelectionChange = { instance, volume ->
                         onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
                     },
+                    cut = cut.request.takeIf { state.meshTool == MeshTool.CUT },
+                    cutShowsFace = cut.addingConnectors,
+                    onCutChecked = { onCutIntent(CutIntent.Checked(it)) },
+                    onCutPlaneTap = { onCutIntent(CutIntent.TapPlane(it)) },
+                    onCutHeightDrag = { onCutIntent(CutIntent.MoveHeight(it)) },
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (state.project != null && preview == null && state.paint == null) {
+                if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
                     PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
                 }
-                if (state.paint != null && preview == null) {
+                if ((state.paint != null || state.meshTool == MeshTool.CUT) && preview == null) {
                     Text(
-                        stringResource(R.string.prepare_paint_gestures),
+                        stringResource(if (state.paint != null) R.string.prepare_paint_gestures else R.string.prepare_cut_gestures),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -264,7 +298,9 @@ fun PrepareScreen(
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
-                if (preview == null && state.paint != null) {
+                if (preview == null && state.meshTool == MeshTool.CUT) {
+                    CutPanel(cut, state.selectedObjectName.orEmpty(), onCutIntent)
+                } else if (preview == null && state.paint != null) {
                     PaintPanel(state, onIntent, list.fuzzySkinDisabled) {
                         onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)
                     }
