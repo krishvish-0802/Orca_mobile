@@ -324,7 +324,7 @@ private val VolumeKind.combinable: Boolean get() = this == VolumeKind.PART || th
  * The desktop's Mesh boolean: union, difference or intersection of two of the
  * object's parts; the result replaces the source.
  */
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun BooleanSheet(
     volumes: List<Pair<String, VolumeKind>>,
