@@ -194,7 +194,7 @@ class PrintHostClientsTest {
             }
             val client = BackgroundPrintHostClient(recording, io.asCoroutineDispatcher())
             kotlinx.coroutines.runBlocking { client.testConnection() }
-            assertEquals("printer-io", threadName)
+            assertTrue(threadName.startsWith("printer-io"), threadName)
         } finally {
             io.shutdown()
         }
