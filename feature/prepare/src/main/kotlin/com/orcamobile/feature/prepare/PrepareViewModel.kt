@@ -9,10 +9,16 @@ import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
+import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceEvent
@@ -39,6 +45,7 @@ class PrepareViewModel @Inject constructor(
     private val picker: PresetPicker,
     private val settings: UserSettingsRepository,
     private val sliceProject: SliceProjectUseCase,
+    private val plateTools: PlateToolsUseCase,
     private val testPrintHost: TestPrintHostUseCase,
     private val sendGcode: SendGcodeUseCase,
 ) : ViewModel() {
@@ -77,6 +84,24 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
             is PrepareIntent.Select -> _state.update { it.copy(selection = intent.instance) }
             PrepareIntent.PlateEdited -> dropStaleResult()
+            PrepareIntent.Arrange -> runPlateTool(PlateTask.ARRANGE) { project, presets ->
+                plateTools.arrange(project, presets, _state.value.arrangeOptions)
+            }
+            is PrepareIntent.SetArrangeOptions -> _state.update { it.copy(arrangeOptions = intent.options) }
+            PrepareIntent.Orient -> {
+                val only = _state.value.selection
+                runPlateTool(PlateTask.ORIENT) { project, presets -> plateTools.orient(project, presets, only) }
+            }
+            is PrepareIntent.AddCopies -> _state.value.selection?.let { source ->
+                val task = if (intent.count == null) PlateTask.FILL_BED else PlateTask.COPY
+                runPlateTool(task) { project, presets ->
+                    plateTools.addCopies(project, presets, source, intent.count, _state.value.arrangeOptions)
+                }
+            }
+            PrepareIntent.DeleteSelected -> _state.value.selection?.let { selected ->
+                runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ -> plateTools.remove(project, selected) }
+            }
+            PrepareIntent.DismissPlateNotice -> _state.update { it.copy(plateNotice = null) }
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
                 it.copy(showingPreview = intent.show && it.preview is PreviewUiState.Ready)
@@ -149,6 +174,51 @@ class PrepareViewModel @Inject constructor(
     }
 
     // --- slicing ------------------------------------------------------------
+
+    /**
+     * Runs a plate tool in the engine, one at a time, then shows the plate it
+     * left: objects redrawn, an earlier slice dropped, and a notice when
+     * something did not fit.
+     */
+    private fun runPlateTool(
+        task: PlateTask,
+        keepSelection: Boolean = true,
+        tool: suspend (ProjectId, PresetSelection?) -> Result<PlateUpdate>,
+    ) {
+        val start = _state.value
+        val project = start.project ?: return
+        if (!start.plateEditable) return
+        _state.update { it.copy(plateTask = task, plateNotice = null) }
+        viewModelScope.launch {
+            val result = tool(project.id, start.presets)
+            result.onSuccess { update ->
+                _state.update {
+                    it.copy(
+                        plateTask = null,
+                        project = it.project?.copy(objects = update.objects),
+                        selection = it.selection.takeIf { keepSelection }?.takeIf { ref -> update.objects.holds(ref) },
+                        plateRevision = it.plateRevision + 1,
+                        plateNotice = notice(task, update),
+                    )
+                }
+                dropStaleResult()
+            }.onFailure { error ->
+                _state.update {
+                    it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName))
+                }
+            }
+        }
+    }
+
+    private fun notice(task: PlateTask, update: PlateUpdate): PlateNotice? = when (task) {
+        PlateTask.ARRANGE -> update.notPlaced.takeIf { it > 0 }?.let(PlateNotice::NotPlaced)
+        PlateTask.COPY -> PlateNotice.CopiesAdded(update.placed, update.notPlaced)
+        PlateTask.FILL_BED -> if (update.placed > 0) PlateNotice.CopiesAdded(update.placed, 0) else PlateNotice.BedFull
+        PlateTask.ORIENT, PlateTask.DELETE -> null
+    }
+
+    private fun List<ModelObjectInfo>.holds(ref: InstanceRef): Boolean =
+        ref.instanceIndex < (getOrNull(ref.objectIndex)?.instances ?: 0)
 
     private fun startSlice() {
         val project = _state.value.project ?: return

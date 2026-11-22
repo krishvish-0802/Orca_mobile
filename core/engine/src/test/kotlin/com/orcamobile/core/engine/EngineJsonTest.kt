@@ -131,4 +131,19 @@ class EngineJsonTest {
             EngineJson.configValues("""{"values":{"layer_height":"0.2","nozzle_temperature":"220,220"}}""").getOrThrow(),
         )
     }
+
+    @Test
+    fun `decodes a plate update and encodes arrange options`() {
+        val update = EngineJson.plateUpdate(
+            """{"objects":[{"name":"cube","instances":4,"triangles":12,"size":[20,20,20]}],"placed":3,"notPlaced":1}""",
+        ).getOrThrow()
+        assertEquals(4, update.objects.single().instances)
+        assertEquals(3, update.placed)
+        assertEquals(1, update.notPlaced)
+        assertEquals("No such instance", EngineJson.plateUpdate("""{"error":"No such instance"}""").exceptionOrNull()?.message)
+        assertEquals(
+            """{"spacingMm":6.0,"allowRotation":true,"alignToYAxis":false}""",
+            EngineJson.encode(com.orcamobile.core.model.ArrangeOptions(spacingMm = 6.0, allowRotation = true)),
+        )
+    }
 }

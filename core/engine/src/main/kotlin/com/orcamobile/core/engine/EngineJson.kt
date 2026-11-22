@@ -1,5 +1,6 @@
 package com.orcamobile.core.engine
 
+import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
@@ -9,6 +10,7 @@ import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.OptionChoice
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.OptionType
+import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
@@ -81,6 +83,17 @@ internal object EngineJson {
         json.decodeFromJsonElement(ObjectsDto.serializer(), element).objects.map { it.toModel() }
     }
 
+    fun plateUpdate(payload: String): Result<PlateUpdate> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(PlateUpdateDto.serializer(), element)
+        PlateUpdate(dto.objects.map { it.toModel() }, dto.placed, dto.notPlaced)
+    }
+
+    fun encode(options: ArrangeOptions): String =
+        json.encodeToString(
+            ArrangeOptionsDto.serializer(),
+            ArrangeOptionsDto(options.spacingMm, options.allowRotation, options.alignToYAxis),
+        )
+
     fun configOptions(payload: String): Result<List<ConfigOption>> = decodeOrError(payload) { element ->
         json.decodeFromJsonElement(OptionsDto.serializer(), element).options.map { it.toModel() }
     }
@@ -145,6 +158,12 @@ internal object EngineJson {
 
     @Serializable
     private data class ObjectsDto(val objects: List<ObjectDto>)
+
+    @Serializable
+    private data class PlateUpdateDto(val objects: List<ObjectDto>, val placed: Int = 0, val notPlaced: Int = 0)
+
+    @Serializable
+    private data class ArrangeOptionsDto(val spacingMm: Double, val allowRotation: Boolean, val alignToYAxis: Boolean)
 
     @Serializable
     private data class LoadedProjectDto(val handle: String, val objects: List<ObjectDto>)

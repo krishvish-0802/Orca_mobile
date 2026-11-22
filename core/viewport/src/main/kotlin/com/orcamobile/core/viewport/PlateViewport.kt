@@ -66,6 +66,8 @@ fun PlateViewport(
     onPlateEdited: () -> Unit = {},
     /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
     projectRevision: Int = 0,
+    /** The engine is changing the plate: taps and drags only move the camera. */
+    locked: Boolean = false,
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -81,7 +83,7 @@ fun PlateViewport(
         bed?.outline?.flatMap { (x, y) -> listOf(x.toFloat(), y.toFloat()) }?.toFloatArray()
     }
     val surface = remember { PlateSurfaceView(context) }
-    val editable = project != null && preview == null
+    val editable = project != null && preview == null && !locked
     val currentEditable by rememberUpdatedState(editable)
     val currentSelection by rememberUpdatedState(selection)
     val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)

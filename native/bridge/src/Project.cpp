@@ -41,6 +41,23 @@ std::unique_ptr<Project> Project::load(const std::string& path)
 
 const std::string& Project::source_path() const { return m_impl->source_path; }
 
+void Project::edit(const std::function<void(Slic3r::Model&)>& change)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    change(m_impl->model);
+}
+
+void Project::remove(const InstanceRef& ref)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->instance(ref);   // validates
+    Slic3r::ModelObject* object = m_impl->model.objects[ref.object];
+    if (object->instances.size() == 1)
+        m_impl->model.delete_object(ref.object);
+    else
+        object->delete_instance(ref.instance);
+}
+
 Slic3r::Model Project::model_copy() const
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

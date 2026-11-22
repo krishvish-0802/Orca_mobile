@@ -106,15 +106,6 @@ SliceStatistics collect_statistics(const Slic3r::Print& print, const Slic3r::GCo
     return stats;
 }
 
-Slic3r::DynamicPrintConfig base_config(const SliceRequest& request, PresetCatalog* catalog)
-{
-    if (!request.presets)
-        return ConfigBuilder::defaults();
-    if (catalog == nullptr)
-        throw std::runtime_error("Presets were requested but no preset catalog is available");
-    return catalog->impl().compose(*request.presets);
-}
-
 } // namespace
 
 namespace {
@@ -125,9 +116,8 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
 {
     SliceOutcome outcome;
     try {
-        const int used_filaments = request.presets ? static_cast<int>(request.presets->filaments.size()) : 1;
         Slic3r::DynamicPrintConfig config =
-            ConfigBuilder::build(base_config(request, catalog), request.config_overrides, used_filaments);
+            ConfigBuilder::resolve(request.presets, request.config_overrides, catalog);
         if (center_on_bed)
             model.center_instances_around_point(bed_center(config));
 

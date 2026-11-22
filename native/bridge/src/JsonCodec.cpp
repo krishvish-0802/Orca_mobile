@@ -149,6 +149,30 @@ std::optional<PresetSelection> preset_selection_from_json(const std::string& pay
     }
 }
 
+std::string to_json(const PlateChange& change, const std::vector<ObjectSummary>& objects)
+{
+    nlohmann::json result = nlohmann::json::parse(to_json(objects));
+    result["placed"] = change.placed;
+    result["notPlaced"] = change.not_placed;
+    return result.dump();
+}
+
+ArrangeOptions arrange_options_from_json(const std::string& payload)
+{
+    ArrangeOptions options;
+    if (payload.empty())
+        return options;
+    try {
+        const nlohmann::json j = nlohmann::json::parse(payload);
+        options.spacing_mm = j.value("spacingMm", options.spacing_mm);
+        options.allow_rotation = j.value("allowRotation", options.allow_rotation);
+        options.align_to_y_axis = j.value("alignToYAxis", options.align_to_y_axis);
+        return options;
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("Malformed arrange options: ") + e.what());
+    }
+}
+
 std::string error_json(const std::string& message)
 {
     return nlohmann::json{{"error", message}}.dump();

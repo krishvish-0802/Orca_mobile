@@ -9,11 +9,15 @@ import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
+import com.orcamobile.core.domain.project.PlateConfigResolver
+import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
+import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
+import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.CompatiblePresets
@@ -21,6 +25,8 @@ import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.PlateConfig
+import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.PrintHostConfig
@@ -36,6 +42,12 @@ import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceSource
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -47,8 +59,6 @@ import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertIs
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PrepareViewModelTest {
@@ -152,6 +162,40 @@ class PrepareViewModelTest {
     private val engine = RecordingEngine()
     private val hosts = FakeHosts()
     private val previews = FakePreviews()
+    private val plateEditor = FakePlateEditor()
+
+    /** Records the plate tools called; each returns [next], or fails with [failure]. */
+    private class FakePlateEditor : PlateEditor {
+        val calls = mutableListOf<String>()
+        var configs = mutableListOf<PlateConfig>()
+        var next = PlateUpdate(listOf(ModelObjectInfo("benchy", 1, 225_000, listOf(60.0, 31.0, 48.0))))
+        var failure: Throwable? = null
+        val gate = CompletableDeferred<Unit>().apply { complete(Unit) }
+        var hold: CompletableDeferred<Unit> = gate
+
+        private suspend fun answer(call: String, config: PlateConfig? = null): Result<PlateUpdate> {
+            calls += call
+            config?.let { configs += it }
+            hold.await()
+            return failure?.let { Result.failure(it) } ?: Result.success(next)
+        }
+
+        override suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions) =
+            answer("arrange spacing=${options.spacingMm} rotate=${options.allowRotation}", config)
+
+        override suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig) =
+            answer("orient $instance", config)
+
+        override suspend fun addCopies(
+            project: ProjectId,
+            instance: InstanceRef,
+            count: Int?,
+            config: PlateConfig,
+            options: ArrangeOptions,
+        ) = answer("copies $instance $count", config)
+
+        override suspend fun remove(project: ProjectId, instance: InstanceRef) = answer("remove $instance")
+    }
 
     private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
         SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
@@ -161,7 +205,8 @@ class PrepareViewModelTest {
         FakePresets(),
         PresetPicker(FakePresets(), settings),
         settings,
-        SliceProjectUseCase(engine, workspace, printSettings),
+        SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
+        PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
         TestPrintHostUseCase(hosts),
         SendGcodeUseCase(hosts),
     )
@@ -330,6 +375,98 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.SelectProcess("0.12mm Fine"))
         assertEquals("0.12mm Fine", vm.state.value.presets?.process)
         assertEquals(1, projects.centers.size)
+        assertEquals(0, vm.state.value.plateRevision)
+    }
+
+    @Test
+    fun `arrange runs with the slice's presets and the chosen spacing, then redraws the plate`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SetArrangeOptions(ArrangeOptions(spacingMm = 5.0, allowRotation = true)))
+        vm.onIntent(PrepareIntent.Arrange)
+
+        assertEquals(listOf("arrange spacing=5.0 rotate=true"), plateEditor.calls)
+        assertEquals(selection, plateEditor.configs.single().presets)
+        val state = vm.state.value
+        assertEquals(1, state.plateRevision)
+        assertNull(state.plateTask)
+        assertNull(state.plateNotice)
+    }
+
+    @Test
+    fun `objects that did not fit are reported`() {
+        plateEditor.next = plateEditor.next.copy(placed = 1, notPlaced = 2)
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        assertEquals(PlateNotice.NotPlaced(2), vm.state.value.plateNotice)
+        vm.onIntent(PrepareIntent.DismissPlateNotice)
+        assertNull(vm.state.value.plateNotice)
+    }
+
+    @Test
+    fun `orient turns the selection, or everything without one`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Orient)
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.Orient)
+        assertEquals(listOf("orient null", "orient InstanceRef(objectIndex=0, instanceIndex=0)"), plateEditor.calls)
+        assertEquals(InstanceRef(0, 0), vm.state.value.selection)
+    }
+
+    @Test
+    fun `copies and fill bed need a selection and update the object list`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.AddCopies(3))
+        assertEquals(emptyList(), plateEditor.calls)
+
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        plateEditor.next = PlateUpdate(listOf(ModelObjectInfo("benchy", 4, 225_000, listOf(60.0, 31.0, 48.0))), placed = 3)
+        vm.onIntent(PrepareIntent.AddCopies(3))
+        assertEquals(4, vm.state.value.project?.objects?.single()?.instances)
+        assertEquals(PlateNotice.CopiesAdded(3, 0), vm.state.value.plateNotice)
+
+        plateEditor.next = plateEditor.next.copy(placed = 0)
+        vm.onIntent(PrepareIntent.AddCopies(null))
+        assertEquals("copies InstanceRef(objectIndex=0, instanceIndex=0) null", plateEditor.calls.last())
+        assertEquals(PlateNotice.BedFull, vm.state.value.plateNotice)
+    }
+
+    @Test
+    fun `deleting clears the selection and drops the sliced result`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        assertIs<SliceUiState.Done>(vm.state.value.slice)
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+
+        plateEditor.next = PlateUpdate(emptyList())
+        vm.onIntent(PrepareIntent.DeleteSelected)
+
+        val state = vm.state.value
+        assertNull(state.selection)
+        assertEquals(emptyList(), state.project?.objects)
+        assertEquals(SliceUiState.Idle, state.slice)
+    }
+
+    @Test
+    fun `one plate tool at a time, and the plate is locked while it runs`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        plateEditor.hold = CompletableDeferred()
+        vm.onIntent(PrepareIntent.Arrange)
+        assertEquals(PlateTask.ARRANGE, vm.state.value.plateTask)
+        assertFalse(vm.state.value.plateEditable)
+        vm.onIntent(PrepareIntent.Orient)
+        assertEquals(1, plateEditor.calls.size)
+
+        plateEditor.hold.complete(Unit)
+        assertNull(vm.state.value.plateTask)
+        assertTrue(vm.state.value.plateEditable)
+    }
+
+    @Test
+    fun `a failing tool says why and leaves the plate as it was`() {
+        plateEditor.failure = IllegalStateException("Objects could not fit")
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        assertEquals(PlateNotice.Failed("Objects could not fit"), vm.state.value.plateNotice)
         assertEquals(0, vm.state.value.plateRevision)
     }
 }

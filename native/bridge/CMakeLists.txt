@@ -10,6 +10,7 @@ add_library(orca_engine_core STATIC
     src/GCodePreview.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/PlateTools.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
     src/Project.cpp
@@ -33,6 +34,7 @@ if (ANDROID)
         jni/JniOnLoad.cpp
         jni/JniRegistry.hpp
         jni/JniUtils.hpp
+        jni/PlateJni.cpp
         jni/PreviewJni.cpp
         jni/ProjectJni.cpp
         jni/ViewportJni.cpp)

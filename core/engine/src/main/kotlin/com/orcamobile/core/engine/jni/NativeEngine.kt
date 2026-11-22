@@ -44,6 +44,42 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
 
+    /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
+    @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
+
+    // Plate tools (native/bridge/jni/PlateJni.cpp). Each takes the slice's presets
+    // and overrides, and returns `{"placed":n,"notPlaced":n,"objects":[..]}` or `{"error": ...}`.
+
+    @JvmStatic external fun nativePlateArrange(
+        handle: Long,
+        presetSelectionJson: String,
+        overrideKeys: Array<String>,
+        overrideValues: Array<String>,
+        optionsJson: String,
+    ): String
+
+    /** [objectIndex] -1: every instance. */
+    @JvmStatic external fun nativePlateOrient(
+        handle: Long,
+        objectIndex: Int,
+        instanceIndex: Int,
+        presetSelectionJson: String,
+        overrideKeys: Array<String>,
+        overrideValues: Array<String>,
+    ): String
+
+    /** [count] -1: as many as fit (fill bed). */
+    @JvmStatic external fun nativePlateAddCopies(
+        handle: Long,
+        objectIndex: Int,
+        instanceIndex: Int,
+        count: Int,
+        presetSelectionJson: String,
+        overrideKeys: Array<String>,
+        overrideValues: Array<String>,
+        optionsJson: String,
+    ): String
+
     /**
      * Reads a G-code file for the preview (blocking, seconds for a large file):
      * `{"handle":"<id>","layerZs":[..],"printTimeSeconds":..,"moveCount":..,"filamentColors":[..]}`

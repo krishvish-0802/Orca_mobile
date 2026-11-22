@@ -113,15 +113,24 @@ fun PrepareScreen(
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
+                    locked = state.plateTask != null,
                     modifier = Modifier.fillMaxSize(),
                 )
+                if (state.project != null && preview == null) {
+                    PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+                }
+                PlateStatus(
+                    state,
+                    onIntent,
+                    Modifier.align(Alignment.TopCenter).padding(top = if (state.preview is PreviewUiState.Ready) 56.dp else 8.dp),
+                )
                 val selectedName = state.selectedObjectName
-                if (preview == null && selectedName != null) {
+                if (preview == null && selectedName != null && state.plateTask == null && state.plateNotice == null) {
                     Text(
                         stringResource(R.string.prepare_selection_hint, selectedName),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
+                            .align(Alignment.TopStart)
                             .padding(8.dp)
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), MaterialTheme.shapes.small)
                             .padding(horizontal = 12.dp, vertical = 6.dp),

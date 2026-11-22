@@ -11,6 +11,49 @@
     <string name="prepare_all_settings">All settings</string>
     <string name="prepare_all_settings_changed">All settings · %1$d changed</string>
     <string name="prepare_search">Search</string>
+
+    <!-- Plate tools -->
+    <string name="prepare_tool_arrange">Arrange</string>
+    <string name="prepare_tool_arrange_options">Spacing</string>
+    <string name="prepare_tool_orient">Orient</string>
+    <string name="prepare_tool_orient_all">Orient all</string>
+    <string name="prepare_tool_copies">Copies</string>
+    <string name="prepare_tool_delete">Delete</string>
+    <string name="prepare_tool_arranging">Arranging…</string>
+    <string name="prepare_tool_orienting">Finding the orientation with the least support…</string>
+    <string name="prepare_tool_copying">Adding copies…</string>
+    <string name="prepare_tool_filling">Filling the bed…</string>
+    <string name="prepare_tool_deleting">Deleting…</string>
+    <plurals name="prepare_notice_not_placed">
+        <item quantity="one">%1$d object did not fit and is beside the bed.</item>
+        <item quantity="other">%1$d objects did not fit and are beside the bed.</item>
+    </plurals>
+    <plurals name="prepare_notice_copies_added">
+        <item quantity="one">Added %1$d copy.</item>
+        <item quantity="other">Added %1$d copies.</item>
+    </plurals>
+    <plurals name="prepare_notice_copies_beside">
+        <item quantity="one">Copies added; %1$d did not fit and is beside the bed.</item>
+        <item quantity="other">Copies added; %1$d did not fit and are beside the bed.</item>
+    </plurals>
+    <string name="prepare_notice_bed_full">There is no room on the bed for another copy.</string>
+    <string name="prepare_notice_failed">That did not work: %1$s</string>
+    <string name="prepare_arrange_title">Arrange</string>
+    <string name="prepare_arrange_spacing_auto">Spacing: automatic</string>
+    <string name="prepare_arrange_spacing">Spacing: %1$d mm</string>
+    <string name="prepare_arrange_spacing_hint">Automatic keeps room for each object\'s brim and supports, as the desktop does.</string>
+    <string name="prepare_arrange_rotation">Allow rotation</string>
+    <string name="prepare_arrange_align_y">Align to Y axis</string>
+    <string name="prepare_arrange_reset">Defaults</string>
+    <string name="prepare_copies_title">Copies of %1$s</string>
+    <string name="prepare_copies_count">How many</string>
+    <string name="prepare_copies_more">One more</string>
+    <plurals name="prepare_copies_add">
+        <item quantity="one">Add %1$d copy</item>
+        <item quantity="other">Add %1$d copies</item>
+    </plurals>
+    <string name="prepare_copies_fill">Fill the bed</string>
+    <string name="prepare_copies_fill_hint">Adds as many copies as fit in the free space. Other objects stay where they are.</string>
     <string name="prepare_settings_changed">%1$d settings changed from the presets</string>
     <string name="prepare_slice_title">Slice</string>
     <string name="prepare_slice_no_presets">No printer chosen: slicing with the engine defaults on a generic 220 mm bed. Choose a printer above.</string>

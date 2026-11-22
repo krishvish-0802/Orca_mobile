@@ -3,6 +3,7 @@ package com.orcamobile.core.domain
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
+import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.PresetSelection
@@ -43,7 +44,7 @@ class SliceProjectUseCaseTest {
         val engine = RecordingEngine()
         val presets = PresetSelection("Creality", "Ender-3", "0.20mm Standard", listOf("PLA"))
 
-        val events = SliceProjectUseCase(engine, workspace, FakePrintSettings())(project, presets).toList()
+        val events = SliceProjectUseCase(engine, workspace, PlateConfigResolver(FakePrintSettings()))(project, presets).toList()
 
         assertEquals(listOf<SliceEvent>(SliceEvent.Finished(SliceResult.Canceled)), events)
         val request = requireNotNull(engine.lastRequest)
@@ -56,8 +57,8 @@ class SliceProjectUseCaseTest {
     @Test
     fun `without presets the generic bed overrides apply`() = runTest {
         val engine = RecordingEngine()
-        SliceProjectUseCase(engine, workspace, FakePrintSettings())(project, null).toList()
-        assertEquals(SliceProjectUseCase.DEFAULT_OVERRIDES, engine.lastRequest?.configOverrides)
+        SliceProjectUseCase(engine, workspace, PlateConfigResolver(FakePrintSettings()))(project, null).toList()
+        assertEquals(PlateConfigResolver.DEFAULT_OVERRIDES, engine.lastRequest?.configOverrides)
     }
 
     @Test
@@ -66,11 +67,11 @@ class SliceProjectUseCaseTest {
         val presets = PresetSelection("Elegoo", "Elegoo Centauri Carbon 0.4 nozzle", "0.20mm Standard", listOf("PLA"))
         val settings = FakePrintSettings(SettingsEdits(presets, mapOf("sparse_infill_density" to "25%")))
 
-        SliceProjectUseCase(engine, workspace, settings)(project, presets).toList()
+        SliceProjectUseCase(engine, workspace, PlateConfigResolver(settings))(project, presets).toList()
         assertEquals(mapOf("sparse_infill_density" to "25%"), engine.lastRequest?.configOverrides)
 
         // Changes made for other presets do not apply.
-        SliceProjectUseCase(engine, workspace, settings)(project, presets.copy(process = "0.12mm Fine")).toList()
+        SliceProjectUseCase(engine, workspace, PlateConfigResolver(settings))(project, presets.copy(process = "0.12mm Fine")).toList()
         assertEquals(emptyMap(), engine.lastRequest?.configOverrides)
     }
 }

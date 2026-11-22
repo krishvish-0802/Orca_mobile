@@ -8,6 +8,7 @@ namespace orca::jni {
 // the JNI exception cleared) if registration fails.
 bool register_engine_natives(JNIEnv* env, jclass native_engine);
 bool register_project_natives(JNIEnv* env, jclass native_engine);
+bool register_plate_natives(JNIEnv* env, jclass native_engine);
 bool register_preview_natives(JNIEnv* env, jclass native_engine);
 bool register_viewport_natives(JNIEnv* env, jclass native_viewport);
 

@@ -1,0 +1,36 @@
+package com.orcamobile.core.domain.usecase
+
+import com.orcamobile.core.domain.project.PlateConfigResolver
+import com.orcamobile.core.domain.project.PlateEditor
+import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.ProjectId
+import javax.inject.Inject
+
+/**
+ * Arrange, orient, copies, fill bed and delete for the plate, with the config
+ * the plate will be sliced with (presets plus the user's settings changes).
+ */
+class PlateToolsUseCase @Inject constructor(
+    private val editor: PlateEditor,
+    private val configs: PlateConfigResolver,
+) {
+    suspend fun arrange(project: ProjectId, presets: PresetSelection?, options: ArrangeOptions): Result<PlateUpdate> =
+        editor.arrange(project, configs.configFor(presets), options)
+
+    suspend fun orient(project: ProjectId, presets: PresetSelection?, instance: InstanceRef?): Result<PlateUpdate> =
+        editor.orient(project, instance, configs.configFor(presets))
+
+    /** [count] copies of [instance], or as many as fit when null. */
+    suspend fun addCopies(
+        project: ProjectId,
+        presets: PresetSelection?,
+        instance: InstanceRef,
+        count: Int?,
+        options: ArrangeOptions,
+    ): Result<PlateUpdate> = editor.addCopies(project, instance, count, configs.configFor(presets), options)
+
+    suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate> = editor.remove(project, instance)
+}

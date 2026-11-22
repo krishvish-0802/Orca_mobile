@@ -1,5 +1,6 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
@@ -33,10 +34,34 @@ data class PrepareUiState(
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
     val plateRevision: Int = 0,
+    /** A plate tool running in the engine; the plate cannot be edited meanwhile. */
+    val plateTask: PlateTask? = null,
+    val arrangeOptions: ArrangeOptions = ArrangeOptions(),
+    /** What the last plate tool did, shown briefly over the plate. */
+    val plateNotice: PlateNotice? = null,
 ) {
+    /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
+    val plateEditable: Boolean
+        get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running
+
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?
         get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
+}
+
+enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE }
+
+sealed interface PlateNotice {
+    /** Arranging left [count] instances beside the bed: they did not fit. */
+    data class NotPlaced(val count: Int) : PlateNotice
+
+    /** [added] copies are on the bed; [beside] more did not fit and lie beside it. */
+    data class CopiesAdded(val added: Int, val beside: Int) : PlateNotice
+
+    /** Fill bed found no room for another copy. */
+    data object BedFull : PlateNotice
+
+    data class Failed(val message: String) : PlateNotice
 }
 
 /** The sliced plate's toolpaths, read back from the G-code. */
@@ -110,6 +135,21 @@ sealed interface PrepareIntent {
 
     /** Objects were moved or turned on the plate: earlier slicing results no longer match it. */
     data object PlateEdited : PrepareIntent
+
+    /** Packs every object on the bed. */
+    data object Arrange : PrepareIntent
+
+    data class SetArrangeOptions(val options: ArrangeOptions) : PrepareIntent
+
+    /** Turns the selected object, or every object when none is selected, to print with the least support. */
+    data object Orient : PrepareIntent
+
+    /** Adds [count] copies of the selected object, or as many as fit when null. */
+    data class AddCopies(val count: Int?) : PrepareIntent
+
+    data object DeleteSelected : PrepareIntent
+
+    data object DismissPlateNotice : PrepareIntent
 
     data object CancelSlice : PrepareIntent
 

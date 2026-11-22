@@ -1,0 +1,34 @@
+package com.orcamobile.core.domain.project
+
+import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PlateConfig
+import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.ProjectId
+
+/**
+ * The desktop's plate tools, run by the engine on a loaded project. Each
+ * returns the plate's objects after the change.
+ */
+interface PlateEditor {
+    /** Packs every object on the bed. What does not fit goes beside it. */
+    suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions): Result<PlateUpdate>
+
+    /** Turns [instance], or every instance when null, to print with the least support. */
+    suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig): Result<PlateUpdate>
+
+    /**
+     * Adds [count] copies of [instance] in the free space of the bed, or as many
+     * as fit when [count] is null (fill bed). Other objects stay where they are.
+     */
+    suspend fun addCopies(
+        project: ProjectId,
+        instance: InstanceRef,
+        count: Int?,
+        config: PlateConfig,
+        options: ArrangeOptions,
+    ): Result<PlateUpdate>
+
+    /** Takes [instance] off the plate, and its object with its last instance. */
+    suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate>
+}

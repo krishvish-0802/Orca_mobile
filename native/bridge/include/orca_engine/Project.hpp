@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -58,8 +59,15 @@ public:
     // Turns an instance about the vertical axis through the center of its bounding box.
     void rotate_z(const InstanceRef& ref, double radians);
 
+    // Takes an instance off the plate; the object goes too when it was its last.
+    // Throws std::out_of_range for a bad reference.
+    void remove(const InstanceRef& ref);
+
     // A snapshot of the model, for the slicing pipeline inside the bridge.
     Slic3r::Model model_copy() const;
+    // Runs `change` on the model under the project's lock, for the bridge's plate
+    // tools (see PlateTools.hpp).
+    void edit(const std::function<void(Slic3r::Model&)>& change);
 
 private:
     Project();
