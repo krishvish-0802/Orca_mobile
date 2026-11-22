@@ -34,6 +34,18 @@ internal object NativeViewport {
     /** Raises or lowers the highlighted volume by a vertical drag between two screen points. */
     @JvmStatic external fun nativeLiftVolume(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
 
+    /** Turns the highlighted volume about a world axis (0 X, 1 Y, 2 Z). */
+    @JvmStatic external fun nativeRotateVolumeAxis(handle: Long, projectHandle: Long, axis: Int, radians: Float): Boolean
+
+    /** Grows the highlighted volume by [factor] along one of its axes (-1: all three). */
+    @JvmStatic external fun nativeScaleVolume(handle: Long, projectHandle: Long, axis: Int, factor: Float): Boolean
+
+    /** Turns the selected instance about a world axis (0 X, 1 Y, 2 Z) through its center. */
+    @JvmStatic external fun nativeRotateSelectionAxis(handle: Long, projectHandle: Long, axis: Int, radians: Float): Boolean
+
+    /** Grows the selected instance by [factor] along one of its axes (-1: all three). */
+    @JvmStatic external fun nativeScaleSelection(handle: Long, projectHandle: Long, axis: Int, factor: Float): Boolean
+
     /** Turns the highlighted volume about the vertical, counter-clockwise seen from above. */
     @JvmStatic external fun nativeRotateVolume(handle: Long, projectHandle: Long, radians: Float): Boolean
 

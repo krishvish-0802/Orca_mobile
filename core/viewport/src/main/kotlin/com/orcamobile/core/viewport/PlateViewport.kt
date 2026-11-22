@@ -1,5 +1,6 @@
 package com.orcamobile.core.viewport
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -8,7 +9,9 @@ import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateRotation
 import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,12 +27,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -46,6 +51,7 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import kotlin.math.PI
+import kotlin.math.exp
 
 /**
  * The 3D plate: the printer's bed and the loaded project, or the sliced
@@ -89,6 +95,12 @@ fun PlateViewport(
     highlightedVolume: Int? = null,
     /** A volume was picked on the plate (its instance and index in the object), or none. */
     onVolumeSelectionChange: (InstanceRef?, Int?) -> Unit = { _, _ -> },
+    /**
+     * The handles at the plate's right edge for the selection: MOVE shows a height
+     * handle for a picked volume; ROTATE one per axis; SCALE one per axis and one
+     * for all three. Drag a handle up or down.
+     */
+    handleMode: HandleMode = HandleMode.MOVE,
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -194,25 +206,67 @@ fun PlateViewport(
                     )
                 },
         )
-        if (editable && selection != null && highlightedVolume != null) {
-            HeightHandle(
-                onLift = { from, to -> surface.liftVolume(from.x, from.y, to.x, to.y) },
-                onEdited = { currentOnPlateEdited() },
-                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
-            )
+        if (editable && selection != null) {
+            val onEdited = { currentOnPlateEdited() }
+            Row(
+                Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                when (handleMode) {
+                    HandleMode.MOVE -> if (highlightedVolume != null) {
+                        DragHandle("Z", "↕", AXIS_COLORS[2], onEdited) { from, to, _ ->
+                            surface.liftVolume(from.x, from.y, to.x, to.y)
+                        }
+                    }
+                    HandleMode.ROTATE -> for (axis in 0..2) {
+                        DragHandle(AXIS_NAMES[axis], "↻", AXIS_COLORS[axis], onEdited) { _, _, upDp ->
+                            surface.rotateAbout(axis, upDp * ROTATE_RADIANS_PER_DP)
+                        }
+                    }
+                    HandleMode.SCALE -> for (axis in -1..2) {
+                        val name = if (axis < 0) "All" else AXIS_NAMES[axis]
+                        val color = if (axis < 0) MaterialTheme.colorScheme.primary else AXIS_COLORS[axis]
+                        DragHandle(name, "⇕", color, onEdited) { _, _, upDp ->
+                            surface.scaleAlong(axis, exp(upDp * SCALE_PER_DP))
+                        }
+                    }
+                }
+            }
         }
     }
 }
 
-/** A handle to drag up or down: raises or lowers the picked volume. */
+private val AXIS_NAMES = listOf("X", "Y", "Z")
+
+/** The desktop's axis colours: X red, Y green, Z blue. */
+private val AXIS_COLORS = listOf(Color(0xFFE53935), Color(0xFF43A047), Color(0xFF1E88E5))
+
+/** A full turn for a drag of about 600 dp. */
+private val ROTATE_RADIANS_PER_DP = (2 * PI / 600).toFloat()
+
+/** Doubling for a drag of about 140 dp up, halving for 140 dp down. */
+private const val SCALE_PER_DP = 0.005f
+
+/**
+ * A strip to drag up or down. [onDrag] gets the previous and current points
+ * in the plate's coordinates (as the camera's rays are) and how far up the
+ * finger went, in dp; it returns whether it changed the plate.
+ */
 @Composable
-private fun HeightHandle(onLift: (from: Offset, to: Offset) -> Boolean, onEdited: () -> Unit, modifier: Modifier = Modifier) {
-    val currentOnLift by rememberUpdatedState(onLift)
+private fun DragHandle(
+    name: String,
+    symbol: String,
+    color: Color,
+    onEdited: () -> Unit,
+    onDrag: (from: Offset, to: Offset, upDp: Float) -> Boolean,
+) {
+    val currentOnDrag by rememberUpdatedState(onDrag)
     val currentOnEdited by rememberUpdatedState(onEdited)
     var origin by remember { mutableStateOf(Offset.Zero) }
+    val density = LocalDensity.current.density
     Surface(
-        modifier = modifier
-            .size(width = 48.dp, height = 160.dp)
+        modifier = Modifier
+            .size(width = 44.dp, height = 160.dp)
             .onGloballyPositioned { origin = it.positionInParent() }
             .pointerInput(Unit) {
                 awaitEachGesture {
@@ -223,8 +277,8 @@ private fun HeightHandle(onLift: (from: Offset, to: Offset) -> Boolean, onEdited
                         val event = awaitPointerEvent()
                         val change = event.changes.firstOrNull { it.id == down.id } ?: break
                         if (change.position != last) {
-                            // In the plate's coordinates, as the camera's rays are.
-                            edited = currentOnLift(origin + last, origin + change.position) || edited
+                            val upDp = (last.y - change.position.y) / density
+                            edited = currentOnDrag(origin + last, origin + change.position, upDp) || edited
                             last = change.position
                         }
                         change.consume()
@@ -233,16 +287,20 @@ private fun HeightHandle(onLift: (from: Offset, to: Offset) -> Boolean, onEdited
                 }
             },
         shape = MaterialTheme.shapes.extraLarge,
-        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.92f),
+        border = BorderStroke(2.dp, color),
         tonalElevation = 2.dp,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Text("▲\n\n${HEIGHT_LABEL}\n\n▼", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+            Text(
+                "▲\n$symbol\n$name\n▼",
+                style = MaterialTheme.typography.labelMedium,
+                color = color,
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
-
-private const val HEIGHT_LABEL = "Z"
 
 /**
  * One finger orbits, or drags the selection when it starts on it ([grabsSelection]);

@@ -145,6 +145,11 @@ public:
     void translate(const InstanceRef& ref, double dx, double dy);
     // Turns an instance about the vertical axis through the center of its bounding box.
     void rotate_z(const InstanceRef& ref, double radians);
+    // Handles on the plate: turn about a world axis (0 X, 1 Y, 2 Z) through the
+    // center of the bounding box, or grow by `factor` along one of the
+    // instance's axes (-1: all three). Both leave it on the bed.
+    void rotate_axis(const InstanceRef& ref, int axis, double radians);
+    void scale_by(const InstanceRef& ref, int axis, double factor);
 
     // The object manipulation panel. Every change leaves the instance standing on
     // the bed. Throws std::out_of_range for a bad reference, std::invalid_argument
@@ -188,6 +193,10 @@ public:
     // world distance (mm), or turn it about the vertical through its center.
     void translate_volume(const InstanceRef& via, std::size_t volume, const std::array<double, 3>& world_delta);
     void rotate_volume_z(const InstanceRef& via, std::size_t volume, double radians);
+    // The same about any world axis (0 X, 1 Y, 2 Z), and growing a volume by
+    // `factor` along one of its axes (-1: all three), about its center.
+    void rotate_volume(const InstanceRef& via, std::size_t volume, int axis, double radians);
+    void scale_volume(const InstanceRef& via, std::size_t volume, int axis, double factor);
     // Where a volume's center is on the plate, through instance `via` (mm).
     std::array<double, 3> volume_center(const InstanceRef& via, std::size_t volume) const;
 

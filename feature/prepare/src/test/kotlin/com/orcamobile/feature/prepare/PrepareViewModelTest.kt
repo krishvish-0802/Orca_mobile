@@ -530,4 +530,12 @@ class PrepareViewModelTest {
         assertEquals(InstanceRef(0, 0), state.selection)
         assertEquals(Axes(60.0, 31.0, 48.0), state.transform?.size)
     }
+
+    @Test
+    fun `the handle mode is remembered for the plate`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        assertEquals(com.orcamobile.core.viewport.HandleMode.MOVE, vm.state.value.handleMode)
+        vm.onIntent(PrepareIntent.SetHandleMode(com.orcamobile.core.viewport.HandleMode.ROTATE))
+        assertEquals(com.orcamobile.core.viewport.HandleMode.ROTATE, vm.state.value.handleMode)
+    }
 }

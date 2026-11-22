@@ -299,6 +299,63 @@ jboolean native_rotate_volume(JNIEnv*, jclass, jlong handle, jlong project_handl
     });
 }
 
+// Turns the highlighted volume about a world axis (0 X, 1 Y, 2 Z).
+jboolean native_rotate_volume_axis(JNIEnv*, jclass, jlong handle, jlong project_handle, jint axis, jfloat radians)
+{
+    return change_volume(handle, project_handle, [&](Viewport&, orca::engine::Project& project,
+                                                     const orca::engine::InstanceRef& ref, std::size_t volume) {
+        project.rotate_volume(ref, volume, axis, radians);
+        return true;
+    });
+}
+
+// Grows the highlighted volume by `factor` along one of its axes (-1: all three).
+jboolean native_scale_volume(JNIEnv*, jclass, jlong handle, jlong project_handle, jint axis, jfloat factor)
+{
+    return change_volume(handle, project_handle, [&](Viewport&, orca::engine::Project& project,
+                                                     const orca::engine::InstanceRef& ref, std::size_t volume) {
+        project.scale_volume(ref, volume, axis, factor);
+        return true;
+    });
+}
+
+// Runs `change` on the selected instance and shows where it is now.
+template<class Change>
+jboolean change_selection(jlong handle, jlong project_handle, Change&& change)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const std::optional<PartRef> selection = v->selection();
+    if (!selection)
+        return JNI_FALSE;
+    try {
+        const orca::engine::InstanceRef ref = to_instance(*selection);
+        change(*project, ref);
+        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        return JNI_TRUE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+}
+
+// Turns the selected instance about a world axis (0 X, 1 Y, 2 Z) through its center.
+jboolean native_rotate_selection_axis(JNIEnv*, jclass, jlong handle, jlong project_handle, jint axis, jfloat radians)
+{
+    return change_selection(handle, project_handle, [&](orca::engine::Project& project, const orca::engine::InstanceRef& ref) {
+        project.rotate_axis(ref, axis, radians);
+    });
+}
+
+// Grows the selected instance by `factor` along one of its axes (-1: all three).
+jboolean native_scale_selection(JNIEnv*, jclass, jlong handle, jlong project_handle, jint axis, jfloat factor)
+{
+    return change_selection(handle, project_handle, [&](orca::engine::Project& project, const orca::engine::InstanceRef& ref) {
+        project.scale_by(ref, axis, factor);
+    });
+}
+
 // Shows a loaded G-code preview's toolpaths; they stay shared with the preview.
 void native_show_preview(JNIEnv*, jclass, jlong handle, jlong preview_handle)
 {
@@ -376,6 +433,10 @@ const JNINativeMethod kMethods[] = {
     {"nativeMoveVolume", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_volume)},
     {"nativeLiftVolume", "(JJFFFF)Z", reinterpret_cast<void*>(native_lift_volume)},
     {"nativeRotateVolume", "(JJF)Z", reinterpret_cast<void*>(native_rotate_volume)},
+    {"nativeRotateVolumeAxis", "(JJIF)Z", reinterpret_cast<void*>(native_rotate_volume_axis)},
+    {"nativeScaleVolume", "(JJIF)Z", reinterpret_cast<void*>(native_scale_volume)},
+    {"nativeRotateSelectionAxis", "(JJIF)Z", reinterpret_cast<void*>(native_rotate_selection_axis)},
+    {"nativeScaleSelection", "(JJIF)Z", reinterpret_cast<void*>(native_scale_selection)},
     {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
     {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
     {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},

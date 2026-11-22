@@ -1,5 +1,6 @@
 package com.orcamobile.feature.prepare
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,6 +32,7 @@ import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.VolumeKind
+import com.orcamobile.core.viewport.HandleMode
 
 private enum class ObjectTab { PLACEMENT, PARTS, HEIGHTS }
 
@@ -108,6 +110,7 @@ internal fun ObjectPanel(
                     showZ = false,
                     showMirror = true,
                     onEdit = { onIntent(PrepareIntent.EditTransform(it)) },
+                    onHandleMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
                 )
                 ObjectTab.PARTS -> PartsTab(list, enabled, state.uniformScale, onIntent, onListIntent, onPickFile) { volume ->
                     onOpenSettings(volume, null)
@@ -138,15 +141,16 @@ internal fun TransformFields(
     showZ: Boolean,
     showMirror: Boolean,
     onEdit: (TransformEdit) -> Unit,
+    onHandleMode: (HandleMode) -> Unit = {},
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Section(stringResource(R.string.prepare_object_position)) {
+        Section(stringResource(R.string.prepare_object_position), onTitle = { onHandleMode(HandleMode.MOVE) }) {
             val p = transform.position
             AxisField(Axis.X, p.x, "mm", enabled) { onEdit(TransformEdit.Position(it, p.y, p.z.takeIf { showZ })) }
             AxisField(Axis.Y, p.y, "mm", enabled) { onEdit(TransformEdit.Position(p.x, it, p.z.takeIf { showZ })) }
             if (showZ) AxisField(Axis.Z, p.z, "mm", enabled) { onEdit(TransformEdit.Position(p.x, p.y, it)) }
         }
-        Section(stringResource(R.string.prepare_object_rotation)) {
+        Section(stringResource(R.string.prepare_object_rotation), onTitle = { onHandleMode(HandleMode.ROTATE) }) {
             for (axis in Axis.entries) {
                 AxisField(axis, transform.rotationDegrees[axis], "°", enabled) {
                     onEdit(TransformEdit.Rotation(transform.rotationDegrees.with(axis, it)))
@@ -154,7 +158,12 @@ internal fun TransformFields(
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.prepare_object_scale), style = MaterialTheme.typography.labelLarge, modifier = Modifier.weight(1f))
+            Text(
+                stringResource(R.string.prepare_object_scale),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f).clickable { onHandleMode(HandleMode.SCALE) },
+            )
             Text(stringResource(R.string.prepare_object_uniform), style = MaterialTheme.typography.bodyMedium)
             Switch(checked = uniformScale, onCheckedChange = onUniformScale, modifier = Modifier.padding(start = 8.dp))
         }
@@ -165,7 +174,7 @@ internal fun TransformFields(
                 }
             }
         }
-        Section(stringResource(R.string.prepare_object_size)) {
+        Section(stringResource(R.string.prepare_object_size), onTitle = { onHandleMode(HandleMode.SCALE) }) {
             for (axis in Axis.entries) {
                 AxisField(axis, transform.size[axis], "mm", enabled) { size ->
                     val current = transform.size[axis]
@@ -196,9 +205,19 @@ private fun scaled(transform: InstanceTransform, axis: Axis, ratio: Double, unif
 }
 
 @Composable
-internal fun Section(title: String, content: @Composable RowScope.() -> Unit) {
+internal fun Section(title: String, onTitle: (() -> Unit)? = null, content: @Composable RowScope.() -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(title, style = MaterialTheme.typography.labelLarge)
+        if (onTitle == null) {
+            Text(title, style = MaterialTheme.typography.labelLarge)
+        } else {
+            // Tapping a heading shows its handles on the plate.
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.clickable(onClick = onTitle),
+            )
+        }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) { content() }
     }
 }

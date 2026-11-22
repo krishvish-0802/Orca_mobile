@@ -163,6 +163,54 @@ void Project::rotate_z(const InstanceRef& ref, double radians)
     object.invalidate_bounding_box();
 }
 
+namespace {
+
+Slic3r::Vec3d world_axis(int axis)
+{
+    if (axis < 0 || axis > 2)
+        throw std::invalid_argument("No such axis");
+    return Slic3r::Vec3d::Unit(axis);
+}
+
+// Grows `scale` by `factor` along `axis`, or all three for -1; refuses a scale
+// that would vanish.
+Slic3r::Vec3d grown(Slic3r::Vec3d scale, int axis, double factor)
+{
+    if (!std::isfinite(factor) || factor <= 0.0)
+        throw std::invalid_argument("A scale must be more than 0 %");
+    if (axis < -1 || axis > 2)
+        throw std::invalid_argument("No such axis");
+    for (int a = 0; a < 3; ++a)
+        if (axis < 0 || axis == a)
+            scale[a] = std::max(scale[a] * factor, 1e-4);
+    return scale;
+}
+
+} // namespace
+
+void Project::rotate_axis(const InstanceRef& ref, int axis, double radians)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    const Slic3r::Vec3d direction = world_axis(axis);
+    if (!std::isfinite(radians) || radians == 0.0)
+        return;
+    Slic3r::ModelObject& object = *m_impl->model.objects.at(ref.object);
+    Slic3r::ModelInstance& instance = m_impl->instance(ref);
+    const Slic3r::Vec3d center = object.instance_bounding_box(ref.instance).center();
+    const Slic3r::Transform3d turn = Slic3r::Geometry::translation_transform(center) *
+        Slic3r::Transform3d(Eigen::AngleAxisd(radians, direction)) * Slic3r::Geometry::translation_transform(-center);
+    instance.set_transformation(Slic3r::Geometry::Transformation(turn * instance.get_matrix()));
+    m_impl->settle(ref);
+}
+
+void Project::scale_by(const InstanceRef& ref, int axis, double factor)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    Slic3r::ModelInstance& instance = m_impl->instance(ref);
+    instance.set_scaling_factor(grown(instance.get_scaling_factor(), axis, factor));
+    m_impl->settle(ref);
+}
+
 InstanceTransform Project::transform(const InstanceRef& ref) const
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

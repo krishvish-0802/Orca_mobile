@@ -25,6 +25,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -68,6 +69,7 @@ import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
 import com.orcamobile.core.model.VolumeKind
+import com.orcamobile.core.viewport.HandleMode
 import com.orcamobile.core.viewport.PlateViewport
 import java.util.Locale
 import kotlin.math.roundToInt
@@ -193,6 +195,7 @@ fun PrepareScreen(
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     highlightedVolume = list.selectedVolume,
+                    handleMode = state.handleMode,
                     onVolumeSelectionChange = { instance, volume ->
                         onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
                     },
@@ -200,6 +203,13 @@ fun PrepareScreen(
                 )
                 if (state.project != null && preview == null) {
                     PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+                }
+                if (preview == null && state.selection != null && state.plateEditable) {
+                    HandleModePicker(
+                        mode = state.handleMode,
+                        onMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
+                        modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
+                    )
                 }
                 PlateStatus(
                     state,
@@ -570,6 +580,37 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
                 enabled = ready,
                 modifier = Modifier.weight(1f),
             )
+        }
+    }
+}
+
+/** Move, rotate or scale: what the handles at the plate's right edge do, as the desktop's gizmo toolbar. */
+@Composable
+private fun HandleModePicker(mode: HandleMode, onMode: (HandleMode) -> Unit, modifier: Modifier = Modifier) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.92f),
+        tonalElevation = 2.dp,
+    ) {
+        Column(Modifier.padding(4.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            for (entry in HandleMode.entries) {
+                FilterChip(
+                    selected = mode == entry,
+                    onClick = { onMode(entry) },
+                    label = {
+                        Text(
+                            stringResource(
+                                when (entry) {
+                                    HandleMode.MOVE -> R.string.prepare_handle_move
+                                    HandleMode.ROTATE -> R.string.prepare_handle_rotate
+                                    HandleMode.SCALE -> R.string.prepare_handle_scale
+                                },
+                            ),
+                        )
+                    },
+                )
+            }
         }
     }
 }

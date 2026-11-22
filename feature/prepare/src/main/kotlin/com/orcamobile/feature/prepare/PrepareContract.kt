@@ -8,6 +8,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.viewport.HandleMode
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
@@ -48,6 +49,8 @@ data class PrepareUiState(
     val uniformScale: Boolean = true,
     /** The next tap on an object lays it on the side tapped. */
     val layingOnFace: Boolean = false,
+    /** What the handles at the plate's edge do for the selection. */
+    val handleMode: HandleMode = HandleMode.MOVE,
 ) {
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
@@ -164,6 +167,9 @@ sealed interface PrepareIntent {
     data class EditTransform(val edit: TransformEdit) : PrepareIntent
 
     data class SetUniformScale(val uniform: Boolean) : PrepareIntent
+
+    /** Move, rotate or scale with the handles at the plate's edge. */
+    data class SetHandleMode(val mode: HandleMode) : PrepareIntent
 
     /** Turns on (or off) laying the next tapped object on the side tapped. */
     data class SetLayOnFace(val on: Boolean) : PrepareIntent

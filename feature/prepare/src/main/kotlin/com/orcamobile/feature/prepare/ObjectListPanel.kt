@@ -131,6 +131,7 @@ internal fun PartsTab(
                 showZ = true,
                 showMirror = false,
                 onEdit = { onListIntent(ObjectListIntent.EditVolume(it)) },
+                onHandleMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
             )
         }
 

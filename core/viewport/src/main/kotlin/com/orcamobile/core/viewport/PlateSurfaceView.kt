@@ -141,6 +141,22 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     fun rotateVolume(radians: Float): Boolean = volumeEdit { h, project -> NativeViewport.nativeRotateVolume(h, project, radians) }
 
+    /** Turns the picked volume, or the selected object without one, about a world axis (0 X, 1 Y, 2 Z). */
+    fun rotateAbout(axis: Int, radians: Float): Boolean =
+        if (highlightedVolume != null) {
+            volumeEdit { h, project -> NativeViewport.nativeRotateVolumeAxis(h, project, axis, radians) }
+        } else {
+            edit { h, project -> NativeViewport.nativeRotateSelectionAxis(h, project, axis, radians) }
+        }
+
+    /** Grows the picked volume, or the selected object without one, along an axis (-1: all three). */
+    fun scaleAlong(axis: Int, factor: Float): Boolean =
+        if (highlightedVolume != null) {
+            volumeEdit { h, project -> NativeViewport.nativeScaleVolume(h, project, axis, factor) }
+        } else {
+            edit { h, project -> NativeViewport.nativeScaleSelection(h, project, axis, factor) }
+        }
+
     private inline fun volumeEdit(action: (Long, Long) -> Boolean): Boolean {
         if (highlightedVolume == null) return false
         return edit(action)
@@ -241,3 +257,6 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
 /** A volume hit on the plate: [volume] is its index in the instance's object. */
 data class VolumeHit(val instance: InstanceRef, val volume: Int, val isPart: Boolean)
+
+/** What the handles at the plate's edge do (the desktop's move, rotate and scale gizmos). */
+enum class HandleMode { MOVE, ROTATE, SCALE }

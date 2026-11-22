@@ -94,6 +94,7 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.EditTransform -> editTransform(intent.edit)
             is PrepareIntent.SetUniformScale -> _state.update { it.copy(uniformScale = intent.uniform) }
+            is PrepareIntent.SetHandleMode -> _state.update { it.copy(handleMode = intent.mode) }
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }

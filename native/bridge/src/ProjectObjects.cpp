@@ -354,22 +354,53 @@ void Project::translate_volume(const InstanceRef& via, std::size_t volume_index,
 
 void Project::rotate_volume_z(const InstanceRef& via, std::size_t volume_index, double radians)
 {
+    rotate_volume(via, volume_index, 2, radians);
+}
+
+void Project::rotate_volume(const InstanceRef& via, std::size_t volume_index, int axis, double radians)
+{
     std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (axis < 0 || axis > 2)
+        throw std::invalid_argument("No such axis");
     if (!std::isfinite(radians) || radians == 0.0)
         return;
     const Slic3r::ModelInstance& instance = m_impl->instance(via);
     ModelObject& object = m_impl->object(via.object);
     ModelVolume& volume = volume_of(object, volume_index);
-    // A turn about the world's vertical, written in the object's coordinates,
-    // about the volume's own center.
+    // A turn about a world axis, written in the object's coordinates, about
+    // the volume's own center.
     const Slic3r::Matrix3d linear = instance_linear(instance);
-    const Slic3r::Matrix3d turn = linear.inverse() * Eigen::AngleAxisd(radians, Slic3r::Vec3d::UnitZ()).toRotationMatrix() * linear;
+    const Slic3r::Matrix3d turn = linear.inverse() * Eigen::AngleAxisd(radians, Slic3r::Vec3d::Unit(axis)).toRotationMatrix() * linear;
     const Slic3r::Vec3d center = volume.get_matrix() * volume.mesh().bounding_box().center();
     Slic3r::Transform3d about = Slic3r::Transform3d::Identity();
     about.translate(center);
     about.linear() = turn;
     about.translate(-center);
     volume.set_transformation(Slic3r::Geometry::Transformation(about * volume.get_matrix()));
+    object.invalidate_bounding_box();
+    if (volume.is_model_part())
+        m_impl->settle_all(via.object);
+}
+
+void Project::scale_volume(const InstanceRef& via, std::size_t volume_index, int axis, double factor)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!std::isfinite(factor) || factor <= 0.0)
+        throw std::invalid_argument("A scale must be more than 0 %");
+    if (axis < -1 || axis > 2)
+        throw std::invalid_argument("No such axis");
+    m_impl->instance(via);
+    ModelObject& object = m_impl->object(via.object);
+    ModelVolume& volume = volume_of(object, volume_index);
+    // About the volume's center, which its offset places (new volumes are centered).
+    const Slic3r::Vec3d before = volume.get_matrix() * volume.mesh().bounding_box().center();
+    Slic3r::Vec3d scale = volume.get_scaling_factor();
+    for (int a = 0; a < 3; ++a)
+        if (axis < 0 || axis == a)
+            scale[a] = std::max(scale[a] * factor, 1e-4);
+    volume.set_scaling_factor(scale);
+    const Slic3r::Vec3d after = volume.get_matrix() * volume.mesh().bounding_box().center();
+    volume.set_offset(volume.get_offset() + (before - after));
     object.invalidate_bounding_box();
     if (volume.is_model_part())
         m_impl->settle_all(via.object);
