@@ -18,6 +18,10 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.Axes
+import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.CompatiblePresets
@@ -195,6 +199,21 @@ class PrepareViewModelTest {
         ) = answer("copies $instance $count", config)
 
         override suspend fun remove(project: ProjectId, instance: InstanceRef) = answer("remove $instance")
+
+        val edits = mutableListOf<TransformEdit?>()
+        var transform = InstanceTransform(
+            position = Axes(110.0, 110.0, 24.0),
+            rotationDegrees = Axes(0.0, 0.0, 0.0),
+            scale = Axes(1.0, 1.0, 1.0),
+            size = Axes(60.0, 31.0, 48.0),
+            mirrored = emptySet(),
+        )
+
+        override suspend fun transform(project: ProjectId, instance: InstanceRef, edit: TransformEdit?): Result<TransformUpdate> {
+            edits += edit
+            if (edit is TransformEdit.Scale) transform = transform.copy(scale = edit.factors)
+            return Result.success(TransformUpdate(transform, next.objects))
+        }
     }
 
     private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
@@ -473,5 +492,42 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.Arrange)
         assertEquals(PlateNotice.Failed("Objects could not fit"), vm.state.value.plateNotice)
         assertEquals(0, vm.state.value.plateRevision)
+    }
+
+    @Test
+    fun `selecting an object shows its transform, and edits apply to it`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        assertNull(vm.state.value.transform)
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        assertEquals(Axes(60.0, 31.0, 48.0), vm.state.value.transform?.size)
+
+        vm.onIntent(PrepareIntent.EditTransform(TransformEdit.Scale(Axes(2.0, 2.0, 2.0))))
+        assertEquals(Axes(2.0, 2.0, 2.0), vm.state.value.transform?.scale)
+        assertEquals(1, vm.state.value.plateRevision)
+
+        vm.onIntent(PrepareIntent.Select(null))
+        assertNull(vm.state.value.transform)
+        assertEquals(listOf(null, TransformEdit.Scale(Axes(2.0, 2.0, 2.0))), plateEditor.edits)
+    }
+
+    @Test
+    fun `a drag on the plate refreshes the transform`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.PlateEdited)
+        assertEquals(listOf<TransformEdit?>(null, null), plateEditor.edits)
+    }
+
+    @Test
+    fun `lay flat is a mode that ends with the object laid and selected`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SetLayOnFace(true))
+        assertTrue(vm.state.value.layingOnFace)
+
+        vm.onIntent(PrepareIntent.LaidOnFace(InstanceRef(0, 0)))
+        val state = vm.state.value
+        assertFalse(state.layingOnFace)
+        assertEquals(InstanceRef(0, 0), state.selection)
+        assertEquals(Axes(60.0, 31.0, 48.0), state.transform?.size)
     }
 }

@@ -5,6 +5,8 @@ import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
@@ -39,6 +41,12 @@ data class PrepareUiState(
     val arrangeOptions: ArrangeOptions = ArrangeOptions(),
     /** What the last plate tool did, shown briefly over the plate. */
     val plateNotice: PlateNotice? = null,
+    /** The selected instance's transform, for the object panel. */
+    val transform: InstanceTransform? = null,
+    /** Scaling one axis scales all three. */
+    val uniformScale: Boolean = true,
+    /** The next tap on an object lays it on the side tapped. */
+    val layingOnFace: Boolean = false,
 ) {
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
@@ -150,6 +158,17 @@ sealed interface PrepareIntent {
     data object DeleteSelected : PrepareIntent
 
     data object DismissPlateNotice : PrepareIntent
+
+    /** Changes the selected object's position, rotation, scale or mirroring. */
+    data class EditTransform(val edit: TransformEdit) : PrepareIntent
+
+    data class SetUniformScale(val uniform: Boolean) : PrepareIntent
+
+    /** Turns on (or off) laying the next tapped object on the side tapped. */
+    data class SetLayOnFace(val on: Boolean) : PrepareIntent
+
+    /** The plate laid [instance] on a face. */
+    data class LaidOnFace(val instance: InstanceRef) : PrepareIntent
 
     data object CancelSlice : PrepareIntent
 

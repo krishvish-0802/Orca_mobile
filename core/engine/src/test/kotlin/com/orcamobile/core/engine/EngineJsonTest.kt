@@ -146,4 +146,21 @@ class EngineJsonTest {
             EngineJson.encode(com.orcamobile.core.model.ArrangeOptions(spacingMm = 6.0, allowRotation = true)),
         )
     }
+
+    @Test
+    fun `decodes a transform and encodes transform edits`() {
+        val update = EngineJson.transformUpdate(
+            """{"objects":[],"transform":{"position":[110,100,10],"rotation":[0,0,90],"scale":[1,1,2],""" +
+                """"size":[20,20,40],"mirrored":[true,false,false]}}""",
+        ).getOrThrow()
+        val t = update.transform
+        assertEquals(com.orcamobile.core.model.Axes(110.0, 100.0, 10.0), t.position)
+        assertEquals(90.0, t.rotationDegrees.z)
+        assertEquals(setOf(com.orcamobile.core.model.Axis.X), t.mirrored)
+
+        assertEquals("", EngineJson.encode(null as com.orcamobile.core.model.TransformEdit?))
+        assertEquals("""{"position":[1.0,2.0]}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Position(1.0, 2.0)))
+        assertEquals("""{"mirror":2}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Mirror(com.orcamobile.core.model.Axis.Z)))
+        assertEquals("""{"reset":true}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Reset))
+    }
 }

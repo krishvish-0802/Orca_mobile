@@ -2,7 +2,10 @@
 // lives behind a jlong handle until nativeProjectRelease.
 #include <jni.h>
 
+#include <array>
 #include <memory>
+#include <stdexcept>
+#include <string>
 
 #include "EngineState.hpp"
 #include "JniRegistry.hpp"
@@ -47,6 +50,42 @@ void native_project_center_on(JNIEnv*, jclass, jlong handle, jdouble x, jdouble 
         project->center_on(x, y);
 }
 
+// Reads, and with `edit_json` changes, an instance's transform:
+// "" reads; {"position":[x,y]}, {"rotation":[x,y,z]} (degrees), {"scale":[x,y,z]},
+// {"mirror":axis} or {"reset":true} change it first.
+jstring native_instance_transform(JNIEnv* env, jclass, jlong handle, jint object, jint instance, jstring edit_json)
+{
+    auto* project = from_handle<orca::engine::Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    if (object < 0 || instance < 0)
+        return to_jstring(env, json::error_json("No such instance on the plate"));
+    const orca::engine::InstanceRef ref{std::size_t(object), std::size_t(instance)};
+    try {
+        const std::string payload = to_std_string(env, edit_json);
+        if (!payload.empty()) {
+            const nlohmann::json edit = nlohmann::json::parse(payload);
+            if (edit.contains("position")) {
+                const auto xy = edit.at("position").get<std::array<double, 2>>();
+                project->set_position(ref, xy[0], xy[1]);
+            } else if (edit.contains("rotation")) {
+                project->set_rotation(ref, edit.at("rotation").get<std::array<double, 3>>());
+            } else if (edit.contains("scale")) {
+                project->set_scale(ref, edit.at("scale").get<std::array<double, 3>>());
+            } else if (edit.contains("mirror")) {
+                project->mirror(ref, edit.at("mirror").get<int>());
+            } else if (edit.value("reset", false)) {
+                project->reset_transform(ref);
+            } else {
+                throw std::invalid_argument("Unknown transform edit: " + payload);
+            }
+        }
+        return to_jstring(env, json::to_json(project->transform(ref), project->objects()));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 void native_project_release(JNIEnv*, jclass, jlong handle)
 {
     delete from_handle<orca::engine::Project>(handle);
@@ -57,6 +96,8 @@ const JNINativeMethod kMethods[] = {
     {"nativeProjectObjects", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_project_objects)},
     {"nativeProjectCenterOn", "(JDD)V", reinterpret_cast<void*>(native_project_center_on)},
     {"nativeProjectRelease", "(J)V", reinterpret_cast<void*>(native_project_release)},
+    {"nativeInstanceTransform", "(JIILjava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(native_instance_transform)},
 };
 
 } // namespace

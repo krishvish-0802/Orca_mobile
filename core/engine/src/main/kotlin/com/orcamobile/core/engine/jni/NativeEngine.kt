@@ -44,6 +44,12 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
 
+    /**
+     * Reads an instance's transform, after the change in [editJson] when not empty
+     * (see native/bridge/jni/ProjectJni.cpp): `{"transform":{..},"objects":[..]}` or `{"error": ...}`.
+     */
+    @JvmStatic external fun nativeInstanceTransform(handle: Long, objectIndex: Int, instanceIndex: Int, editJson: String): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

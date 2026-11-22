@@ -8,6 +8,8 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -43,6 +45,19 @@ class NativePlateEditor @Inject constructor(
             handle, instance.objectIndex, instance.instanceIndex, count ?: -1, presets, keys, values,
             EngineJson.encode(options),
         )
+    }
+
+    override suspend fun transform(
+        project: ProjectId,
+        instance: InstanceRef,
+        edit: TransformEdit?,
+    ): Result<TransformUpdate> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
+            EngineJson.transformUpdate(
+                NativeEngine.nativeInstanceTransform(handle, instance.objectIndex, instance.instanceIndex, EngineJson.encode(edit)),
+            ).getOrThrow()
+        }
     }
 
     override suspend fun remove(project: ProjectId, instance: InstanceRef) = withContext(dispatchers.io) {

@@ -58,6 +58,26 @@ object OrcaIcons {
         }
     }
 
+    /** Lay on face: a block coming down onto the bed. */
+    val LayOnFace: ImageVector by lazy {
+        icon("LayOnFace") {
+            bar(2f, 21f, 20f)
+            moveTo(7f, 11f)
+            horizontalLineTo(17f)
+            verticalLineTo(19f)
+            horizontalLineTo(7f)
+            close()
+            moveTo(11f, 1f)
+            horizontalLineTo(13f)
+            verticalLineTo(5f)
+            horizontalLineTo(16f)
+            lineTo(12f, 9f)
+            lineTo(8f, 5f)
+            horizontalLineTo(11f)
+            close()
+        }
+    }
+
     /** Tool settings: three sliders. */
     val Tune: ImageVector by lazy {
         icon("Tune") {

@@ -157,6 +157,19 @@ std::string to_json(const PlateChange& change, const std::vector<ObjectSummary>&
     return result.dump();
 }
 
+std::string to_json(const InstanceTransform& transform, const std::vector<ObjectSummary>& objects)
+{
+    nlohmann::json result = nlohmann::json::parse(to_json(objects));
+    result["transform"] = {
+        {"position", transform.position},
+        {"rotation", transform.rotation_deg},
+        {"scale", transform.scale},
+        {"size", transform.size},
+        {"mirrored", transform.mirrored},
+    };
+    return result.dump();
+}
+
 ArrangeOptions arrange_options_from_json(const std::string& payload)
 {
     ArrangeOptions options;

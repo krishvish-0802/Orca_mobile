@@ -169,6 +169,27 @@ jboolean native_rotate_selection(JNIEnv*, jclass, jlong handle, jlong project_ha
     }
 }
 
+// Lays the instance under a screen point on the side tapped there. Returns the
+// instance as native_pick does, or -1 when the point hits none.
+jlong native_lay_on_face(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return -1;
+    const auto hit = v->pick_face(x, y);
+    if (!hit)
+        return -1;
+    try {
+        const orca::engine::InstanceRef ref = to_instance(hit->part);
+        project->lay_on_face(ref, {hit->normal[0], hit->normal[1], hit->normal[2]});
+        v->set_part_transform(hit->part, to_float_matrix(project->placement(ref)));
+        return (static_cast<jlong>(hit->part.object) << 32) | static_cast<jlong>(static_cast<uint32_t>(hit->part.instance));
+    } catch (const std::exception&) {
+        return -1;
+    }
+}
+
 // Shows a loaded G-code preview's toolpaths; they stay shared with the preview.
 void native_show_preview(JNIEnv*, jclass, jlong handle, jlong preview_handle)
 {
@@ -240,6 +261,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeSetSelection", "(JII)V", reinterpret_cast<void*>(native_set_selection)},
     {"nativeMoveSelection", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_selection)},
     {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
+    {"nativeLayOnFace", "(JJFF)J", reinterpret_cast<void*>(native_lay_on_face)},
     {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
     {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
     {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},

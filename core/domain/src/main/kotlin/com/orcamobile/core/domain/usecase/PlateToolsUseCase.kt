@@ -7,6 +7,8 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import javax.inject.Inject
 
 /**
@@ -31,6 +33,10 @@ class PlateToolsUseCase @Inject constructor(
         count: Int?,
         options: ArrangeOptions,
     ): Result<PlateUpdate> = editor.addCopies(project, instance, count, configs.configFor(presets), options)
+
+    /** The object manipulation panel: reads [instance]'s transform, after [edit] when given. */
+    suspend fun transform(project: ProjectId, instance: InstanceRef, edit: TransformEdit? = null): Result<TransformUpdate> =
+        editor.transform(project, instance, edit)
 
     suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate> = editor.remove(project, instance)
 }

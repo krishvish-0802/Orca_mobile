@@ -19,6 +19,16 @@
     <string name="prepare_tool_orient_all">Orient all</string>
     <string name="prepare_tool_copies">Copies</string>
     <string name="prepare_tool_delete">Delete</string>
+    <string name="prepare_tool_lay_on_face">Lay flat</string>
+    <string name="prepare_lay_on_face_hint">Tap the side of an object that should lie on the bed.</string>
+    <string name="prepare_object_title">Object</string>
+    <string name="prepare_object_reset">Reset</string>
+    <string name="prepare_object_position">Position</string>
+    <string name="prepare_object_rotation">Rotation</string>
+    <string name="prepare_object_scale">Scale</string>
+    <string name="prepare_object_uniform">Uniform</string>
+    <string name="prepare_object_size">Size</string>
+    <string name="prepare_object_mirror">Mirror</string>
     <string name="prepare_tool_arranging">Arranging…</string>
     <string name="prepare_tool_orienting">Finding the orientation with the least support…</string>
     <string name="prepare_tool_copying">Adding copies…</string>

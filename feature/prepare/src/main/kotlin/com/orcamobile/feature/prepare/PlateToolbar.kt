@@ -14,6 +14,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -79,6 +80,12 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 sheet = PlateSheet.ARRANGE_OPTIONS
             }
             ToolButton(
+                OrcaIcons.LayOnFace,
+                stringResource(R.string.prepare_tool_lay_on_face),
+                enabled,
+                checked = state.layingOnFace,
+            ) { onIntent(PrepareIntent.SetLayOnFace(!state.layingOnFace)) }
+            ToolButton(
                 OrcaIcons.Orient,
                 stringResource(if (selected) R.string.prepare_tool_orient else R.string.prepare_tool_orient_all),
                 enabled,
@@ -116,12 +123,27 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
     }
 }
 
-/** An icon with its name under it: the tools are unfamiliar enough to need words. */
+/**
+ * An icon with its name under it: the tools are unfamiliar enough to need words.
+ * A [checked] tool is a mode that stays on until tapped again.
+ */
 @Composable
-private fun ToolButton(icon: ImageVector, label: String, enabled: Boolean, onClick: () -> Unit) {
+private fun ToolButton(
+    icon: ImageVector,
+    label: String,
+    enabled: Boolean,
+    checked: Boolean? = null,
+    onClick: () -> Unit,
+) {
     Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledTonalIconButton(onClick = onClick, enabled = enabled) {
-            Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+        if (checked == null) {
+            FilledTonalIconButton(onClick = onClick, enabled = enabled) {
+                Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            }
+        } else {
+            FilledIconToggleButton(checked = checked, onCheckedChange = { onClick() }, enabled = enabled) {
+                Icon(icon, contentDescription = label, modifier = Modifier.size(22.dp))
+            }
         }
         Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
     }
@@ -137,7 +159,10 @@ internal fun PlateStatus(state: PrepareUiState, onIntent: (PrepareIntent) -> Uni
             onIntent(PrepareIntent.DismissPlateNotice)
         }
     }
-    val text = state.plateTask?.let { stringResource(it.runningLabel()) } ?: notice?.let { noticeText(it) } ?: return
+    val text = state.plateTask?.let { stringResource(it.runningLabel()) }
+        ?: notice?.let { noticeText(it) }
+        ?: stringResource(R.string.prepare_lay_on_face_hint).takeIf { state.layingOnFace }
+        ?: return
     val isError = notice is PlateNotice.Failed && state.plateTask == null
     Surface(
         modifier = modifier,

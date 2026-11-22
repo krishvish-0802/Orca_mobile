@@ -34,6 +34,12 @@ internal object NativeViewport {
     /** Turns the selected instance about the vertical axis, counter-clockwise seen from above. */
     @JvmStatic external fun nativeRotateSelection(handle: Long, projectHandle: Long, radians: Float): Boolean
 
+    /**
+     * Lays the instance under a screen point on the side tapped there (the nearest
+     * face of its convex hull). Returns it as [nativePick] does, or -1 on a miss.
+     */
+    @JvmStatic external fun nativeLayOnFace(handle: Long, projectHandle: Long, x: Float, y: Float): Long
+
     /** Shows the toolpaths of the G-code preview with native handle [previewHandle] instead of the model. */
     @JvmStatic external fun nativeShowPreview(handle: Long, previewHandle: Long)
 

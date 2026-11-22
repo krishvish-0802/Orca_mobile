@@ -78,6 +78,13 @@ public:
 
     // The instance under a screen point, nearest first; none if the point hits no part.
     std::optional<PartRef> pick(float x_px, float y_px) const;
+    // The instance under a screen point and the normal (world, unit) of the face
+    // hit there, turned toward the camera.
+    struct FaceHit {
+        PartRef part;
+        std::array<float, 3> normal{};
+    };
+    std::optional<FaceHit> pick_face(float x_px, float y_px) const;
     // Where a screen point lands on the bed plane (z = 0), if it does.
     std::optional<std::array<float, 2>> bed_point(float x_px, float y_px) const;
 

@@ -112,6 +112,17 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         return InstanceRef((packed ushr 32).toInt(), (packed and 0xFFFFFFFFL).toInt())
     }
 
+    /** Lays the instance under the point on the side tapped; the instance, or null on a miss. */
+    fun layOnFace(x: Float, y: Float): InstanceRef? {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return null
+        val packed = NativeViewport.nativeLayOnFace(h, project, x, y)
+        if (packed < 0) return null
+        requestRender()
+        return InstanceRef((packed ushr 32).toInt(), (packed and 0xFFFFFFFFL).toInt())
+    }
+
     fun setSelection(ref: InstanceRef?) {
         if (ref == selection) return
         selection = ref

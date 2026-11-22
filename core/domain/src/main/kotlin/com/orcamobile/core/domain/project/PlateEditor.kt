@@ -5,6 +5,8 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 
 /**
  * The desktop's plate tools, run by the engine on a loaded project. Each
@@ -28,6 +30,9 @@ interface PlateEditor {
         config: PlateConfig,
         options: ArrangeOptions,
     ): Result<PlateUpdate>
+
+    /** Reads [instance]'s transform, after applying [edit] when given. */
+    suspend fun transform(project: ProjectId, instance: InstanceRef, edit: TransformEdit?): Result<TransformUpdate>
 
     /** Takes [instance] off the plate, and its object with its last instance. */
     suspend fun remove(project: ProjectId, instance: InstanceRef): Result<PlateUpdate>

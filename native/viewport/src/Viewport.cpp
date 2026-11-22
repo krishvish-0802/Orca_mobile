@@ -430,6 +430,35 @@ std::optional<PartRef> Viewport::pick(float x_px, float y_px) const
     return best;
 }
 
+std::optional<Viewport::FaceHit> Viewport::pick_face(float x_px, float y_px) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return std::nullopt;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        parts = m_impl->parts;
+    }
+    std::optional<FaceHit> best;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts) {
+        std::size_t triangle = 0;
+        const std::optional<float> t =
+            intersect(*state.part.mesh, state.local_box, state.transform, origin, direction, &triangle);
+        if (t && *t < nearest) {
+            nearest = *t;
+            Eigen::Vector3f n = world_normal(*state.part.mesh, triangle, state.transform);
+            // The face seen is the one facing the camera, whatever the mesh's winding says.
+            if (n.dot(direction) > 0.0f)
+                n = -n;
+            best = FaceHit{state.part.ref, {n.x(), n.y(), n.z()}};
+        }
+    }
+    return best;
+}
+
 std::optional<std::array<float, 2>> Viewport::bed_point(float x_px, float y_px) const
 {
     Eigen::Vector3f origin, direction;

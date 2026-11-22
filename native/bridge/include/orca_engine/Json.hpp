@@ -28,6 +28,8 @@ std::string to_json(const std::vector<OptionInfo>& options);
 std::string to_json(const PresetOptionKeys& keys);
 // {"placed":n,"notPlaced":n,"objects":[...]}: a plate tool's outcome and the plate after it.
 std::string to_json(const PlateChange& change, const std::vector<ObjectSummary>& objects);
+// {"transform":{"position":[..],"rotation":[..],"scale":[..],"size":[..],"mirrored":[..]},"objects":[...]}
+std::string to_json(const InstanceTransform& transform, const std::vector<ObjectSummary>& objects);
 // {"values":{key:value}}
 std::string values_to_json(const std::map<std::string, std::string>& values);
 

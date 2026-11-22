@@ -19,6 +19,7 @@ import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SliceEvent
@@ -56,6 +57,7 @@ class PrepareViewModel @Inject constructor(
     private var sliceJob: Job? = null
     private var hostJob: Job? = null
     private var previewJob: Job? = null
+    private var transformJob: Job? = null
 
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
@@ -82,8 +84,22 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
             is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
             is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
-            is PrepareIntent.Select -> _state.update { it.copy(selection = intent.instance) }
-            PrepareIntent.PlateEdited -> dropStaleResult()
+            is PrepareIntent.Select -> {
+                _state.update { it.copy(selection = intent.instance) }
+                loadTransform()
+            }
+            PrepareIntent.PlateEdited -> {
+                dropStaleResult()
+                loadTransform()
+            }
+            is PrepareIntent.EditTransform -> editTransform(intent.edit)
+            is PrepareIntent.SetUniformScale -> _state.update { it.copy(uniformScale = intent.uniform) }
+            is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
+            is PrepareIntent.LaidOnFace -> {
+                _state.update { it.copy(selection = intent.instance, layingOnFace = false) }
+                dropStaleResult()
+                loadTransform()
+            }
             PrepareIntent.Arrange -> runPlateTool(PlateTask.ARRANGE) { project, presets ->
                 plateTools.arrange(project, presets, _state.value.arrangeOptions)
             }
@@ -202,10 +218,49 @@ class PrepareViewModel @Inject constructor(
                     )
                 }
                 dropStaleResult()
+                loadTransform()
             }.onFailure { error ->
                 _state.update {
                     it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName))
                 }
+            }
+        }
+    }
+
+    /** Reads the selected instance's transform for the object panel (none without a selection). */
+    private fun loadTransform() {
+        transformJob?.cancel()
+        val project = _state.value.project
+        val selection = _state.value.selection
+        if (project == null || selection == null) {
+            _state.update { it.copy(transform = null) }
+            return
+        }
+        transformJob = viewModelScope.launch {
+            val transform = plateTools.transform(project.id, selection).getOrNull()?.transform
+            _state.update { if (it.selection == selection) it.copy(transform = transform) else it }
+        }
+    }
+
+    private fun editTransform(edit: TransformEdit) {
+        val start = _state.value
+        val project = start.project ?: return
+        val selection = start.selection ?: return
+        if (!start.plateEditable) return
+        transformJob?.cancel()
+        transformJob = viewModelScope.launch {
+            plateTools.transform(project.id, selection, edit).onSuccess { update ->
+                _state.update {
+                    it.copy(
+                        transform = update.transform.takeIf { _ -> it.selection == selection },
+                        project = it.project?.copy(objects = update.objects),
+                        plateRevision = it.plateRevision + 1,
+                    )
+                }
+                dropStaleResult()
+            }.onFailure { error ->
+                _state.update { it.copy(plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
+                loadTransform()
             }
         }
     }

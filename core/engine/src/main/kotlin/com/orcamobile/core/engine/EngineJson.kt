@@ -1,11 +1,14 @@
 package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.Axes
+import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.OptionChoice
 import com.orcamobile.core.model.OptionMode
@@ -16,10 +19,15 @@ import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
 
@@ -87,6 +95,38 @@ internal object EngineJson {
         val dto = json.decodeFromJsonElement(PlateUpdateDto.serializer(), element)
         PlateUpdate(dto.objects.map { it.toModel() }, dto.placed, dto.notPlaced)
     }
+
+    fun transformUpdate(payload: String): Result<TransformUpdate> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(TransformUpdateDto.serializer(), element)
+        val t = dto.transform
+        TransformUpdate(
+            InstanceTransform(
+                position = t.position.axes(),
+                rotationDegrees = t.rotation.axes(),
+                scale = t.scale.axes(),
+                size = t.size.axes(),
+                mirrored = Axis.entries.filterIndexed { i, _ -> t.mirrored.getOrElse(i) { false } }.toSet(),
+            ),
+            dto.objects.map { it.toModel() },
+        )
+    }
+
+    /** The edit as native_instance_transform reads it; "" reads without a change. */
+    fun encode(edit: TransformEdit?): String {
+        val body: JsonElement = when (edit) {
+            null -> return ""
+            is TransformEdit.Position -> buildJsonObject { put("position", JsonArray(listOf(JsonPrimitive(edit.x), JsonPrimitive(edit.y)))) }
+            is TransformEdit.Rotation -> buildJsonObject { put("rotation", edit.degrees.json()) }
+            is TransformEdit.Scale -> buildJsonObject { put("scale", edit.factors.json()) }
+            is TransformEdit.Mirror -> buildJsonObject { put("mirror", JsonPrimitive(edit.axis.ordinal)) }
+            TransformEdit.Reset -> buildJsonObject { put("reset", JsonPrimitive(true)) }
+        }
+        return body.toString()
+    }
+
+    private fun Axes.json() = JsonArray(listOf(JsonPrimitive(x), JsonPrimitive(y), JsonPrimitive(z)))
+
+    private fun List<Double>.axes() = Axes(getOrElse(0) { 0.0 }, getOrElse(1) { 0.0 }, getOrElse(2) { 0.0 })
 
     fun encode(options: ArrangeOptions): String =
         json.encodeToString(
@@ -158,6 +198,18 @@ internal object EngineJson {
 
     @Serializable
     private data class ObjectsDto(val objects: List<ObjectDto>)
+
+    @Serializable
+    private data class TransformDto(
+        val position: List<Double>,
+        val rotation: List<Double>,
+        val scale: List<Double>,
+        val size: List<Double>,
+        val mirrored: List<Boolean>,
+    )
+
+    @Serializable
+    private data class TransformUpdateDto(val transform: TransformDto, val objects: List<ObjectDto>)
 
     @Serializable
     private data class PlateUpdateDto(val objects: List<ObjectDto>, val placed: Int = 0, val notPlaced: Int = 0)

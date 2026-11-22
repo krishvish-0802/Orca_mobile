@@ -43,7 +43,7 @@ Eigen::AlignedBox3f bounds_of(const PartMesh& mesh)
 
 std::optional<float> intersect(const PartMesh& mesh, const Eigen::AlignedBox3f& local_box,
                                const Eigen::Matrix4f& transform, const Eigen::Vector3f& origin,
-                               const Eigen::Vector3f& direction)
+                               const Eigen::Vector3f& direction, std::size_t* triangle)
 {
     if (local_box.isEmpty())
         return std::nullopt;
@@ -77,12 +77,34 @@ std::optional<float> intersect(const PartMesh& mesh, const Eigen::AlignedBox3f& 
         if (v < 0.0f || u + v > 1.0f)
             continue;
         const float t = f * e2.dot(q);
-        if (t > 0.0f && t < nearest)
+        if (t > 0.0f && t < nearest) {
             nearest = t;
+            if (triangle != nullptr)
+                *triangle = i / 9;
+        }
     }
     if (std::isinf(nearest))
         return std::nullopt;
     return nearest;
+}
+
+Eigen::Vector3f world_normal(const PartMesh& mesh, std::size_t index, const Eigen::Matrix4f& transform)
+{
+    const auto& p = mesh.positions;
+    const std::size_t i = index * 9;
+    if (i + 8 >= p.size())
+        return Eigen::Vector3f::Zero();
+    const Eigen::Vector3f v0(p[i], p[i + 1], p[i + 2]);
+    const Eigen::Vector3f v1(p[i + 3], p[i + 4], p[i + 5]);
+    const Eigen::Vector3f v2(p[i + 6], p[i + 7], p[i + 8]);
+    const Eigen::Vector3f local = (v1 - v0).cross(v2 - v0);
+    // Normals go through the inverse transpose of the linear part.
+    const Eigen::Matrix3f linear = transform.topLeftCorner<3, 3>();
+    Eigen::Vector3f n = linear.inverse().transpose() * local;
+    if (linear.determinant() < 0.0f)
+        n = -n;
+    const float length = n.norm();
+    return length > 0.0f ? Eigen::Vector3f(n / length) : Eigen::Vector3f::Zero();
 }
 
 } // namespace orca::viewport

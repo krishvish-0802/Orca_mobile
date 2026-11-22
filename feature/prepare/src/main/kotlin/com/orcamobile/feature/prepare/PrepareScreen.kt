@@ -114,6 +114,8 @@ fun PrepareScreen(
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
                     locked = state.plateTask != null,
+                    layOnFace = state.layingOnFace,
+                    onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null) {
@@ -157,6 +159,7 @@ fun PrepareScreen(
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
+                if (preview == null) ObjectPanel(state, onIntent)
                 preview?.let { PreviewCard(it, onIntent) }
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)

@@ -47,7 +47,9 @@ import kotlin.math.PI
  * - a double tap frames the model;
  * - a tap selects the object under it, or clears the selection on empty space;
  * - a finger that starts on the selected object drags it across the bed;
- * - twisting two fingers turns the selected object about the vertical axis.
+ * - twisting two fingers turns the selected object about the vertical axis;
+ * - with [layOnFace] on, a tap on an object lays it on the side tapped instead
+ *   of selecting ([onLaidOnFace] reports which).
  *
  * Editing happens in the engine directly. [onPlateEdited] reports, once per
  * gesture, that the placement changed, so earlier slicing results are stale.
@@ -68,6 +70,8 @@ fun PlateViewport(
     projectRevision: Int = 0,
     /** The engine is changing the plate: taps and drags only move the camera. */
     locked: Boolean = false,
+    layOnFace: Boolean = false,
+    onLaidOnFace: (InstanceRef) -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -88,6 +92,8 @@ fun PlateViewport(
     val currentSelection by rememberUpdatedState(selection)
     val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)
     val currentOnPlateEdited by rememberUpdatedState(onPlateEdited)
+    val currentLayOnFace by rememberUpdatedState(layOnFace)
+    val currentOnLaidOnFace by rememberUpdatedState(onLaidOnFace)
 
     Box(modifier) {
         AndroidView(
@@ -108,7 +114,11 @@ fun PlateViewport(
                     detectTapGestures(
                         onDoubleTap = { surface.fit() },
                         onTap = { position ->
-                            if (currentEditable) currentOnSelectionChange(surface.pick(position.x, position.y))
+                            when {
+                                !currentEditable -> Unit
+                                currentLayOnFace -> surface.layOnFace(position.x, position.y)?.let(currentOnLaidOnFace)
+                                else -> currentOnSelectionChange(surface.pick(position.x, position.y))
+                            }
                         },
                     )
                 }

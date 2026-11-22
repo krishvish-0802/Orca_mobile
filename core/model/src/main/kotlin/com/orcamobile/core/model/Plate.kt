@@ -33,3 +33,53 @@ data class PlateUpdate(
     /** Instances or asked-for copies that did not fit and lie beside the bed. */
     val notPlaced: Int = 0,
 )
+
+/** Three values along X, Y and Z. */
+data class Axes(val x: Double, val y: Double, val z: Double) {
+    operator fun get(axis: Axis): Double = when (axis) {
+        Axis.X -> x
+        Axis.Y -> y
+        Axis.Z -> z
+    }
+
+    fun with(axis: Axis, value: Double): Axes = when (axis) {
+        Axis.X -> copy(x = value)
+        Axis.Y -> copy(y = value)
+        Axis.Z -> copy(z = value)
+    }
+
+    fun map(transform: (Double) -> Double) = Axes(transform(x), transform(y), transform(z))
+}
+
+enum class Axis { X, Y, Z }
+
+/** An instance's transform, as the desktop's object manipulation panel shows it. */
+data class InstanceTransform(
+    /** mm: the center of the object's box on the bed. */
+    val position: Axes,
+    /** Degrees about X, Y and Z. */
+    val rotationDegrees: Axes,
+    /** Factors along the object's own axes (1 = 100 %). */
+    val scale: Axes,
+    /** mm: the object's own box, scaled. */
+    val size: Axes,
+    val mirrored: Set<Axis>,
+)
+
+/** A change to one instance's transform. Every change leaves it standing on the bed. */
+sealed interface TransformEdit {
+    data class Position(val x: Double, val y: Double) : TransformEdit
+
+    data class Rotation(val degrees: Axes) : TransformEdit
+
+    /** Factors, each more than 0. */
+    data class Scale(val factors: Axes) : TransformEdit
+
+    data class Mirror(val axis: Axis) : TransformEdit
+
+    /** No rotation, 100 %, not mirrored. */
+    data object Reset : TransformEdit
+}
+
+/** An instance's transform after reading or changing it, with the plate's objects. */
+data class TransformUpdate(val transform: InstanceTransform, val objects: List<ModelObjectInfo>)

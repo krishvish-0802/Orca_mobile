@@ -103,6 +103,49 @@ class NativePlateToolsDeviceTest {
         assertTrue(EngineJson.plateUpdate(NativeEngine.nativeProjectRemove(handle, 0, 0)).isFailure)
     }
 
+    @Test
+    fun transformEditsKeepTheObjectOnTheBed() {
+        load(box("block", 40f, 10f, 20f))
+        fun edit(json: String) = EngineJson.transformUpdate(NativeEngine.nativeInstanceTransform(handle, 0, 0, json)).getOrThrow()
+
+        val start = edit("").transform
+        assertEquals(110.0, start.position.x, 0.01)
+        assertEquals(10.0, start.position.z, 0.01)   // the box's center, half its height up
+        assertEquals(40.0, start.size.x, 0.01)
+
+        val doubled = edit("""{"scale":[2,2,2]}""")
+        assertEquals(80.0, doubled.transform.size.x, 0.01)
+        assertEquals(20.0, doubled.transform.position.z, 0.01)
+        assertEquals(40.0, doubled.objects.single().sizeMm[2], 0.01)
+
+        // Standing it up on its end: the bed box swaps Y and Z, and it still sits on the bed.
+        val turned = edit("""{"rotation":[90,0,0]}""")
+        assertEquals(90.0, turned.transform.rotationDegrees.x, 0.01)
+        assertEquals(20.0, turned.objects.single().sizeMm[2], 0.01)
+        assertEquals(10.0, turned.transform.position.z, 0.01)
+
+        val moved = edit("""{"position":[50,60]}""").transform
+        assertEquals(50.0, moved.position.x, 0.01)
+        assertEquals(60.0, moved.position.y, 0.01)
+
+        val mirrored = edit("""{"mirror":0}""").transform
+        assertTrue(com.orcamobile.core.model.Axis.X in mirrored.mirrored)
+
+        val reset = edit("""{"reset":true}""").transform
+        assertEquals(0.0, reset.rotationDegrees.x, 0.01)
+        assertEquals(1.0, reset.scale.x, 0.0001)
+        assertTrue(reset.mirrored.isEmpty())
+        assertEquals(10.0, reset.position.z, 0.01)
+
+        assertTrue(EngineJson.transformUpdate(NativeEngine.nativeInstanceTransform(handle, 0, 0, """{"scale":[0,1,1]}""")).isFailure)
+        assertTrue(EngineJson.transformUpdate(NativeEngine.nativeInstanceTransform(handle, 0, 5, "")).isFailure)
+
+        // Still printable after all that.
+        val gcode = File(work, "block.gcode")
+        val result = NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L)
+        assertTrue(result, result.contains("\"status\":\"succeeded\""))
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }
