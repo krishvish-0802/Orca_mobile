@@ -112,7 +112,7 @@ internal object EngineJson {
     }
 
     /** The edit as native_instance_transform reads it; "" reads without a change. */
-    fun encode(edit: TransformEdit?): String {
+    fun encodeEdit(edit: TransformEdit?): String {
         val body: JsonElement = when (edit) {
             null -> return ""
             is TransformEdit.Position -> buildJsonObject { put("position", JsonArray(listOf(JsonPrimitive(edit.x), JsonPrimitive(edit.y)))) }

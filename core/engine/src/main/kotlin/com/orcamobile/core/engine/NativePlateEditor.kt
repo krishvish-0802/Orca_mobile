@@ -55,7 +55,7 @@ class NativePlateEditor @Inject constructor(
         runCatching {
             val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
             EngineJson.transformUpdate(
-                NativeEngine.nativeInstanceTransform(handle, instance.objectIndex, instance.instanceIndex, EngineJson.encode(edit)),
+                NativeEngine.nativeInstanceTransform(handle, instance.objectIndex, instance.instanceIndex, EngineJson.encodeEdit(edit)),
             ).getOrThrow()
         }
     }

@@ -158,9 +158,9 @@ class EngineJsonTest {
         assertEquals(90.0, t.rotationDegrees.z)
         assertEquals(setOf(com.orcamobile.core.model.Axis.X), t.mirrored)
 
-        assertEquals("", EngineJson.encode(null as com.orcamobile.core.model.TransformEdit?))
-        assertEquals("""{"position":[1.0,2.0]}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Position(1.0, 2.0)))
-        assertEquals("""{"mirror":2}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Mirror(com.orcamobile.core.model.Axis.Z)))
-        assertEquals("""{"reset":true}""", EngineJson.encode(com.orcamobile.core.model.TransformEdit.Reset))
+        assertEquals("", EngineJson.encodeEdit(null))
+        assertEquals("""{"position":[1.0,2.0]}""", EngineJson.encodeEdit(com.orcamobile.core.model.TransformEdit.Position(1.0, 2.0)))
+        assertEquals("""{"mirror":2}""", EngineJson.encodeEdit(com.orcamobile.core.model.TransformEdit.Mirror(com.orcamobile.core.model.Axis.Z)))
+        assertEquals("""{"reset":true}""", EngineJson.encodeEdit(com.orcamobile.core.model.TransformEdit.Reset))
     }
 }
