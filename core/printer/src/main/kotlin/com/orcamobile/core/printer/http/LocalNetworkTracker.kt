@@ -32,14 +32,15 @@ internal class LocalNetworkTracker(context: Context) {
             manager.registerNetworkCallback(
                 request,
                 object : ConnectivityManager.NetworkCallback() {
-                    override fun onAvailable(network: Network) = synchronized(this@LocalNetworkTracker) {
-                        networks.remove(network)
-                        networks.add(network)
+                    override fun onAvailable(network: Network) {
+                        synchronized(this@LocalNetworkTracker) {
+                            networks.remove(network)
+                            networks.add(network)
+                        }
                     }
 
-                    override fun onLost(network: Network) = synchronized(this@LocalNetworkTracker) {
-                        networks.remove(network)
-                        Unit
+                    override fun onLost(network: Network) {
+                        synchronized(this@LocalNetworkTracker) { networks.remove(network) }
                     }
                 },
             )
