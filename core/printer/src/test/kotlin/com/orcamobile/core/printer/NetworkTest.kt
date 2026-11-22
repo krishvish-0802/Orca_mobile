@@ -88,13 +88,11 @@ class NetworkTest {
     @Test
     fun `an Elegoo printer that drops the first connection still tests fine`() = runBlocking {
         MockWebServer().use { server ->
-            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START))
+            // Reads the request, then hangs up without an answer: "unexpected end of stream".
+            server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
             server.enqueue(MockResponse().setBody("<title>ELEGOO</title>"))
             server.start()
-            val http = OkHttpClient.Builder()
-                .connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS))
-                .retryOnConnectionFailure(false)
-                .build()
+            val http = OkHttpClient.Builder().connectionPool(ConnectionPool(0, 1, TimeUnit.SECONDS)).build()
             val client = ElegooLinkClient(PrintHostConfig(PrintHostType.ELEGOO_LINK, server.url("/").toString(), null), http)
             assertEquals("Elegoo printer (ElegooLink)", client.testConnection().getOrThrow().description)
         }
