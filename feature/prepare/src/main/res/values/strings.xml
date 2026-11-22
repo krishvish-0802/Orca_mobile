@@ -66,6 +66,12 @@
     <string name="prepare_heights_layer">Layer</string>
     <string name="prepare_heights_delete">Delete this height range</string>
     <string name="prepare_heights_add">Add height range</string>
+    <string name="prepare_object_settings">Settings</string>
+    <string name="prepare_object_settings_changed">Settings · %1$d</string>
+    <string name="prepare_parts_settings">Settings for this part</string>
+    <string name="prepare_parts_settings_changed">Settings for this part · %1$d changed</string>
+    <string name="prepare_heights_settings">More settings for this range</string>
+    <string name="prepare_heights_settings_changed">More settings for this range · %1$d changed</string>
     <string name="prepare_tool_arranging">Arranging…</string>
     <string name="prepare_tool_orienting">Finding the orientation with the least support…</string>
     <string name="prepare_tool_copying">Adding copies…</string>

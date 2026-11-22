@@ -72,6 +72,7 @@ class ObjectListViewModel @Inject constructor(
             }
             is ObjectListIntent.RemoveRange -> edit(changesShape = false) { ObjectEdit.RemoveRange(intent.range) }
             ObjectListIntent.DismissError -> _state.update { it.copy(error = null) }
+            ObjectListIntent.Refresh -> refresh()
         }
     }
 
@@ -97,6 +98,19 @@ class ObjectListViewModel @Inject constructor(
             objects.details(current.project, current.objectIndex)
                 .onSuccess { update -> apply(update) }
                 .onFailure { error -> _state.update { it.copy(details = null, error = error.message) } }
+        }
+    }
+
+    private fun refresh() {
+        val current = context ?: return
+        val before = _state.value.details ?: return
+        if (_state.value.busy) return
+        job?.cancel()
+        job = viewModelScope.launch {
+            objects.details(current.project, current.objectIndex).onSuccess { update ->
+                apply(update)
+                if (update.details.allSettings() != before.allSettings()) _events.send(ObjectListEvent.SettingsChanged)
+            }
         }
     }
 

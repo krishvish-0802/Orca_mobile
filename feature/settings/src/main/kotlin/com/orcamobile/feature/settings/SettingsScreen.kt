@@ -108,9 +108,11 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                             )
                         } else {
                             Column {
-                                Text(stringResource(R.string.settings_title))
+                                Text(stringResource(if (state.subject == null) R.string.settings_title else R.string.settings_object_title))
                                 Text(
-                                    state.presets?.let { "${it.printer} · ${it.process}" } ?: stringResource(R.string.settings_defaults_subtitle),
+                                    state.subject
+                                        ?: state.presets?.let { "${it.printer} · ${it.process}" }
+                                        ?: stringResource(R.string.settings_defaults_subtitle),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     maxLines = 1,
@@ -141,6 +143,15 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                     },
                 )
                 if (!state.searching && !state.loading && state.error == null) TabsHeader(state, onIntent)
+                state.problem?.let { problem ->
+                    Row(
+                        Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.errorContainer).padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(problem, color = MaterialTheme.colorScheme.onErrorContainer, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1f))
+                        TextButton(onClick = { onIntent(SettingsIntent.DismissProblem) }) { Text(stringResource(R.string.settings_problem_ok)) }
+                    }
+                }
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             }
         },
@@ -197,15 +208,17 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
 @Composable
 private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
-        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-            PresetKind.entries.forEachIndexed { index, kind ->
-                val changed = state.changedByKind[kind] ?: 0
-                SegmentedButton(
-                    selected = state.kind == kind,
-                    onClick = { onIntent(SettingsIntent.SelectKind(kind)) },
-                    shape = SegmentedButtonDefaults.itemShape(index, PresetKind.entries.size),
-                ) {
-                    Text(stringResource(kindLabel(kind)) + if (changed > 0) " · $changed" else "", maxLines = 1)
+        if (state.kinds.size > 1) {
+            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                state.kinds.forEachIndexed { index, kind ->
+                    val changed = state.changedByKind[kind] ?: 0
+                    SegmentedButton(
+                        selected = state.kind == kind,
+                        onClick = { onIntent(SettingsIntent.SelectKind(kind)) },
+                        shape = SegmentedButtonDefaults.itemShape(index, state.kinds.size),
+                    ) {
+                        Text(stringResource(kindLabel(kind)) + if (changed > 0) " · $changed" else "", maxLines = 1)
+                    }
                 }
             }
         }

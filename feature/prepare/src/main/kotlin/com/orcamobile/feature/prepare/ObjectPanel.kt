@@ -45,6 +45,7 @@ internal fun ObjectPanel(
     onIntent: (PrepareIntent) -> Unit,
     onListIntent: (ObjectListIntent) -> Unit,
     onPickFile: (VolumeKind) -> Unit,
+    onOpenSettings: (volume: Int?, range: Int?) -> Unit,
 ) {
     val transform = state.transform ?: return
     var tab by rememberSaveable { mutableStateOf(ObjectTab.PLACEMENT) }
@@ -62,6 +63,13 @@ internal fun ObjectPanel(
                     TextButton(onClick = { onIntent(PrepareIntent.EditTransform(TransformEdit.Reset)) }, enabled = enabled) {
                         Text(stringResource(R.string.prepare_object_reset))
                     }
+                }
+                val changed = list.details?.settings?.userChanges() ?: 0
+                TextButton(onClick = { onOpenSettings(null, null) }, enabled = enabled && list.details != null) {
+                    Text(
+                        if (changed > 0) stringResource(R.string.prepare_object_settings_changed, changed)
+                        else stringResource(R.string.prepare_object_settings),
+                    )
                 }
             }
             val details = list.details
@@ -98,8 +106,10 @@ internal fun ObjectPanel(
                     showMirror = true,
                     onEdit = { onIntent(PrepareIntent.EditTransform(it)) },
                 )
-                ObjectTab.PARTS -> PartsTab(list, enabled, state.uniformScale, onIntent, onListIntent, onPickFile)
-                ObjectTab.HEIGHTS -> HeightsTab(list, enabled, onListIntent)
+                ObjectTab.PARTS -> PartsTab(list, enabled, state.uniformScale, onIntent, onListIntent, onPickFile) { volume ->
+                    onOpenSettings(volume, null)
+                }
+                ObjectTab.HEIGHTS -> HeightsTab(list, enabled, onListIntent) { range -> onOpenSettings(null, range) }
             }
             list.error?.let { error ->
                 Row(verticalAlignment = Alignment.CenterVertically) {

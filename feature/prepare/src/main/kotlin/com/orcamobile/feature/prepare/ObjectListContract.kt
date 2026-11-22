@@ -67,6 +67,9 @@ sealed interface ObjectListIntent {
     data class RemoveRange(val range: Int) : ObjectListIntent
 
     data object DismissError : ObjectListIntent
+
+    /** Reads the object again (back from its settings): an earlier slice is stale if they changed. */
+    data object Refresh : ObjectListIntent
 }
 
 /** One-off news for the Prepare screen. */
@@ -82,3 +85,10 @@ sealed interface ObjectListEvent {
 internal const val NEW_RANGE_HEIGHT_MM = 2.0
 
 internal fun LayerRange.layerHeight(): String? = settings["layer_height"]
+
+/** Settings changed by the user (a new part's extruder is the app's, not theirs). */
+internal fun Map<String, String>.userChanges(): Int = keys.count { it != "extruder" }
+
+/** Every setting of the object, its volumes and its height ranges, to tell whether any changed. */
+internal fun ObjectDetails.allSettings(): List<Map<String, String>> =
+    listOf(settings) + volumes.map { it.settings } + layerRanges.map { it.settings }

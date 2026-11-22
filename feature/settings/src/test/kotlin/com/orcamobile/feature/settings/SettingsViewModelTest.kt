@@ -3,8 +3,22 @@ package com.orcamobile.feature.settings
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.project.ObjectEditor
+import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
+import androidx.lifecycle.SavedStateHandle
+import com.orcamobile.core.model.Axes
 import com.orcamobile.core.model.ConfigOption
+import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.LayerRange
+import com.orcamobile.core.model.ObjectDetails
+import com.orcamobile.core.model.ObjectEdit
+import com.orcamobile.core.model.ObjectUpdate
+import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.SettingScope
+import com.orcamobile.core.model.SettingTarget
+import com.orcamobile.core.model.VolumeInfo
+import com.orcamobile.core.model.VolumeKind
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.PresetKind
@@ -24,6 +38,7 @@ import org.junit.After
 import org.junit.Before
 import org.junit.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
@@ -97,10 +112,57 @@ class SettingsViewModelTest {
     @After
     fun tearDown() = Dispatchers.resetMain()
 
-    private fun viewModel(): SettingsViewModel {
-        val dispatcher = UnconfinedTestDispatcher()
-        return SettingsViewModel(catalog, userSettings, printSettings, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher))
+    /** The engine's object list: a cube with a modifier and a height range. */
+    private inner class FakeObjects : ObjectEditor {
+        val edits = mutableListOf<ObjectEdit>()
+        private val transform = InstanceTransform(
+            Axes(0.0, 0.0, 0.0), Axes(0.0, 0.0, 0.0), Axes(1.0, 1.0, 1.0), Axes(20.0, 20.0, 20.0), emptySet(),
+        )
+        var details = ObjectDetails(
+            name = "cube",
+            settings = mapOf("sparse_infill_density" to "30%"),
+            volumes = listOf(
+                VolumeInfo("cube", VolumeKind.PART, 12, mapOf("extruder" to "0"), transform),
+                VolumeInfo("Generic-Cube", VolumeKind.MODIFIER, 12, mapOf("extruder" to "0"), transform),
+            ),
+            layerRanges = listOf(LayerRange(0.0, 2.0, mapOf("layer_height" to "0.1"))),
+        )
+
+        override suspend fun details(project: ProjectId, objectIndex: Int) = Result.success(ObjectUpdate(details, emptyList()))
+
+        override suspend fun edit(project: ProjectId, objectIndex: Int, edit: ObjectEdit): Result<ObjectUpdate> {
+            edits += edit
+            if (edit is ObjectEdit.SetSetting && edit.target.volume == 1) {
+                val volumes = details.volumes.toMutableList()
+                volumes[1] = volumes[1].copy(settings = volumes[1].settings + (edit.key to edit.value))
+                details = details.copy(volumes = volumes)
+            }
+            return Result.success(ObjectUpdate(details, emptyList()))
+        }
+
+        override suspend fun settingKeys(scope: SettingScope) = Result.success(
+            when (scope) {
+                SettingScope.OBJECT -> listOf("sparse_infill_density", "layer_height", "ironing_expansion")
+                SettingScope.VOLUME -> listOf("sparse_infill_density", "ironing_expansion")
+                SettingScope.LAYER_RANGE -> listOf("layer_height", "sparse_infill_density", "ironing_expansion")
+            },
+        )
     }
+
+    private val objects = FakeObjects()
+
+    private fun viewModel(args: Map<String, Any> = emptyMap()): SettingsViewModel {
+        val dispatcher = UnconfinedTestDispatcher()
+        val sources = SettingsSourceFactory(catalog, userSettings, printSettings, objects, PlateConfigResolver(printSettings))
+        return SettingsViewModel(SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher))
+    }
+
+    private fun objectArgs(volume: Int = -1, range: Int = -1) = mapOf(
+        SETTINGS_PROJECT_ARG to "p1",
+        SETTINGS_OBJECT_ARG to 0,
+        SETTINGS_VOLUME_ARG to volume,
+        SETTINGS_RANGE_ARG to range,
+    )
 
     private fun SettingsViewModel.rows() = (state.value.pages.flatMap { it.groups } + state.value.results).flatMap { it.rows }.associateBy { it.option.key }
 
@@ -165,5 +227,41 @@ class SettingsViewModelTest {
         vm.onIntent(SettingsIntent.Edit("sparse_infill_density", "150"))
         vm.onIntent(SettingsIntent.Edit("layer_height", "thin"))
         assertEquals(emptyMap(), printSettings.state.value.values)
+    }
+
+    @Test
+    fun `an object's settings: the process tab only, the keys it takes, kept in the engine`() {
+        val vm = viewModel(objectArgs())
+        val state = vm.state.value
+        assertEquals("cube", state.subject)
+        assertEquals(listOf(PresetKind.PROCESS), state.kinds)
+        val rows = vm.rows()
+        assertEquals(setOf("layer_height", "sparse_infill_density", "ironing_expansion"), rows.keys)
+        assertEquals("30%", rows.getValue("sparse_infill_density").value)
+        assertEquals("15%", rows.getValue("sparse_infill_density").presetValue)
+    }
+
+    @Test
+    fun `a part inherits its object's settings and changes go to the part`() {
+        val vm = viewModel(objectArgs(volume = 1))
+        assertEquals("Generic-Cube", vm.state.value.subject)
+        val rows = vm.rows()
+        assertTrue("layer_height" !in rows)
+        assertEquals("30%", rows.getValue("sparse_infill_density").presetValue)
+        assertTrue(!rows.getValue("sparse_infill_density").changed)
+
+        vm.onIntent(SettingsIntent.Edit("sparse_infill_density", "60"))
+        assertEquals(ObjectEdit.SetSetting(SettingTarget(volume = 1), "sparse_infill_density", "60%"), objects.edits.single())
+        assertEquals("60%", vm.rows().getValue("sparse_infill_density").value)
+        assertEquals(0, printSettings.state.value.values.size)
+    }
+
+    @Test
+    fun `a height range keeps a layer height when reset`() {
+        val vm = viewModel(objectArgs(range = 0))
+        assertEquals("cube · 0–2 mm", vm.state.value.subject)
+        assertEquals("0.1", vm.rows().getValue("layer_height").value)
+        vm.onIntent(SettingsIntent.Reset("layer_height"))
+        assertEquals(ObjectEdit.SetSetting(SettingTarget(range = 0), "layer_height", "0.2"), objects.edits.single())
     }
 }

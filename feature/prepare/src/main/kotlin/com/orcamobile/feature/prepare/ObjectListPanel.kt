@@ -61,6 +61,7 @@ internal fun PartsTab(
     onIntent: (PrepareIntent) -> Unit,
     onListIntent: (ObjectListIntent) -> Unit,
     onPickFile: (VolumeKind) -> Unit,
+    onOpenSettings: (volume: Int) -> Unit,
 ) {
     val details = list.details ?: return
     val enabled = plateEditable && !list.busy
@@ -95,6 +96,16 @@ internal fun PartsTab(
             val index = list.selectedVolume ?: return@let
             HorizontalDivider()
             NameField(volume.name, enabled) { onListIntent(ObjectListIntent.Rename(index, it)) }
+            if (volume.kind.takesSettings) {
+                val changed = volume.settings.userChanges()
+                TonalPillButton(
+                    if (changed > 0) stringResource(R.string.prepare_parts_settings_changed, changed)
+                    else stringResource(R.string.prepare_parts_settings),
+                    onClick = { onOpenSettings(index) },
+                    enabled = enabled,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             Text(stringResource(R.string.prepare_parts_kind), style = MaterialTheme.typography.labelLarge)
             val lastPart = volume.kind == VolumeKind.PART && details.partCount == 1
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -148,7 +159,12 @@ internal fun PartsTab(
 
 /** Height ranges with their own layer height, as the desktop's height range modifier. */
 @Composable
-internal fun HeightsTab(list: ObjectListUiState, plateEditable: Boolean, onListIntent: (ObjectListIntent) -> Unit) {
+internal fun HeightsTab(
+    list: ObjectListUiState,
+    plateEditable: Boolean,
+    onListIntent: (ObjectListIntent) -> Unit,
+    onOpenSettings: (range: Int) -> Unit,
+) {
     val details = list.details ?: return
     val enabled = plateEditable && !list.busy
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -187,6 +203,13 @@ internal fun HeightsTab(list: ObjectListUiState, plateEditable: Boolean, onListI
                 IconButton(onClick = { onListIntent(ObjectListIntent.RemoveRange(index)) }, enabled = enabled) {
                     Icon(Icons.Filled.Delete, contentDescription = stringResource(R.string.prepare_heights_delete))
                 }
+            }
+            val changed = range.settings.keys.count { it != "layer_height" }
+            TextButton(onClick = { onOpenSettings(index) }, enabled = enabled) {
+                Text(
+                    if (changed > 0) stringResource(R.string.prepare_heights_settings_changed, changed)
+                    else stringResource(R.string.prepare_heights_settings),
+                )
             }
         }
         TonalPillButton(

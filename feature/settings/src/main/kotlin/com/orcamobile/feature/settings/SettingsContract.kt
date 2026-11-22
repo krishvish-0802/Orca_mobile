@@ -21,6 +21,12 @@ data class SettingsUiState(
     /** Matches of [query] across every tab, when searching. */
     val results: List<GroupUi> = emptyList(),
     val changedByKind: Map<PresetKind, Int> = emptyMap(),
+    /** What is being changed (an object, a part, a height range); null for the presets. */
+    val subject: String? = null,
+    /** The tabs shown: all three for the presets, Process for an object. */
+    val kinds: List<PresetKind> = PresetKind.entries,
+    /** A change the engine refused, and why. */
+    val problem: String? = null,
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()
@@ -59,4 +65,6 @@ sealed interface SettingsIntent {
     data class Reset(val key: String) : SettingsIntent
 
     data object ResetAll : SettingsIntent
+
+    data object DismissProblem : SettingsIntent
 }

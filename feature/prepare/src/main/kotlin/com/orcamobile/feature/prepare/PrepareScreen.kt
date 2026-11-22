@@ -55,6 +55,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orcamobile.core.designsystem.component.ChoiceSheet
 import com.orcamobile.core.designsystem.component.DropdownField
@@ -75,6 +76,8 @@ import kotlin.math.roundToInt
 fun PrepareRoute(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** The settings of an object (project id, object), or of one of its parts or height ranges. */
+    onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
 ) {
@@ -97,6 +100,11 @@ fun PrepareRoute(
         }
     }
     LaunchedEffect(context) { objectList.onIntent(ObjectListIntent.Show(context)) }
+    // Back from an object's settings: read them again.
+    LifecycleResumeEffect(objectList) {
+        objectList.onIntent(ObjectListIntent.Refresh)
+        onPauseOrDispose { }
+    }
     LaunchedEffect(objectList) {
         objectList.events.collect { event ->
             when (event) {
@@ -122,6 +130,11 @@ fun PrepareRoute(
             pickingFor = kind
             picker.launch(arrayOf("*/*"))
         },
+        onOpenObjectSettings = { volume, range ->
+            val project = state.project ?: return@PrepareScreen
+            val selection = state.selection ?: return@PrepareScreen
+            onOpenObjectSettings(project.id.value, selection.objectIndex, volume, range)
+        },
         onBack = onBack,
         onOpenSettings = onOpenSettings,
     )
@@ -137,6 +150,8 @@ fun PrepareScreen(
     list: ObjectListUiState = ObjectListUiState(),
     onListIntent: (ObjectListIntent) -> Unit = {},
     onPickFile: (VolumeKind) -> Unit = {},
+    /** The selected object's settings, or one of its parts' ([volume]) or height ranges' ([range]). */
+    onOpenObjectSettings: (volume: Int?, range: Int?) -> Unit = { _, _ -> },
 ) {
     Scaffold(
         topBar = {
@@ -217,7 +232,7 @@ fun PrepareScreen(
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
-                if (preview == null) ObjectPanel(state, list, onIntent, onListIntent, onPickFile)
+                if (preview == null) ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
                 preview?.let { PreviewCard(it, onIntent) }
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)

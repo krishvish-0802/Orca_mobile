@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="settings_object_title">Object settings</string>
+    <string name="settings_problem_ok">OK</string>
     <string name="settings_title">Print settings</string>
     <string name="settings_back">Back</string>
     <string name="settings_defaults_subtitle">Engine defaults (no printer chosen)</string>
