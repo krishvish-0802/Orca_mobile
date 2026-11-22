@@ -48,6 +48,7 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:engine"))
     implementation(project(":core:printer"))
+    implementation(project(":core:update"))
     implementation(project(":feature:home"))
     implementation(project(":feature:prepare"))
     implementation(project(":feature:settings"))

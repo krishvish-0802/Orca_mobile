@@ -18,4 +18,12 @@
     <string name="home_open_description">Open an STL, 3MF, OBJ or STEP file to place it on the plate and slice it on this phone.</string>
     <string name="home_open_model">Open model</string>
     <string name="home_open_sample">Sample cube</string>
+    <string name="home_update_title">Update available · build %1$d</string>
+    <string name="home_update_later">Later</string>
+    <string name="home_update_download">Download and install</string>
+    <string name="home_update_downloading">Downloading…</string>
+    <string name="home_update_downloading_percent">Downloading… %1$d%%</string>
+    <string name="home_update_install">Install</string>
+    <string name="home_update_permission">Allow Orca Mobile to install apps in the screen that opened, then come back and tap Install.</string>
+    <string name="home_update_retry">Try again</string>
 </resources>

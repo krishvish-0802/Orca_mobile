@@ -269,7 +269,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
         with:
-          fetch-depth: 1
+          fetch-depth: 30   # for the changes listed in version.json
 
       - uses: actions/download-artifact@v4
         with:
@@ -297,4 +297,18 @@ jobs:
           else
             gh release create latest-build --prerelease --title "Latest build" --notes "${notes}" --verify-tag
           fi
-          gh release upload latest-build out/*.apk --clobber
+          # What the app's update check reads (core/update): this build's versionCode is the
+          # run number (app/build.gradle.kts), and the latest commits say what changed.
+          python3 - <<PY
+          import json, subprocess
+          subjects = subprocess.run(["git", "log", "-10", "--format=%s"], capture_output=True, text=True).stdout.splitlines()
+          json.dump({
+              "versionCode": int("${GITHUB_RUN_NUMBER}"),
+              "commit": "${GITHUB_SHA}",
+              "builtAt": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+              "changes": [s for s in subjects if s][:10],
+              "apks": {"arm64-v8a": "orca-mobile-arm64-v8a.apk", "x86_64": "orca-mobile-x86_64.apk"},
+          }, open("out/version.json", "w"), indent=2)
+          PY
+          cat out/version.json
+          gh release upload latest-build out/*.apk out/version.json --clobber

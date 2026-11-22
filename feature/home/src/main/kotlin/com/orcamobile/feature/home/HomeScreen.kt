@@ -32,6 +32,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orcamobile.core.designsystem.component.ChoiceSheet
 import com.orcamobile.core.designsystem.component.ListGroup
@@ -49,6 +50,11 @@ fun HomeRoute(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // On start and whenever the app comes back: is there a newer build?
+    LifecycleResumeEffect(viewModel) {
+        viewModel.onIntent(HomeIntent.CheckForUpdate)
+        onPauseOrDispose { }
+    }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
@@ -84,6 +90,7 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header(state.engine)
+            UpdateCard(state.update, onIntent)
             if (state.engine is EngineUiState.Ready) {
                 StartCard(state, onIntent, onPickModel)
                 PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings)

@@ -72,7 +72,36 @@ class HomeViewModelTest {
     private fun viewModel(
         status: EngineStatus = EngineStatus.Available(info),
         imports: ModelImportRepository = FakeImports(Result.success("/models/benchy.stl")),
-    ) = HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), PresetPicker(FakePresets(), settings), imports, samples)
+    ) = HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), PresetPicker(FakePresets(), settings), imports, samples, updates)
+
+    /** GitHub with build 200 waiting, unless [latest] says otherwise. */
+    private class FakeUpdates : com.orcamobile.core.domain.update.AppUpdates {
+        var latest: com.orcamobile.core.model.AppUpdate? =
+            com.orcamobile.core.model.AppUpdate(200, "abc", listOf("Painting"), "https://example.com/app.apk")
+        var checks = 0
+        var installs = mutableListOf<String>()
+        var permissionGranted = true
+
+        override suspend fun check(): Result<com.orcamobile.core.model.AppUpdate?> {
+            checks++
+            return Result.success(latest)
+        }
+
+        override suspend fun download(update: com.orcamobile.core.model.AppUpdate, onProgress: (Long, Long) -> Unit): Result<String> {
+            onProgress(50, 100)
+            onProgress(100, 100)
+            return Result.success("/cache/updates/orca-mobile-${update.versionCode}.apk")
+        }
+
+        override fun install(apkPath: String): Result<com.orcamobile.core.model.InstallStart> {
+            installs += apkPath
+            return Result.success(
+                if (permissionGranted) com.orcamobile.core.model.InstallStart.Started else com.orcamobile.core.model.InstallStart.NeedsPermission,
+            )
+        }
+    }
+
+    private val updates = FakeUpdates()
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -138,5 +167,47 @@ class HomeViewModelTest {
         val vm = viewModel()
         vm.onIntent(HomeIntent.OpenSample)
         assertEquals(HomeEvent.OpenModel("/samples/cube.stl"), vm.events.first())
+    }
+
+    @Test
+    fun `a newer build is offered, downloaded and handed to the installer`() {
+        val vm = viewModel()
+        vm.onIntent(HomeIntent.CheckForUpdate)
+        assertEquals(200, (vm.state.value.update as UpdateUiState.Available).update.versionCode)
+
+        vm.onIntent(HomeIntent.DownloadUpdate)
+        val ready = vm.state.value.update as UpdateUiState.Ready
+        assertEquals("/cache/updates/orca-mobile-200.apk", ready.apkPath)
+        assertEquals(listOf("/cache/updates/orca-mobile-200.apk"), updates.installs)
+    }
+
+    @Test
+    fun `without permission to install the card says so and installs on the next tap`() {
+        updates.permissionGranted = false
+        val vm = viewModel()
+        vm.onIntent(HomeIntent.CheckForUpdate)
+        vm.onIntent(HomeIntent.DownloadUpdate)
+        assertEquals(true, (vm.state.value.update as UpdateUiState.Ready).needsPermission)
+        updates.permissionGranted = true
+        vm.onIntent(HomeIntent.InstallUpdate)
+        assertEquals(false, (vm.state.value.update as UpdateUiState.Ready).needsPermission)
+    }
+
+    @Test
+    fun `checks are spaced out and a dismissed build stays dismissed`() {
+        val vm = viewModel()
+        vm.onIntent(HomeIntent.CheckForUpdate)
+        vm.onIntent(HomeIntent.DismissUpdate)
+        assertEquals(UpdateUiState.None, vm.state.value.update)
+        vm.onIntent(HomeIntent.CheckForUpdate)
+        assertEquals(1, updates.checks)
+    }
+
+    @Test
+    fun `up to date shows nothing`() {
+        updates.latest = null
+        val vm = viewModel()
+        vm.onIntent(HomeIntent.CheckForUpdate)
+        assertEquals(UpdateUiState.None, vm.state.value.update)
     }
 }

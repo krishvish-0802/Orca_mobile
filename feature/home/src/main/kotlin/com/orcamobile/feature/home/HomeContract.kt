@@ -1,5 +1,6 @@
 package com.orcamobile.feature.home
 
+import com.orcamobile.core.model.AppUpdate
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetChoices
 
@@ -9,7 +10,22 @@ data class HomeUiState(
     val printerSetup: PrinterSetupUiState = PrinterSetupUiState(),
     val importing: Boolean = false,
     val importError: String? = null,
+    /** A newer build of the app on GitHub, and how getting it is going. */
+    val update: UpdateUiState = UpdateUiState.None,
 )
+
+sealed interface UpdateUiState {
+    data object None : UpdateUiState
+
+    data class Available(val update: AppUpdate) : UpdateUiState
+
+    data class Downloading(val update: AppUpdate, val percent: Int?) : UpdateUiState
+
+    /** Downloaded; Android's installer takes it from here. */
+    data class Ready(val update: AppUpdate, val apkPath: String, val needsPermission: Boolean = false) : UpdateUiState
+
+    data class Failed(val update: AppUpdate, val message: String) : UpdateUiState
+}
 
 sealed interface EngineUiState {
     data object Loading : EngineUiState
@@ -36,6 +52,16 @@ sealed interface HomeIntent {
     data class ImportModel(val uri: String) : HomeIntent
 
     data object OpenSample : HomeIntent
+
+    /** Looks for a newer build (on start and when the app comes back). */
+    data object CheckForUpdate : HomeIntent
+
+    data object DownloadUpdate : HomeIntent
+
+    data object InstallUpdate : HomeIntent
+
+    /** Hides the update until the next newer build. */
+    data object DismissUpdate : HomeIntent
 }
 
 /** One-off effects the screen acts on. */
