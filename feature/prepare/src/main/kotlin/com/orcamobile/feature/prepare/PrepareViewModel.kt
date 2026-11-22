@@ -16,6 +16,7 @@ import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
