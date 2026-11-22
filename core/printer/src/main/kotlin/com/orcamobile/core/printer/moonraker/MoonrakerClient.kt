@@ -10,6 +10,7 @@ import com.orcamobile.core.printer.http.await
 import com.orcamobile.core.printer.http.bodyOrThrow
 import com.orcamobile.core.printer.http.hasExplicitPort
 import com.orcamobile.core.printer.http.normalizeBaseUrl
+import com.orcamobile.core.printer.http.withNetworkRetries
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -51,7 +52,7 @@ internal class MoonrakerClient(
     private var resolved: HttpUrl? = null
 
     override suspend fun testConnection(): Result<PrintHostInfo> = runCatching {
-        val (_, state) = findMoonraker()
+        val (_, state) = withNetworkRetries(candidates.first().host) { findMoonraker() }
         PrintHostInfo("Klipper $state")
     }
 

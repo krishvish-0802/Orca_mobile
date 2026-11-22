@@ -8,6 +8,7 @@ import com.orcamobile.core.printer.http.apiKey
 import com.orcamobile.core.printer.http.await
 import com.orcamobile.core.printer.http.bodyOrThrow
 import com.orcamobile.core.printer.http.normalizeBaseUrl
+import com.orcamobile.core.printer.http.withNetworkRetries
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.contentOrNull
@@ -49,7 +50,7 @@ internal class ElegooLinkClient(
 
     override suspend fun testConnection(): Result<PrintHostInfo> = runCatching {
         val request = Request.Builder().url(baseUrl).apiKey(apiKey).get().build()
-        val page = http.newCall(request).await().bodyOrThrow()
+        val page = withNetworkRetries(baseUrl.host) { http.newCall(request).await().bodyOrThrow() }
         if (!page.contains("elegoo", ignoreCase = true)) {
             throw IOException("The host answered but is not an Elegoo printer (ElegooLink not detected)")
         }

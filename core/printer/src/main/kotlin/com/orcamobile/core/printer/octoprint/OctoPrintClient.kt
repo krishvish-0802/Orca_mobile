@@ -9,6 +9,7 @@ import com.orcamobile.core.printer.http.apiKey
 import com.orcamobile.core.printer.http.await
 import com.orcamobile.core.printer.http.bodyOrThrow
 import com.orcamobile.core.printer.http.normalizeBaseUrl
+import com.orcamobile.core.printer.http.withNetworkRetries
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
@@ -34,7 +35,7 @@ internal class OctoPrintClient(
 
     override suspend fun testConnection(): Result<PrintHostInfo> = runCatching {
         val request = Request.Builder().url(baseUrl.resolve("api/version")!!).apiKey(apiKey).get().build()
-        val body = http.newCall(request).await().bodyOrThrow()
+        val body = withNetworkRetries(baseUrl.host) { http.newCall(request).await().bodyOrThrow() }
         val version = json.parseToJsonElement(body).jsonObject
         val text = version["text"]?.jsonPrimitive?.contentOrNull
             ?: throw IOException("The host answered but does not look like OctoPrint (no version text)")
