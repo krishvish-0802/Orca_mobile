@@ -145,18 +145,26 @@ internal class ObjectSettingsSource private constructor(
         details.value = objects.edit(args.project, args.objectIndex, edit).getOrThrow().details
     }
 
-    private fun settingsOf(details: ObjectDetails): Map<String, String> = when {
-        target.volume != null -> details.volumes.getOrNull(target.volume)?.settings.orEmpty()
-        target.range != null -> details.layerRanges.getOrNull(target.range)?.settings.orEmpty()
-        else -> details.settings
-    }.filterKeys { it != EXTRUDER }   // set by the app for every new part, not a change of the user's
+    private fun settingsOf(details: ObjectDetails): Map<String, String> {
+        val volume = target.volume
+        val range = target.range
+        return when {
+            volume != null -> details.volumes.getOrNull(volume)?.settings.orEmpty()
+            range != null -> details.layerRanges.getOrNull(range)?.settings.orEmpty()
+            else -> details.settings
+        }.filterKeys { it != EXTRUDER }   // set by the app for every new part, not a change of the user's
+    }
 
-    private fun subjectOf(details: ObjectDetails): String = when {
-        target.volume != null -> details.volumes.getOrNull(target.volume)?.name ?: details.name
-        target.range != null -> details.layerRanges.getOrNull(target.range)?.let {
-            "${details.name} · ${format(it.minZ)}–${format(it.maxZ)} mm"
-        } ?: details.name
-        else -> details.name
+    private fun subjectOf(details: ObjectDetails): String {
+        val volume = target.volume
+        val range = target.range
+        return when {
+            volume != null -> details.volumes.getOrNull(volume)?.name ?: details.name
+            range != null -> details.layerRanges.getOrNull(range)?.let {
+                "${details.name} · ${format(it.minZ)}–${format(it.maxZ)} mm"
+            } ?: details.name
+            else -> details.name
+        }
     }
 
     companion object {
