@@ -259,6 +259,9 @@ void orient(Project& project, const std::optional<InstanceRef>& only, const Plat
         }
         Slic3r::orientation::OrientParams params;
         minimal_support_params(params);
+        // orient() calls both without checking, as the desktop always sets them.
+        params.progressind = [](unsigned, std::string) {};
+        params.stopcondition = [] { return false; };
         Slic3r::orientation::orient(selected, {}, params);
         for (const auto& mesh : selected)
             mesh.apply();
