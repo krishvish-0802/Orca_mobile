@@ -538,4 +538,41 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.SetHandleMode(com.orcamobile.core.viewport.HandleMode.ROTATE))
         assertEquals(com.orcamobile.core.viewport.HandleMode.ROTATE, vm.state.value.handleMode)
     }
+
+    @Test
+    fun `painting needs a selected object and pauses the other plate tools`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SEAM))
+        assertNull(vm.state.value.paint)
+
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SEAM))
+        assertEquals(com.orcamobile.core.model.PaintKind.SEAM, vm.state.value.paint?.kind)
+        assertFalse(vm.state.value.plateEditable)
+        vm.onIntent(PrepareIntent.Arrange)
+        assertEquals(emptyList(), plateEditor.calls)
+
+        vm.onIntent(PrepareIntent.SetBrush(com.orcamobile.core.model.PaintBrush(com.orcamobile.core.model.PaintKind.SEAM, radiusMm = 5f)))
+        assertEquals(5f, vm.state.value.paint?.radiusMm)
+        vm.onIntent(PrepareIntent.ClearPaint)
+        assertEquals(1, vm.state.value.paintClearRequest)
+
+        vm.onIntent(PrepareIntent.StopPainting)
+        assertNull(vm.state.value.paint)
+        assertTrue(vm.state.value.plateEditable)
+    }
+
+    @Test
+    fun `a stroke makes an earlier slice stale`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        vm.onIntent(PrepareIntent.Painted)
+        assertEquals(SliceUiState.Idle, vm.state.value.slice)
+    }
+
+    @Test
+    fun `colour painting is offered only with more than one filament`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        assertTrue(com.orcamobile.core.model.PaintKind.COLOR !in vm.state.value.paintKinds)
+    }
 }

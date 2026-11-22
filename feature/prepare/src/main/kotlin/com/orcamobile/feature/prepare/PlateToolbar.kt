@@ -91,6 +91,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 enabled,
             ) { onIntent(PrepareIntent.Orient) }
             if (selected) {
+                ToolButton(OrcaIcons.Paint, stringResource(R.string.prepare_tool_paint), enabled) {
+                    onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SUPPORTS))
+                }
                 ToolButton(OrcaIcons.Copies, stringResource(R.string.prepare_tool_copies), enabled) {
                     sheet = PlateSheet.COPIES
                 }

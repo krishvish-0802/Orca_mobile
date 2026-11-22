@@ -67,6 +67,18 @@ struct Part {
     std::array<float, 16> transform{};
 };
 
+// Painted triangles of one volume, in its own coordinates, by state (what was
+// painted: an enforcer, a blocker, a filament...).
+struct PaintOverlayMesh {
+    struct Run {
+        int state = 0;
+        std::size_t first_triangle = 0;
+        std::size_t triangle_count = 0;
+    };
+    std::vector<float> positions;
+    std::vector<Run> runs;
+};
+
 // What colors the toolpaths. Values are shared with the app (ToolpathColoring.kt).
 enum class ToolpathColoring : int {
     FeatureType = 0,
@@ -127,6 +139,24 @@ public:
     // How far a vertical drag from (x0, y0) to (x1, y1) moves a point at
     // `anchor` (world, mm) up or down: on the upright plane through it facing the camera.
     std::optional<float> vertical_drag(const std::array<float, 3>& anchor, float x0, float y0, float x1, float y1) const;
+
+    // Where a screen point lands on a part, for painting: the triangle hit (index
+    // in its volume's mesh) and the hit point and the camera in that volume's
+    // own coordinates.
+    struct SurfaceHit {
+        PartRef part;
+        int volume = 0;
+        std::size_t triangle = 0;
+        std::array<float, 3> hit{};
+        std::array<float, 3> camera{};
+    };
+    std::optional<SurfaceHit> pick_surface(float x_px, float y_px) const;
+
+    // Paint drawn over a volume of an object (every instance of it); null removes it.
+    void set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay);
+    void clear_paint_overlays();
+    // Colors by painted state, RGBA; states past the end use the last.
+    void set_paint_palette(std::vector<std::array<float, 4>> palette);
 
     // The instance under a screen point and the normal (world, unit) of the face
     // hit there, turned toward the camera.

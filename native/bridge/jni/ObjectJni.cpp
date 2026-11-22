@@ -14,6 +14,7 @@
 #include "JniUtils.hpp"
 #include "nlohmann/json.hpp"
 #include "orca_engine/Json.hpp"
+#include "orca_engine/Painting.hpp"
 #include "orca_engine/Project.hpp"
 
 namespace orca::jni {
@@ -117,6 +118,22 @@ jstring native_object_edit(JNIEnv* env, jclass, jlong handle, jint object, jstri
     }
 }
 
+// Paints every face of the object's parts with `state` for paint `kind`
+// (PaintKind) and keeps it: true when that changed what will be sliced.
+jboolean native_paint_everything(JNIEnv*, jclass, jlong handle, jint object, jint kind, jint state)
+{
+    auto* project = from_handle<Project>(handle);
+    if (project == nullptr || object < 0 || kind < 0 || kind > 3)
+        return JNI_FALSE;
+    try {
+        orca::engine::PaintSession session(*project, std::size_t(object), static_cast<orca::engine::PaintKind>(kind));
+        session.paint_all(state);
+        return session.commit() ? JNI_TRUE : JNI_FALSE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+}
+
 // {"keys":[...]}: the settings an object (0), a part (1) or a height range (2) takes.
 jstring native_setting_keys(JNIEnv* env, jclass, jint scope)
 {
@@ -130,6 +147,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeObjectDetails", "(JI)" STR, reinterpret_cast<void*>(native_object_details)},
     {"nativeObjectEdit", "(JI" STR ")" STR, reinterpret_cast<void*>(native_object_edit)},
     {"nativeSettingKeys", "(I)" STR, reinterpret_cast<void*>(native_setting_keys)},
+    {"nativePaintEverything", "(JIII)Z", reinterpret_cast<void*>(native_paint_everything)},
 };
 #undef STR
 

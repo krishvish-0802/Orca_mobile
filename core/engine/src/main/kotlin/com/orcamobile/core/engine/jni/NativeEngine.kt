@@ -57,6 +57,12 @@ internal object NativeEngine {
     /** Applies one edit (EngineJson.encodeObjectEdit) and returns the object after it. */
     @JvmStatic external fun nativeObjectEdit(handle: Long, objectIndex: Int, editJson: String): String
 
+    /**
+     * Paints every face of an object's parts with [state] for a paint kind (0 supports,
+     * 1 seam, 2 fuzzy skin, 3 colour) and keeps it; whether that changed what will be sliced.
+     */
+    @JvmStatic external fun nativePaintEverything(handle: Long, objectIndex: Int, kind: Int, state: Int): Boolean
+
     /** The setting keys an object (0), a part (1) or a height range (2) takes, as a JSON array. */
     @JvmStatic external fun nativeSettingKeys(scope: Int): String
 

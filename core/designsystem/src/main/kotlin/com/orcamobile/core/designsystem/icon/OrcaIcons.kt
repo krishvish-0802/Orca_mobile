@@ -78,6 +78,24 @@ object OrcaIcons {
         }
     }
 
+    /** Paint: a brush. */
+    val Paint: ImageVector by lazy {
+        icon("Paint") {
+            // Handle, slanting up to the right.
+            moveTo(20f, 2f)
+            lineTo(22f, 4f)
+            lineTo(13f, 13f)
+            lineTo(11f, 11f)
+            close()
+            // Bristles.
+            moveTo(10f, 12f)
+            lineTo(12f, 14f)
+            curveTo(12f, 17f, 10f, 20f, 3f, 21f)
+            curveTo(5f, 18f, 6f, 13f, 10f, 12f)
+            close()
+        }
+    }
+
     /** Tool settings: three sliders. */
     val Tune: ImageVector by lazy {
         icon("Tune") {

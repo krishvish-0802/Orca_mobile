@@ -19,6 +19,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ToolpathColoring
@@ -101,6 +103,16 @@ fun PlateViewport(
      * for all three. Drag a handle up or down.
      */
     handleMode: HandleMode = HandleMode.MOVE,
+    /**
+     * Painting the selected object with this brush: one finger paints, two turn
+     * and zoom the camera, and nothing moves. [onPainted] follows each stroke
+     * that changed what will be sliced. [paintPalette] colours each painted state.
+     */
+    paint: PaintBrush? = null,
+    paintPalette: List<Color> = emptyList(),
+    /** Grows to erase everything painted of the brush's kind. */
+    clearPaintRequest: Int = 0,
+    onPainted: () -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -125,6 +137,15 @@ fun PlateViewport(
     val currentOnLaidOnFace by rememberUpdatedState(onLaidOnFace)
     val currentVolume by rememberUpdatedState(highlightedVolume.takeIf { selection != null })
     val currentOnVolumeSelectionChange by rememberUpdatedState(onVolumeSelectionChange)
+    val currentPaint by rememberUpdatedState(paint)
+    val currentOnPainted by rememberUpdatedState(onPainted)
+    val painting = paint != null && project != null && preview == null && selection != null
+    val paletteArray = remember(paintPalette) {
+        paintPalette.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
+    }
+    LaunchedEffect(clearPaintRequest) {
+        if (clearPaintRequest > 0 && surface.isPainting && surface.clearPaintAndCommit()) currentOnPainted()
+    }
 
     Box(modifier) {
         AndroidView(
@@ -134,79 +155,98 @@ fun PlateViewport(
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
-                view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null })
+                view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null })
+                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray)
             },
             modifier = Modifier.fillMaxSize(),
         )
         // Gestures are read here, above the GL view, so they stay in Compose.
-        Box(
-            Modifier
-                .fillMaxSize()
-                .pointerInput(surface) {
-                    detectTapGestures(
-                        onDoubleTap = { surface.fit() },
-                        onTap = { position ->
-                            when {
-                                !currentEditable -> Unit
-                                currentLayOnFace -> surface.layOnFace(position.x, position.y)?.let(currentOnLaidOnFace)
-                                else -> {
-                                    val hit = surface.pickVolume(position.x, position.y)
-                                    val pickingVolumes = currentVolume != null && hit?.instance == currentSelection
-                                    when {
-                                        hit == null -> {
-                                            currentOnSelectionChange(null)
-                                            currentOnVolumeSelectionChange(null, null)
-                                        }
-                                        !hit.isPart || pickingVolumes -> {
-                                            currentOnSelectionChange(hit.instance)
-                                            currentOnVolumeSelectionChange(hit.instance, hit.volume)
-                                        }
-                                        else -> {
-                                            currentOnSelectionChange(hit.instance)
-                                            currentOnVolumeSelectionChange(hit.instance, null)
+        if (painting) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) {
+                        paintGestures(
+                            onPaint = { position, start ->
+                                val brush = currentPaint
+                                brush != null && surface.paintAt(position.x, position.y, start, brush)
+                            },
+                            onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
+                            onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
+                            onStrokeEnd = { if (surface.commitPaint()) currentOnPainted() },
+                        )
+                    },
+            )
+        } else {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) {
+                        detectTapGestures(
+                            onDoubleTap = { surface.fit() },
+                            onTap = { position ->
+                                when {
+                                    !currentEditable -> Unit
+                                    currentLayOnFace -> surface.layOnFace(position.x, position.y)?.let(currentOnLaidOnFace)
+                                    else -> {
+                                        val hit = surface.pickVolume(position.x, position.y)
+                                        val pickingVolumes = currentVolume != null && hit?.instance == currentSelection
+                                        when {
+                                            hit == null -> {
+                                                currentOnSelectionChange(null)
+                                                currentOnVolumeSelectionChange(null, null)
+                                            }
+                                            !hit.isPart || pickingVolumes -> {
+                                                currentOnSelectionChange(hit.instance)
+                                                currentOnVolumeSelectionChange(hit.instance, hit.volume)
+                                            }
+                                            else -> {
+                                                currentOnSelectionChange(hit.instance)
+                                                currentOnVolumeSelectionChange(hit.instance, null)
+                                            }
                                         }
                                     }
                                 }
-                            }
-                        },
-                    )
-                }
-                .pointerInput(surface) {
-                    plateGestures(
-                        grabsSelection = { position ->
-                            val selected = currentSelection
-                            val volume = currentVolume
-                            when {
-                                !currentEditable || selected == null -> false
-                                volume != null -> surface.pickVolume(position.x, position.y)
-                                    .let { it?.instance == selected && it.volume == volume }
-                                else -> surface.pick(position.x, position.y) == selected
-                            }
-                        },
-                        onDrag = { from, to ->
-                            if (currentVolume != null) {
-                                surface.moveVolume(from.x, from.y, to.x, to.y)
-                            } else {
-                                surface.moveSelection(from.x, from.y, to.x, to.y)
-                            }
-                        },
-                        onTwist = { degrees ->
-                            // Screen angles grow clockwise; seen from above that is a negative turn about Z.
-                            val radians = -degrees * (PI.toFloat() / 180f)
-                            when {
-                                !currentEditable || currentSelection == null -> false
-                                currentVolume != null -> surface.rotateVolume(radians)
-                                else -> surface.rotateSelection(radians)
-                            }
-                        },
-                        onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
-                        onPan = { delta -> surface.pan(delta.x, delta.y) },
-                        onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                        onEdited = { currentOnPlateEdited() },
-                    )
-                },
-        )
-        if (editable && selection != null) {
+                            },
+                        )
+                    }
+                    .pointerInput(surface) {
+                        plateGestures(
+                            grabsSelection = { position ->
+                                val selected = currentSelection
+                                val volume = currentVolume
+                                when {
+                                    !currentEditable || selected == null -> false
+                                    volume != null -> surface.pickVolume(position.x, position.y)
+                                        .let { it?.instance == selected && it.volume == volume }
+                                    else -> surface.pick(position.x, position.y) == selected
+                                }
+                            },
+                            onDrag = { from, to ->
+                                if (currentVolume != null) {
+                                    surface.moveVolume(from.x, from.y, to.x, to.y)
+                                } else {
+                                    surface.moveSelection(from.x, from.y, to.x, to.y)
+                                }
+                            },
+                            onTwist = { degrees ->
+                                // Screen angles grow clockwise; seen from above that is a negative turn about Z.
+                                val radians = -degrees * (PI.toFloat() / 180f)
+                                when {
+                                    !currentEditable || currentSelection == null -> false
+                                    currentVolume != null -> surface.rotateVolume(radians)
+                                    else -> surface.rotateSelection(radians)
+                                }
+                            },
+                            onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
+                            onPan = { delta -> surface.pan(delta.x, delta.y) },
+                            onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
+                            onEdited = { currentOnPlateEdited() },
+                        )
+                    },
+            )
+        }
+        if (editable && selection != null && !painting) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
@@ -299,6 +339,45 @@ private fun DragHandle(
                 textAlign = TextAlign.Center,
             )
         }
+    }
+}
+
+/**
+ * Painting: one finger paints from where it lands ([onPaint] gets each point and
+ * whether a stroke starts there; [onStrokeEnd] follows a stroke that painted);
+ * once a second finger joins, the gesture moves the camera instead: dragging
+ * orbits, pinching zooms.
+ */
+private suspend fun PointerInputScope.paintGestures(
+    onPaint: (Offset, start: Boolean) -> Boolean,
+    onOrbit: (Offset) -> Unit,
+    onZoom: (Float, Offset) -> Unit,
+    onStrokeEnd: () -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var painted = onPaint(down.position, true)
+        var camera = false
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            if (pressed.size >= 2) camera = true
+            if (camera) {
+                if (pressed.size >= 2) {
+                    val pan = event.calculatePan()
+                    val zoom = event.calculateZoom()
+                    if (pan != Offset.Zero) onOrbit(pan)
+                    if (zoom != 1f) onZoom(zoom, event.calculateCentroid(useCurrent = true))
+                }
+            } else {
+                val change = pressed.firstOrNull()
+                if (change != null && change.positionChange() != Offset.Zero) {
+                    painted = onPaint(change.position, false) || painted
+                }
+            }
+            event.changes.forEach { it.consume() }
+        } while (event.changes.any { it.pressed })
+        if (painted) onStrokeEnd()
     }
 }
 

@@ -49,6 +49,35 @@ internal object NativeViewport {
     /** Turns the highlighted volume about the vertical, counter-clockwise seen from above. */
     @JvmStatic external fun nativeRotateVolume(handle: Long, projectHandle: Long, radians: Float): Boolean
 
+    // Painting (native/bridge/jni/PaintJni.cpp).
+
+    /** Opens a paint session on an object for a PaintKind and shows its paint; 0 on failure. */
+    @JvmStatic external fun nativePaintBegin(handle: Long, projectHandle: Long, objectIndex: Int, kind: Int): Long
+
+    /** One brush step at a screen point; [strokeStart] begins a new stroke. Whether it painted. */
+    @JvmStatic external fun nativePaintAt(
+        handle: Long,
+        painting: Long,
+        x: Float,
+        y: Float,
+        strokeStart: Boolean,
+        state: Int,
+        tool: Int,
+        radiusMm: Float,
+        fillAngleDegrees: Float,
+        overhangAngleDegrees: Float,
+    ): Boolean
+
+    @JvmStatic external fun nativePaintClear(handle: Long, painting: Long)
+
+    /** Writes the paint into the model; whether that changed what will be sliced. */
+    @JvmStatic external fun nativePaintCommit(painting: Long): Boolean
+
+    @JvmStatic external fun nativePaintEnd(handle: Long, painting: Long)
+
+    /** Colours by painted state, r, g, b, a for each (state 0 first). */
+    @JvmStatic external fun nativeSetPaintPalette(handle: Long, rgba: FloatArray)
+
     /** Highlights a volume (index in its object) of the selected instance; negative for none. */
     @JvmStatic external fun nativeHighlightVolume(handle: Long, volume: Int)
 

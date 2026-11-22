@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PaintBrush
+import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.viewport.jni.NativeViewport
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
@@ -56,6 +58,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow() // stops and joins the GL thread
+        stopPainting()
         if (handle != 0L) {
             NativeViewport.nativeDestroy(handle)
             handle = 0L
@@ -124,6 +127,64 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     }
 
     private var highlightedVolume: Int? = null
+    private var painting = 0L
+    private var paintTarget: Triple<Long, Int, PaintKind>? = null
+
+    /**
+     * Paints [kind] on object [objectIndex] of the shown project from now on,
+     * coloured by [palette] (r, g, b, a per state); null stops painting.
+     */
+    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray) {
+        val h = handle
+        val target = if (objectIndex != null && kind != null && projectHandle != 0L) Triple(projectHandle, objectIndex, kind) else null
+        if (target == paintTarget) {
+            if (h != 0L && target != null) NativeViewport.nativeSetPaintPalette(h, palette)
+            return
+        }
+        stopPainting()
+        if (h == 0L || target == null) return
+        NativeViewport.nativeSetPaintPalette(h, palette)
+        painting = NativeViewport.nativePaintBegin(h, target.first, target.second, target.third.nativeValue)
+        if (painting != 0L) paintTarget = target
+        requestRender()
+    }
+
+    fun paintAt(x: Float, y: Float, strokeStart: Boolean, brush: PaintBrush): Boolean {
+        val h = handle
+        if (h == 0L || painting == 0L) return false
+        return NativeViewport.nativePaintAt(
+            h, painting, x, y, strokeStart, brush.state, brush.tool.nativeValue, brush.radiusMm,
+            brush.fillAngleDegrees, brush.overhangAngleDegrees ?: 0f,
+        ).also { if (it) requestRender() }
+    }
+
+    val isPainting: Boolean get() = painting != 0L
+
+    /** Erases the paint of this kind and keeps that; whether it changed what will be sliced. */
+    fun clearPaintAndCommit(): Boolean {
+        clearPaint()
+        return commitPaint()
+    }
+
+    /** Keeps the paint in the model; whether it changed what will be sliced. */
+    fun commitPaint(): Boolean = painting != 0L && NativeViewport.nativePaintCommit(painting)
+
+    fun clearPaint() {
+        val h = handle
+        if (h == 0L || painting == 0L) return
+        NativeViewport.nativePaintClear(h, painting)
+        requestRender()
+    }
+
+    private fun stopPainting() {
+        if (painting != 0L) {
+            NativeViewport.nativePaintCommit(painting)
+            NativeViewport.nativePaintEnd(handle, painting)
+            requestRender()
+        }
+        painting = 0L
+        paintTarget = null
+    }
 
     /** The volume under a point: its instance, its index in the object, and whether it is a part. */
     fun pickVolume(x: Float, y: Float): VolumeHit? {

@@ -85,7 +85,8 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
             is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
             is PrepareIntent.Select -> {
-                _state.update { it.copy(selection = intent.instance) }
+                // Painting belongs to one object: choosing another (or none) ends it.
+                _state.update { it.copy(selection = intent.instance, paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex }) }
                 loadTransform()
             }
             PrepareIntent.PlateEdited -> {
@@ -95,6 +96,17 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.EditTransform -> editTransform(intent.edit)
             is PrepareIntent.SetUniformScale -> _state.update { it.copy(uniformScale = intent.uniform) }
             is PrepareIntent.SetHandleMode -> _state.update { it.copy(handleMode = intent.mode) }
+            is PrepareIntent.StartPainting -> _state.update {
+                if (!it.plateEditable || it.selection == null) {
+                    it
+                } else {
+                    it.copy(paint = PaintBrush(kind = intent.kind), layingOnFace = false)
+                }
+            }
+            is PrepareIntent.SetBrush -> _state.update { if (it.paint == null) it else it.copy(paint = intent.brush) }
+            PrepareIntent.ClearPaint -> _state.update { if (it.paint == null) it else it.copy(paintClearRequest = it.paintClearRequest + 1) }
+            PrepareIntent.StopPainting -> _state.update { it.copy(paint = null) }
+            PrepareIntent.Painted -> dropStaleResult()
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }

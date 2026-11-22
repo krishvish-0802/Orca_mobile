@@ -10,6 +10,7 @@ add_library(orca_engine_core STATIC
     src/GCodePreview.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/PaintSession.cpp
     src/PlateTools.cpp
     src/ProjectImpl.hpp
     src/ProjectObjects.cpp
@@ -37,6 +38,7 @@ if (ANDROID)
         jni/JniRegistry.hpp
         jni/JniUtils.hpp
         jni/ObjectJni.cpp
+        jni/PaintJni.cpp
         jni/PlateJni.cpp
         jni/PreviewJni.cpp
         jni/ProjectJni.cpp

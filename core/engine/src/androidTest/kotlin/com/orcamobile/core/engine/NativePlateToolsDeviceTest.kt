@@ -186,6 +186,25 @@ class NativePlateToolsDeviceTest {
         assertTrue(EngineJson.stringList(NativeEngine.nativeSettingKeys(2)).getOrThrow().first() == "layer_height")
     }
 
+    @Test
+    fun paintedFuzzySkinChangesTheGcode() {
+        load(box("cube", 20f, 20f, 20f))
+        val plain = File(work, "plain.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, plain.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+
+        assertTrue(NativeEngine.nativePaintEverything(handle, 0, 2, 1))       // fuzzy skin everywhere
+        assertTrue(!NativeEngine.nativePaintEverything(handle, 0, 2, 1))      // nothing new the second time
+        val fuzzy = File(work, "fuzzy.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, fuzzy.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+        assertTrue("plain ${plain.length()} fuzzy ${fuzzy.length()}", fuzzy.length() > plain.length() * 1.2)
+
+        // Painted seam and support data are kept too, and slicing still works.
+        assertTrue(NativeEngine.nativePaintEverything(handle, 0, 1, 2))       // seam blocker everywhere
+        assertTrue(NativeEngine.nativePaintEverything(handle, 0, 0, 2))       // support blocker everywhere
+        val blocked = File(work, "blocked.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, blocked.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }

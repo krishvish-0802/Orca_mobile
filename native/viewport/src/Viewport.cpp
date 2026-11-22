@@ -180,6 +180,8 @@ struct Viewport::Impl {
     std::optional<PartRef> selection;
     std::optional<int> highlighted_volume;
     bool framed = false;
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    std::vector<std::array<float, 4>> paint_palette;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
     std::shared_ptr<const libvgcode::GCodeInputData> toolpaths;
@@ -199,6 +201,7 @@ struct Viewport::Impl {
     GpuBatch plate, grid, outline, floor;
     // One vertex array per part mesh, shared by the instances that use it.
     std::map<const PartMesh*, GpuBatch> part_batches;
+    std::map<const PaintOverlayMesh*, GpuBatch> paint_batches;
     ToolpathRenderer toolpath_renderer;
     bool gl_ready = false;
 
@@ -236,6 +239,26 @@ struct Viewport::Impl {
     }
 
     // GL thread: vertex arrays for exactly the meshes the parts use.
+    void sync_paint_batches(const std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>>& shown)
+    {
+        std::map<const PaintOverlayMesh*, GpuBatch> next;
+        for (const auto& [key, overlay] : shown) {
+            const PaintOverlayMesh* mesh = overlay.get();
+            if (mesh == nullptr || next.count(mesh) != 0)
+                continue;
+            auto existing = paint_batches.find(mesh);
+            if (existing != paint_batches.end()) {
+                next.emplace(mesh, existing->second);
+                existing->second.abandon();
+            } else {
+                next[mesh].upload(mesh->positions, nullptr);
+            }
+        }
+        for (auto& [mesh, batch] : paint_batches)
+            batch.release();
+        paint_batches = std::move(next);
+    }
+
     void sync_part_batches(const std::vector<PartState>& shown)
     {
         std::map<const PartMesh*, GpuBatch> next;
@@ -276,6 +299,9 @@ void Viewport::on_surface_created()
     for (auto& [mesh, batch] : d.part_batches)
         batch.abandon();
     d.part_batches.clear();   // re-uploaded at the next frame
+    for (auto& [mesh, batch] : d.paint_batches)
+        batch.abandon();
+    d.paint_batches.clear();
 
     std::string error;
     d.gl_ready = d.lit_program.build(shaders::kLitVertex, shaders::kLitFragment, error) &&
@@ -310,6 +336,8 @@ void Viewport::draw()
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
     std::optional<int> highlighted_volume;
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    std::vector<std::array<float, 4>> paint_palette;
     bool show_toolpaths = false;
     {
         std::lock_guard<std::mutex> lock(d.mutex);
@@ -351,6 +379,8 @@ void Viewport::draw()
         parts = d.parts;
         selection = d.selection;
         highlighted_volume = d.highlighted_volume;
+        paint_overlays = d.paint_overlays;
+        paint_palette = d.paint_palette;
         show_toolpaths = d.has_toolpaths;
     }
 
@@ -359,6 +389,7 @@ void Viewport::draw()
     if (!d.gl_ready)
         return;
     d.sync_part_batches(parts);
+    d.sync_paint_batches(paint_overlays);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -429,8 +460,87 @@ void Viewport::draw()
         if (see_through) {
             glDepthMask(GL_TRUE);
             glDisable(GL_BLEND);
+        } else if (!paint_overlays.empty()) {
+            // Paint lies on the parts: pulled toward the camera so it wins the depth test.
+            glEnable(GL_POLYGON_OFFSET_FILL);
+            glPolygonOffset(-1.0f, -2.0f);
+            for (const PartState& state : parts)
+                for (const PieceState& piece : state.pieces) {
+                    auto overlay = paint_overlays.find({state.part.ref.object, piece.piece.volume});
+                    if (overlay == paint_overlays.end() || !overlay->second)
+                        continue;
+                    auto batch = d.paint_batches.find(overlay->second.get());
+                    if (batch == d.paint_batches.end())
+                        continue;
+                    const Eigen::Matrix4f placed = state.transform * piece.transform;
+                    glUniformMatrix4fv(model_matrix, 1, GL_FALSE, placed.data());
+                    for (const PaintOverlayMesh::Run& run : overlay->second->runs) {
+                        std::array<float, 4> c{0.2f, 0.8f, 0.3f, 1.0f};
+                        if (!paint_palette.empty())
+                            c = paint_palette[std::min<std::size_t>(static_cast<std::size_t>(std::max(run.state, 0)), paint_palette.size() - 1)];
+                        glUniform4f(part_color, c[0], c[1], c[2], 1.0f);
+                        batch->second.draw(GL_TRIANGLES, static_cast<GLint>(run.first_triangle * 3),
+                                           static_cast<GLsizei>(run.triangle_count * 3));
+                    }
+                }
+            glDisable(GL_POLYGON_OFFSET_FILL);
         }
     }
+}
+
+void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (overlay)
+        m_impl->paint_overlays[{object, volume}] = std::move(overlay);
+    else
+        m_impl->paint_overlays.erase({object, volume});
+}
+
+void Viewport::clear_paint_overlays()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->paint_overlays.clear();
+}
+
+void Viewport::set_paint_palette(std::vector<std::array<float, 4>> palette)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->paint_palette = std::move(palette);
+}
+
+std::optional<Viewport::SurfaceHit> Viewport::pick_surface(float x_px, float y_px) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction, eye;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return std::nullopt;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        eye = m_impl->camera.eye();
+        parts = m_impl->parts;
+    }
+    std::optional<SurfaceHit> best;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts)
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.kind != VolumeKind::ModelPart)
+                continue;
+            const Eigen::Matrix4f placed = state.transform * piece.transform;
+            std::size_t triangle = 0;
+            const std::optional<float> t = intersect(*state.part.mesh, piece.piece.first_triangle, piece.piece.triangle_count,
+                                                     piece.box, placed, origin, direction, &triangle);
+            if (!t || *t >= nearest)
+                continue;
+            nearest = *t;
+            const Eigen::Matrix4f inverse = placed.inverse();
+            const Eigen::Vector3f hit = (inverse * (origin + direction * *t).homogeneous()).head<3>();
+            const Eigen::Vector3f camera = (inverse * eye.homogeneous()).head<3>();
+            best = SurfaceHit{state.part.ref, piece.piece.volume, triangle - piece.piece.first_triangle,
+                              {hit.x(), hit.y(), hit.z()}, {camera.x(), camera.y(), camera.z()}};
+        }
+    return best;
 }
 
 void Viewport::set_bed(Bed bed)

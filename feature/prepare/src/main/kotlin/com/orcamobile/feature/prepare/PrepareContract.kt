@@ -6,6 +6,8 @@ import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.PaintBrush
+import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.viewport.HandleMode
@@ -51,10 +53,19 @@ data class PrepareUiState(
     val layingOnFace: Boolean = false,
     /** What the handles at the plate's edge do for the selection. */
     val handleMode: HandleMode = HandleMode.MOVE,
+    /** Painting the selected object with this brush; null when not painting. */
+    val paint: PaintBrush? = null,
+    /** Grows to erase everything painted of the brush's kind on the selected object. */
+    val paintClearRequest: Int = 0,
 ) {
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
-        get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running
+        get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
+            paint == null
+
+    /** The paint kinds offered: colour needs more than one filament. */
+    val paintKinds: List<PaintKind>
+        get() = PaintKind.entries.filter { it != PaintKind.COLOR || (presets?.filaments?.size ?: 1) > 1 }
 
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?
@@ -170,6 +181,18 @@ sealed interface PrepareIntent {
 
     /** Move, rotate or scale with the handles at the plate's edge. */
     data class SetHandleMode(val mode: HandleMode) : PrepareIntent
+
+    /** Paints [kind] on the selected object until [StopPainting]. */
+    data class StartPainting(val kind: PaintKind) : PrepareIntent
+
+    data class SetBrush(val brush: PaintBrush) : PrepareIntent
+
+    data object ClearPaint : PrepareIntent
+
+    data object StopPainting : PrepareIntent
+
+    /** A stroke changed what will be sliced. */
+    data object Painted : PrepareIntent
 
     /** Turns on (or off) laying the next tapped object on the side tapped. */
     data class SetLayOnFace(val on: Boolean) : PrepareIntent

@@ -196,13 +196,28 @@ fun PrepareScreen(
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     highlightedVolume = list.selectedVolume,
                     handleMode = state.handleMode,
+                    paint = state.paint,
+                    paintPalette = state.paint?.let { paletteFor(it.kind) }.orEmpty(),
+                    clearPaintRequest = state.paintClearRequest,
+                    onPainted = { onIntent(PrepareIntent.Painted) },
                     onVolumeSelectionChange = { instance, volume ->
                         onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
-                if (state.project != null && preview == null) {
+                if (state.project != null && preview == null && state.paint == null) {
                     PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
+                }
+                if (state.paint != null && preview == null) {
+                    Text(
+                        stringResource(R.string.prepare_paint_gestures),
+                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(8.dp)
+                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), MaterialTheme.shapes.small)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
                 }
                 if (preview == null && state.selection != null && state.plateEditable) {
                     HandleModePicker(
@@ -249,7 +264,11 @@ fun PrepareScreen(
             ) {
                 state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 PresetBar(state, onIntent, onOpenSettings)
-                if (preview == null) ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
+                if (preview == null && state.paint != null) {
+                    PaintPanel(state, onIntent)
+                } else if (preview == null) {
+                    ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
+                }
                 preview?.let { PreviewCard(it, onIntent) }
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)
