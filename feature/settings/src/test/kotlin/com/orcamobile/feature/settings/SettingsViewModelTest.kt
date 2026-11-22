@@ -230,7 +230,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `an object's settings: the process tab only, the keys it takes, kept in the engine`() {
+    fun `an object's settings show the process tab only, with the keys it takes`() {
         val vm = viewModel(objectArgs())
         val state = vm.state.value
         assertEquals("cube", state.subject)
