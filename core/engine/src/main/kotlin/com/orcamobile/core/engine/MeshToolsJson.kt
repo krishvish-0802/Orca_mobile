@@ -1,9 +1,18 @@
 package com.orcamobile.core.engine
 
+import com.orcamobile.core.model.AssemblyOptions
+import com.orcamobile.core.model.AssemblyStep
 import com.orcamobile.core.model.ConnectorProblem
 import com.orcamobile.core.model.CutCheck
 import com.orcamobile.core.model.CutPlanePoint
 import com.orcamobile.core.model.CutRequest
+import com.orcamobile.core.model.FeatureFilter
+import com.orcamobile.core.model.FeatureKind
+import com.orcamobile.core.model.FeaturePick
+import com.orcamobile.core.model.MeasureOutcome
+import com.orcamobile.core.model.MeasureRequest
+import com.orcamobile.core.model.MeasuredFeature
+import com.orcamobile.core.model.Measurement
 import com.orcamobile.core.model.SimplifyCounts
 import com.orcamobile.core.model.SimplifySettings
 import kotlinx.serialization.Serializable
@@ -12,6 +21,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -115,6 +125,105 @@ object MeshToolsJson {
         val dto = json.decodeFromJsonElement(SimplifyCountsDto.serializer(), element)
         SimplifyCounts(dto.before, dto.after)
     }
+
+    fun encode(request: MeasureRequest): String = buildJsonObject {
+        put("filter", request.filter.nativeValue)
+        putJsonArray("picks") { for (p in request.picks) add(pick(p)) }
+    }.toString()
+
+    fun encodeAssemble(
+        first: FeaturePick,
+        second: FeaturePick,
+        filter: FeatureFilter,
+        step: AssemblyStep,
+        value: Double,
+        xyz: List<Double>,
+    ): String = buildJsonObject {
+        put("first", pick(first))
+        put("second", pick(second))
+        put("filter", filter.nativeValue)
+        put("step", step.nativeValue)
+        put("value", value)
+        putJsonArray("xyz") { xyz.take(3).forEach { add(JsonPrimitive(it)) } }
+    }.toString()
+
+    private fun pick(p: FeaturePick): JsonObject = buildJsonObject {
+        put("object", p.objectIndex)
+        put("instance", p.instanceIndex)
+        put("volume", p.volume)
+        put("facet", p.facet)
+        putJsonArray("hit") { p.hit.forEach { add(JsonPrimitive(it)) } }
+    }
+
+    /** A pick from the plate: `{"object","instance","volume","facet","hit"}`, or null for `{}`. */
+    fun featurePick(payload: String): FeaturePick? = runCatching {
+        val dto = json.decodeFromString(PickDto.serializer(), payload)
+        if (dto.`object` == null || dto.volume == null || dto.facet == null || dto.hit.size != 3) {
+            null
+        } else {
+            FeaturePick(dto.`object`, dto.instance, dto.volume, dto.facet, dto.hit)
+        }
+    }.getOrNull()
+
+    fun measureOutcome(payload: String): Result<MeasureOutcome> = runCatching {
+        val element = json.parseToJsonElement(payload)
+        if (element is JsonObject && "error" in element) {
+            throw EngineException(element["error"]?.jsonPrimitive?.contentOrNull ?: "Unknown engine error")
+        }
+        val dto = json.decodeFromJsonElement(MeasureOutcomeDto.serializer(), element)
+        MeasureOutcome(
+            features = dto.features.map { MeasuredFeature(FeatureKind.of(it.kind), it.a, it.b, it.radius) },
+            measurement = dto.measurement?.let { Measurement(it.angle, it.distance, it.distanceInfinite, it.xyz) },
+            assembly = dto.assembly.let {
+                AssemblyOptions(
+                    it.differentParts, it.sameObject, it.parallel, it.centerCoincidence, it.flipFirst, it.flipSecond,
+                    it.rotateAround, it.hasParallelDistance, it.parallelDistance, it.angle, it.setXyz,
+                )
+            },
+        )
+    }
+
+    @Serializable
+    private data class PickDto(
+        val `object`: Int? = null,
+        val instance: Int = 0,
+        val volume: Int? = null,
+        val facet: Int? = null,
+        val hit: List<Double> = emptyList(),
+    )
+
+    @Serializable
+    private data class FeatureDto(val kind: Int, val a: List<Double>, val b: List<Double>, val radius: Double = 0.0)
+
+    @Serializable
+    private data class MeasurementDto(
+        val angle: Double? = null,
+        val distance: Double? = null,
+        val distanceInfinite: Double? = null,
+        val xyz: List<Double>? = null,
+    )
+
+    @Serializable
+    private data class AssemblyDto(
+        val differentParts: Boolean = false,
+        val sameObject: Boolean = false,
+        val parallel: Boolean = false,
+        val centerCoincidence: Boolean = false,
+        val flipFirst: Boolean = false,
+        val flipSecond: Boolean = false,
+        val rotateAround: Boolean = false,
+        val hasParallelDistance: Boolean = false,
+        val parallelDistance: Double = 0.0,
+        val angle: Double = 0.0,
+        val setXyz: Boolean = false,
+    )
+
+    @Serializable
+    private data class MeasureOutcomeDto(
+        val features: List<FeatureDto> = emptyList(),
+        val measurement: MeasurementDto? = null,
+        val assembly: AssemblyDto = AssemblyDto(),
+    )
 
     @Serializable
     private data class SimplifyCountsDto(val before: Long = 0, val after: Long = 0)

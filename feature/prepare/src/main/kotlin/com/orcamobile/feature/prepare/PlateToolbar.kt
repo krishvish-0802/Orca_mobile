@@ -90,6 +90,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 stringResource(if (selected) R.string.prepare_tool_orient else R.string.prepare_tool_orient_all),
                 enabled,
             ) { onIntent(PrepareIntent.Orient) }
+            ToolButton(OrcaIcons.Measure, stringResource(R.string.prepare_tool_measure), enabled) {
+                onIntent(PrepareIntent.OpenMeshTool(MeshTool.MEASURE))
+            }
             if (selected) {
                 ToolButton(OrcaIcons.Paint, stringResource(R.string.prepare_tool_paint), enabled) {
                     onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SUPPORTS))

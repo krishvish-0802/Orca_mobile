@@ -4,6 +4,7 @@
 #include <jni.h>
 
 #include <array>
+#include <cmath>
 #include <exception>
 #include <limits>
 #include <memory>
@@ -171,6 +172,167 @@ jstring native_simplify_show(JNIEnv* env, jclass, jlong viewport_handle, jlong p
     }
 }
 
+// --- Measure and assembly ---
+
+jstring native_measure(JNIEnv* env, jclass, jlong project_handle, jstring request_json)
+{
+    auto* project = from_handle<Project>(project_handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        orca::engine::FeatureFilter filter = orca::engine::FeatureFilter::Any;
+        const auto picks = json::feature_picks_from_json(to_std_string(env, request_json), filter);
+        orca::engine::MeasureOutcome outcome;
+        run_on_engine_thread([&] { outcome = orca::engine::measure(*project, picks, filter); });
+        return to_jstring(env, json::to_json(outcome));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// One assembly step: {"placed":0,"objects":[...]}, or {"error"}.
+jstring native_assemble(JNIEnv* env, jclass, jlong project_handle, jstring request_json)
+{
+    auto* project = from_handle<Project>(project_handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const auto r = json::assemble_request_from_json(to_std_string(env, request_json));
+        run_on_engine_thread([&] { orca::engine::assemble(*project, r.first, r.second, r.filter, r.step, r.value, r.xyz); });
+        return to_jstring(env, json::to_json(orca::engine::PlateChange{}, project->objects()));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// The part surface under a screen point as a pick: {"object","instance","volume","facet","hit"}, or {}.
+jstring native_measure_pick(JNIEnv* env, jclass, jlong viewport_handle, jfloat x, jfloat y)
+{
+    auto* v = from_handle<Viewport>(viewport_handle);
+    if (v == nullptr)
+        return to_jstring(env, "{}");
+    const auto hit = v->pick_surface(x, y);
+    if (!hit)
+        return to_jstring(env, "{}");
+    return to_jstring(env, nlohmann::json{{"object", hit->part.object},
+                                          {"instance", hit->part.instance},
+                                          {"volume", hit->volume},
+                                          {"facet", hit->triangle},
+                                          {"hit", hit->hit}}
+                               .dump());
+}
+
+using Vec = std::array<double, 3>;
+
+Vec add(const Vec& a, const Vec& b, double s = 1) { return {a[0] + s * b[0], a[1] + s * b[1], a[2] + s * b[2]}; }
+
+void push(std::vector<float>& out, const Vec& p)
+{
+    out.push_back(float(p[0]));
+    out.push_back(float(p[1]));
+    out.push_back(float(p[2]));
+}
+
+// A small diamond marking a point.
+void marker(std::vector<float>& out, const Vec& at, double r)
+{
+    const Vec axes[6] = {{r, 0, 0}, {-r, 0, 0}, {0, r, 0}, {0, -r, 0}, {0, 0, r}, {0, 0, -r}};
+    for (int x : {0, 1})
+        for (int y : {2, 3})
+            for (int z : {4, 5}) {
+                push(out, add(at, axes[x]));
+                push(out, add(at, axes[y]));
+                push(out, add(at, axes[z]));
+            }
+}
+
+Vec cross(const Vec& a, const Vec& b) { return {a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]}; }
+
+Vec unit(const Vec& v)
+{
+    const double n = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    return n < 1e-12 ? Vec{0, 0, 0} : Vec{v[0] / n, v[1] / n, v[2] / n};
+}
+
+// A circle as segments, about `normal`.
+void circle(std::vector<float>& out, const Vec& center, const Vec& normal, double radius)
+{
+    const Vec n = unit(normal);
+    if (n[0] == 0 && n[1] == 0 && n[2] == 0)
+        return;
+    const Vec u = unit(std::abs(n[0]) < 0.9 ? cross(n, {1, 0, 0}) : cross(n, {0, 1, 0}));
+    const Vec w = cross(n, u);
+    const int segments = 72;
+    auto at = [&](int i) {
+        const double t = 2 * M_PI * i / segments;
+        return add(add(center, u, radius * std::cos(t)), w, radius * std::sin(t));
+    };
+    for (int i = 0; i < segments; ++i) {
+        push(out, at(i));
+        push(out, at(i + 1));
+    }
+}
+
+void add_feature(orca::viewport::Overlay& overlay, const orca::engine::MeasuredFeature& f, std::array<float, 4> color, double marker_mm)
+{
+    using orca::engine::FeatureKind;
+    std::vector<float> lines, triangles;
+    switch (f.kind) {
+    case FeatureKind::Point: marker(triangles, f.a, marker_mm); break;
+    case FeatureKind::Edge:
+        push(lines, f.a);
+        push(lines, f.b);
+        marker(triangles, f.a, marker_mm * 0.6);
+        marker(triangles, f.b, marker_mm * 0.6);
+        break;
+    case FeatureKind::Circle:
+        circle(lines, f.a, f.b, f.radius);
+        marker(triangles, f.a, marker_mm * 0.6);
+        break;
+    case FeatureKind::Plane: {
+        auto plane = shape(f.plane, false, {color[0], color[1], color[2], 0.65f});
+        overlay.shapes.push_back(std::move(plane));
+        break;
+    }
+    }
+    if (!lines.empty()) {
+        overlay.shapes.push_back(shape(std::move(lines), true, color, true));
+        overlay.shapes.back().line_width = 5.f;
+    }
+    if (!triangles.empty())
+        overlay.shapes.push_back(shape(std::move(triangles), false, color, true));
+}
+
+// Shows the picked features and the distance between them; returns the outcome as nativeMeasure.
+jstring native_measure_show(JNIEnv* env, jclass, jlong viewport_handle, jlong project_handle, jstring request_json)
+{
+    auto* v = from_handle<Viewport>(viewport_handle);
+    auto* project = from_handle<Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        orca::engine::FeatureFilter filter = orca::engine::FeatureFilter::Any;
+        const auto picks = json::feature_picks_from_json(to_std_string(env, request_json), filter);
+        const orca::engine::MeasureOutcome outcome = orca::engine::measure(*project, picks, filter);
+        auto overlay = std::make_shared<orca::viewport::Overlay>();
+        // The desktop's colours for the first and second feature.
+        const std::array<float, 4> colors[2] = {{0.25f, 0.75f, 1.0f, 1.0f}, {1.0f, 0.30f, 0.30f, 1.0f}};
+        for (std::size_t i = 0; i < outcome.features.size() && i < 2; ++i)
+            add_feature(*overlay, outcome.features[i], colors[i], 0.8);
+        if (outcome.measurement && outcome.measurement->distance) {
+            std::vector<float> dimension;
+            push(dimension, outcome.measurement->from);
+            push(dimension, outcome.measurement->to);
+            overlay->shapes.push_back(shape(std::move(dimension), true, {1.0f, 0.85f, 0.10f, 1.0f}, true));
+        }
+        v->set_overlay(overlay);
+        v->set_cut_view(std::nullopt);
+        return to_jstring(env, json::to_json(outcome));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 // How far (mm) a vertical drag between two screen points moves a point at
 // (ax, ay, az) up or down; NaN when the camera looks straight down.
 jfloat native_vertical_drag(JNIEnv*, jclass, jlong viewport_handle, jfloat ax, jfloat ay, jfloat az, jfloat x0, jfloat y0,
@@ -188,12 +350,16 @@ const JNINativeMethod kEngineMethods[] = {
     {"nativeCutPreview", "(J" STR ")" STR, reinterpret_cast<void*>(native_cut_preview)},
     {"nativeCutPerform", "(J" STR ")" STR, reinterpret_cast<void*>(native_cut_perform)},
     {"nativeSimplifyPreview", "(JI" STR ")" STR, reinterpret_cast<void*>(native_simplify_preview)},
+    {"nativeMeasure", "(J" STR ")" STR, reinterpret_cast<void*>(native_measure)},
+    {"nativeAssemble", "(J" STR ")" STR, reinterpret_cast<void*>(native_assemble)},
 };
 const JNINativeMethod kViewportMethods[] = {
     {"nativeCutShow", "(JJ" STR "Z)" STR, reinterpret_cast<void*>(native_cut_show)},
     {"nativeCutHide", "(J)V", reinterpret_cast<void*>(native_cut_hide)},
     {"nativeCutPointAt", "(JJ" STR "FF)" STR, reinterpret_cast<void*>(native_cut_point_at)},
     {"nativeSimplifyShow", "(JJI" STR ")" STR, reinterpret_cast<void*>(native_simplify_show)},
+    {"nativeMeasurePick", "(JFF)" STR, reinterpret_cast<void*>(native_measure_pick)},
+    {"nativeMeasureShow", "(JJ" STR ")" STR, reinterpret_cast<void*>(native_measure_show)},
     {"nativeVerticalDrag", "(JFFFFFFF)F", reinterpret_cast<void*>(native_vertical_drag)},
 };
 #undef STR

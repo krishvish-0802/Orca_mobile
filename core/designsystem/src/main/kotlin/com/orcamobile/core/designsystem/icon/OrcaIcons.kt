@@ -126,6 +126,27 @@ object OrcaIcons {
         }
     }
 
+    /** Measure: a ruler with ticks. */
+    val Measure: ImageVector by lazy {
+        icon("Measure") {
+            // A slanted ruler, its ticks cut in as notches along the top.
+            moveTo(2f, 15f)
+            lineTo(15f, 2f)
+            lineTo(22f, 9f)
+            lineTo(9f, 22f)
+            close()
+            for (i in 0 until 4) {
+                val x = 6f + i * 3f
+                val y = 11f - i * 3f
+                moveTo(x, y)
+                lineTo(x + 1f, y - 1f)
+                lineTo(x + 3f, y + 1f)
+                lineTo(x + 2f, y + 2f)
+                close()
+            }
+        }
+    }
+
     private fun icon(name: String, build: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
             .path(fill = SolidColor(Color.Black), pathBuilder = build)

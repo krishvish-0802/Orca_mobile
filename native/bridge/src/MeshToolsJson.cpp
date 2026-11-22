@@ -112,4 +112,101 @@ std::string to_json(const SimplifyOutcome& outcome)
     return nlohmann::json{{"before", outcome.before}, {"after", outcome.after}}.dump();
 }
 
+namespace {
+
+FeaturePick pick_of(const nlohmann::json& j)
+{
+    FeaturePick p;
+    p.via.object = j.at("object").get<std::size_t>();
+    p.via.instance = j.value("instance", std::size_t(0));
+    p.volume = j.at("volume").get<std::size_t>();
+    p.facet = j.at("facet").get<int>();
+    p.hit = j.at("hit").get<std::array<double, 3>>();
+    return p;
+}
+
+FeatureFilter filter_of(const nlohmann::json& j)
+{
+    const int filter = j.value("filter", 0);
+    if (filter < 0 || filter > 2)
+        throw std::runtime_error("No such feature filter");
+    return static_cast<FeatureFilter>(filter);
+}
+
+} // namespace
+
+std::vector<FeaturePick> feature_picks_from_json(const std::string& payload, FeatureFilter& filter)
+{
+    try {
+        const nlohmann::json j = nlohmann::json::parse(payload);
+        filter = filter_of(j);
+        std::vector<FeaturePick> picks;
+        for (const auto& p : j.value("picks", nlohmann::json::array()))
+            picks.push_back(pick_of(p));
+        return picks;
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("Malformed measure: ") + e.what());
+    }
+}
+
+AssembleRequest assemble_request_from_json(const std::string& payload)
+{
+    try {
+        const nlohmann::json j = nlohmann::json::parse(payload);
+        AssembleRequest r;
+        r.first = pick_of(j.at("first"));
+        r.second = pick_of(j.at("second"));
+        r.filter = filter_of(j);
+        const int step = j.at("step").get<int>();
+        if (step < 0 || step > 6)
+            throw std::runtime_error("No such assembly step");
+        r.step = static_cast<AssemblyStep>(step);
+        r.value = j.value("value", 0.0);
+        if (j.contains("xyz"))
+            r.xyz = j["xyz"].get<std::array<double, 3>>();
+        return r;
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("Malformed assembly: ") + e.what());
+    }
+}
+
+std::string to_json(const MeasureOutcome& outcome)
+{
+    nlohmann::json features = nlohmann::json::array();
+    for (const MeasuredFeature& f : outcome.features)
+        features.push_back({{"kind", static_cast<int>(f.kind)}, {"a", f.a}, {"b", f.b}, {"radius", f.radius}});
+    nlohmann::json j{{"features", features}};
+    if (outcome.measurement) {
+        const Measurement& m = *outcome.measurement;
+        nlohmann::json mj = nlohmann::json::object();
+        if (m.angle_deg)
+            mj["angle"] = *m.angle_deg;
+        if (m.distance) {
+            mj["distance"] = *m.distance;
+            mj["from"] = m.from;
+            mj["to"] = m.to;
+        }
+        if (m.distance_infinite)
+            mj["distanceInfinite"] = *m.distance_infinite;
+        if (m.xyz)
+            mj["xyz"] = *m.xyz;
+        j["measurement"] = mj;
+    }
+    const AssemblyOptions& a = outcome.assembly;
+    j["assembly"] = {
+        {"differentParts", a.different_parts},
+        {"sameObject", a.same_object},
+        {"parallel", a.parallel},
+        {"centerCoincidence", a.center_coincidence},
+        {"flipFirst", a.flip_first},
+        {"flipSecond", a.flip_second},
+        {"rotateAround", a.rotate_around},
+        {"hasParallelDistance", a.has_parallel_distance},
+        {"parallelDistance", a.parallel_distance},
+        {"angle", a.angle_deg},
+        {"setXyz", a.set_xyz},
+    };
+    return j.dump();
+}
+
 } // namespace orca::engine::json

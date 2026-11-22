@@ -105,6 +105,23 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         counts
     }
 
+    /** Shows the picked features and the distance between them; the outcome as JSON. */
+    fun showMeasure(requestJson: String): String? = synchronized(toolLock) {
+        cutJson = null
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return null
+        val outcome = NativeViewport.nativeMeasureShow(h, project, requestJson)
+        requestRender()
+        outcome
+    }
+
+    /** The part surface under a screen point, as a feature pick (JSON, `{}` on a miss). */
+    fun measurePick(x: Float, y: Float): String? {
+        val h = handle
+        return if (h == 0L) null else NativeViewport.nativeMeasurePick(h, x, y)
+    }
+
     /** Where a screen point lands on the shown cut's plane, as JSON (`{}` on a miss). */
     fun cutPointAt(x: Float, y: Float): String? = synchronized(toolLock) {
         val json = cutJson ?: return null

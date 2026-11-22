@@ -47,7 +47,10 @@ import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CutCheck
 import com.orcamobile.core.model.CutPlanePoint
 import com.orcamobile.core.model.CutRequest
+import com.orcamobile.core.model.FeaturePick
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.MeasureOutcome
+import com.orcamobile.core.model.MeasureRequest
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
@@ -138,6 +141,14 @@ fun PlateViewport(
     /** Previewing Simplify: the result's wireframe over the object; [onSimplifyCounted] gets its triangles. */
     simplify: SimplifyTarget? = null,
     onSimplifyCounted: (SimplifyCounts) -> Unit = {},
+    /**
+     * Measuring: the picked features are drawn, a tap on a part reports a new
+     * pick ([onMeasurePick]), one finger orbits and two pan and zoom.
+     * [onMeasured] gets what the engine found for each request shown.
+     */
+    measure: MeasureRequest? = null,
+    onMeasurePick: (FeaturePick) -> Unit = {},
+    onMeasured: (MeasureOutcome) -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -175,9 +186,12 @@ fun PlateViewport(
     var cutCenter by remember { mutableStateOf<List<Double>?>(null) }
     val currentOnSimplifyCounted by rememberUpdatedState(onSimplifyCounted)
     val simplifying = simplify.takeIf { project != null && preview == null && !cutting }
+    val measuring = measure.takeIf { project != null && preview == null && !cutting && simplifying == null }
+    val currentOnMeasurePick by rememberUpdatedState(onMeasurePick)
+    val currentOnMeasured by rememberUpdatedState(onMeasured)
     // One tool's geometry over the plate at a time. The engine sections or
     // simplifies the object for every change: off the main thread.
-    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, simplifying, project, projectRevision) {
+    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, simplifying, measuring, project, projectRevision) {
         val request = cut.takeIf { cutting }
         when {
             request != null -> {
@@ -193,6 +207,11 @@ fun PlateViewport(
                     surface.showSimplify(simplifying.objectIndex, MeshToolsJson.encode(simplifying.volume, simplifying.settings))
                 }
                 counts?.let(MeshToolsJson::simplifyCounts)?.getOrNull()?.let(currentOnSimplifyCounted)
+            }
+            measuring != null -> {
+                cutCenter = null
+                val outcome = withContext(Dispatchers.Default) { surface.showMeasure(MeshToolsJson.encode(measuring)) }
+                outcome?.let(MeshToolsJson::measureOutcome)?.getOrNull()?.let(currentOnMeasured)
             }
             else -> {
                 cutCenter = null
@@ -218,7 +237,31 @@ fun PlateViewport(
             modifier = Modifier.fillMaxSize(),
         )
         // Gestures are read here, above the GL view, so they stay in Compose.
-        if (cutting) {
+        if (measuring != null) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) {
+                        detectTapGestures(
+                            onDoubleTap = { surface.fit() },
+                            onTap = { position ->
+                                surface.measurePick(position.x, position.y)?.let(MeshToolsJson::featurePick)?.let(currentOnMeasurePick)
+                            },
+                        )
+                    }
+                    .pointerInput(surface) {
+                        plateGestures(
+                            grabsSelection = { false },
+                            onDrag = { _, _ -> false },
+                            onTwist = { false },
+                            onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
+                            onPan = { delta -> surface.pan(delta.x, delta.y) },
+                            onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
+                            onEdited = {},
+                        )
+                    },
+            )
+        } else if (cutting) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -335,7 +378,7 @@ fun PlateViewport(
                     },
             )
         }
-        if (editable && selection != null && !painting && !cutting) {
+        if (editable && selection != null && !painting && !cutting && measuring == null) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),

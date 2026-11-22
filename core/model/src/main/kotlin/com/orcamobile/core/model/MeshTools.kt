@@ -128,3 +128,85 @@ data class SimplifyTarget(val objectIndex: Int, val volume: Int?, val settings: 
 
 /** The desktop's Mesh boolean between two parts ([nativeValue] is the bridge's BooleanOperation). */
 enum class BooleanOperation(val nativeValue: Int) { UNION(0), DIFFERENCE(1), INTERSECTION(2) }
+
+// --- Measure and assembly ---
+
+/** A tap on a part: the triangle hit and where, in the volume's own coordinates, so it follows the part. */
+data class FeaturePick(
+    val objectIndex: Int,
+    val instanceIndex: Int,
+    val volume: Int,
+    val facet: Int,
+    val hit: List<Double>,
+) {
+    val instance: InstanceRef get() = InstanceRef(objectIndex, instanceIndex)
+}
+
+/** Values are libslic3r's SurfaceFeatureType. */
+enum class FeatureKind(val nativeValue: Int) {
+    POINT(1),
+    EDGE(2),
+    CIRCLE(4),
+    PLANE(8),
+    ;
+
+    companion object {
+        fun of(value: Int) = entries.firstOrNull { it.nativeValue == value } ?: POINT
+    }
+}
+
+/** What a tap may pick: any feature, only faces, or only points and circles ([nativeValue] is the bridge's). */
+enum class FeatureFilter(val nativeValue: Int) { ANY(0), PLANES(1), POINTS_AND_CIRCLES(2) }
+
+/**
+ * A feature on the plate, world mm: a point ([a]); an edge ([a] to [b]); a
+ * circle (center [a], normal [b], [radius]); a face (normal [a], a point on it [b]).
+ */
+data class MeasuredFeature(val kind: FeatureKind, val a: List<Double>, val b: List<Double>, val radius: Double)
+
+/** What lies between two features, as the desktop's Measure shows it. */
+data class Measurement(
+    val angleDegrees: Double? = null,
+    val distanceMm: Double? = null,
+    val distanceInfiniteMm: Double? = null,
+    /** Second minus first, for points and circles. */
+    val xyzMm: List<Double>? = null,
+)
+
+/** What the Assembly tool can do with two features (Measure::get_assembly_action). */
+data class AssemblyOptions(
+    val differentParts: Boolean = false,
+    val sameObject: Boolean = false,
+    val parallel: Boolean = false,
+    val centerCoincidence: Boolean = false,
+    val flipFirst: Boolean = false,
+    val flipSecond: Boolean = false,
+    val rotateAround: Boolean = false,
+    val hasParallelDistance: Boolean = false,
+    val parallelDistanceMm: Double = 0.0,
+    val angleDegrees: Double = 0.0,
+    val setXyz: Boolean = false,
+)
+
+data class MeasureOutcome(
+    val features: List<MeasuredFeature>,
+    val measurement: Measurement?,
+    val assembly: AssemblyOptions,
+)
+
+/** Picks to measure between, and what they may pick. */
+data class MeasureRequest(val picks: List<FeaturePick>, val filter: FeatureFilter = FeatureFilter.ANY)
+
+/** Assembly steps ([nativeValue] is the bridge's AssemblyStep). The second feature's part moves, except for [FLIP_FIRST]. */
+enum class AssemblyStep(val nativeValue: Int) {
+    PARALLEL(0),
+    CENTER_COINCIDENCE(1),
+    FLIP_FIRST(2),
+    FLIP_SECOND(3),
+    /** By a number of degrees about the second face's normal. */
+    ROTATE_AROUND(4),
+    /** To a distance in mm between parallel faces. */
+    PARALLEL_DISTANCE(5),
+    /** So that second minus first is a given x, y, z. */
+    SET_XYZ(6),
+}

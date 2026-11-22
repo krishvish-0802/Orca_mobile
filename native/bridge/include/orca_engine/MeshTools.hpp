@@ -1,7 +1,8 @@
 #pragma once
 
 // The desktop's mesh tools on the plate: Cut (GLGizmoCut3D), Simplify
-// (GLGizmoSimplify) and Mesh boolean (GLGizmoMeshBoolean).
+// (GLGizmoSimplify), Mesh boolean (GLGizmoMeshBoolean), and Measure and
+// Assembly (GLGizmoMeasure, GLGizmoAssembly).
 
 #include <array>
 #include <cstddef>
@@ -156,5 +157,84 @@ struct BooleanRequest {
 // Returns the result's index in the object's volumes. Throws std::invalid_argument
 // when the volumes are the same or the operation leaves nothing.
 std::size_t mesh_boolean(Project& project, const BooleanRequest& request);
+
+// --- Measure and assembly ---
+
+// A tap on a part, as the plate's surface pick gives it: the triangle hit
+// (index in the volume's mesh) and where, in the volume's own coordinates.
+// Picks stay valid when the part moves, so features follow it.
+struct FeaturePick {
+    InstanceRef via;
+    std::size_t volume = 0;
+    int facet = 0;
+    std::array<double, 3> hit{};
+};
+
+// Values are libslic3r's SurfaceFeatureType.
+enum class FeatureKind : int { Point = 1, Edge = 2, Circle = 4, Plane = 8 };
+
+// What a tap may pick: any feature near it (the desktop's feature selection),
+// only whole planes (face to face assembly), or only points and circles
+// (point to point assembly).
+enum class FeatureFilter : int { Any = 0, Planes = 1, PointsAndCircles = 2 };
+
+// A feature on the plate, world mm: a point (a); an edge (a to b); a circle
+// (center a, normal b, radius); a plane (normal a, a point on it b, and its
+// triangles for drawing).
+struct MeasuredFeature {
+    FeatureKind kind = FeatureKind::Point;
+    std::array<double, 3> a{}, b{};
+    double radius = 0;
+    std::vector<float> plane;
+};
+
+// GLGizmoMeasure's results between two features.
+struct Measurement {
+    std::optional<double> angle_deg;
+    std::optional<double> distance;               // the shortest between them
+    std::array<double, 3> from{}, to{};           // where it is measured
+    std::optional<double> distance_infinite;      // to the line or plane through the other
+    std::optional<std::array<double, 3>> xyz;     // second minus first, for points and circles
+};
+
+// What the Assembly tool can do with two features on different parts
+// (Measure::get_assembly_action), and whether they are in one object.
+struct AssemblyOptions {
+    bool different_parts = false;
+    bool same_object = false;
+    bool parallel = false;
+    bool center_coincidence = false;
+    bool flip_first = false;
+    bool flip_second = false;
+    bool rotate_around = false;
+    bool has_parallel_distance = false;
+    double parallel_distance = 0;
+    double angle_deg = 0;
+    bool set_xyz = false;
+};
+
+struct MeasureOutcome {
+    std::vector<MeasuredFeature> features;        // one per pick that found one
+    std::optional<Measurement> measurement;       // with two
+    AssemblyOptions assembly;
+};
+
+MeasureOutcome measure(const Project& project, const std::vector<FeaturePick>& picks, FeatureFilter filter);
+
+// Assembly steps: the second feature's part moves (its instance, or the part
+// itself within one object), except FlipFirst, which turns the first's.
+enum class AssemblyStep : int {
+    Parallel = 0,           // turn so the faces face each other
+    CenterCoincidence = 1,  // and put the second face's center on the first's
+    FlipFirst = 2,          // turn half way about an axis in the face
+    FlipSecond = 3,
+    RotateAround = 4,       // `value` degrees about the second face's normal
+    ParallelDistance = 5,   // `value` mm between parallel faces
+    SetXyz = 6,             // second minus first becomes `xyz` (points and circles)
+};
+
+// Throws std::invalid_argument when the features cannot take the step.
+void assemble(Project& project, const FeaturePick& first, const FeaturePick& second, FeatureFilter filter,
+              AssemblyStep step, double value, const std::array<double, 3>& xyz);
 
 } // namespace orca::engine

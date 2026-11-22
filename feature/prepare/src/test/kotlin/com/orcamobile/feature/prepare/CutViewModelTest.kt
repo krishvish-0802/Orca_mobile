@@ -47,6 +47,19 @@ class CutViewModelTest {
             return Result.success(PlateUpdate(List(pieces) { ModelObjectInfo("piece $it", 1, 12, listOf(20.0, 20.0, 10.0)) }, placed = pieces))
         }
 
+        override suspend fun measure(project: ProjectId, request: com.orcamobile.core.model.MeasureRequest) =
+            Result.failure<com.orcamobile.core.model.MeasureOutcome>(UnsupportedOperationException())
+
+        override suspend fun assemble(
+            project: ProjectId,
+            first: com.orcamobile.core.model.FeaturePick,
+            second: com.orcamobile.core.model.FeaturePick,
+            request: com.orcamobile.core.model.MeasureRequest,
+            step: com.orcamobile.core.model.AssemblyStep,
+            value: Double,
+            xyz: List<Double>,
+        ) = Result.failure<PlateUpdate>(UnsupportedOperationException())
+
         fun check(request: CutRequest): CutCheck {
             val problems = request.connectors.map { if (kotlin.math.hypot(it.u, it.v) > 8) ConnectorProblem.OUTSIDE_SECTION else ConnectorProblem.NONE }
             val ok = problems.all { it == ConnectorProblem.NONE } && request.plane.heightMm in 0.0..20.0

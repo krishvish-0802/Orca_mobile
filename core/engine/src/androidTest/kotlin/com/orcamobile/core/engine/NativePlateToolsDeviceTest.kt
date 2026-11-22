@@ -18,7 +18,11 @@ import com.orcamobile.core.model.CutConnectorType
 import com.orcamobile.core.model.CutMode
 import com.orcamobile.core.model.CutPlane
 import com.orcamobile.core.model.CutRequest
+import com.orcamobile.core.model.AssemblyStep
+import com.orcamobile.core.model.FeatureFilter
+import com.orcamobile.core.model.FeaturePick
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.MeasureRequest
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -317,6 +321,65 @@ class NativePlateToolsDeviceTest {
         assertTrue(EngineJson.objectUpdate(
             NativeEngine.nativeObjectEdit(handle, 0, EngineJson.encodeObjectEdit(ObjectEdit.MeshBoolean(0, 0, BooleanOperation.UNION, false))),
         ).isFailure)
+    }
+
+    @Test
+    fun measuresFacesAndAssemblesOneCubeAgainstTheOther() {
+        load(twoCubes())
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"splitToParts":{"volume":0}}""")).getOrThrow()
+        assertEquals(2, EngineJson.plateUpdate(NativeEngine.nativePlateSplit(handle, 0)).getOrThrow().placed)
+        fun pick(objectIndex: Int, facet: Int) = FeaturePick(objectIndex, 0, 0, facet, listOf(0.0, 0.0, 0.0))
+        fun measure(vararg picks: FeaturePick) = MeshToolsJson.measureOutcome(
+            NativeEngine.nativeMeasure(handle, MeshToolsJson.encode(MeasureRequest(picks.toList(), FeatureFilter.PLANES))),
+        ).getOrThrow()
+        // The face of each cube whose normal points along `direction`.
+        fun faceFacing(objectIndex: Int, direction: List<Double>): FeaturePick = (0 until 12).map { pick(objectIndex, it) }.first { p ->
+            val normal = measure(p).features.single().a
+            (0..2).sumOf { normal[it] * direction[it] } > 0.99
+        }
+        val leftRight = faceFacing(0, listOf(1.0, 0.0, 0.0)).let { a -> faceFacing(1, listOf(1.0, 0.0, 0.0)).let { b -> a to b } }
+        val left = if (measure(leftRight.first).features.single().b[0] < measure(leftRight.second).features.single().b[0]) 0 else 1
+        val right = 1 - left
+        val leftEast = faceFacing(left, listOf(1.0, 0.0, 0.0))
+        val rightWest = faceFacing(right, listOf(-1.0, 0.0, 0.0))
+        val leftTop = faceFacing(left, listOf(0.0, 0.0, 1.0))
+
+        // A face and the one beside it: 90 degrees.
+        assertEquals(90.0, measure(leftEast, leftTop).measurement!!.angleDegrees!!, 0.01)
+        // Facing faces 20 mm apart, on different objects.
+        val apart = measure(leftEast, rightWest)
+        assertTrue(apart.assembly.differentParts)
+        assertTrue(apart.assembly.centerCoincidence)
+        assertEquals(20.0, kotlin.math.abs(apart.assembly.parallelDistanceMm), 0.01)
+
+        // Center coincidence: the right cube comes up against the left one.
+        EngineJson.plateUpdate(
+            NativeEngine.nativeAssemble(
+                handle,
+                MeshToolsJson.encodeAssemble(leftEast, rightWest, FeatureFilter.PLANES, AssemblyStep.CENTER_COINCIDENCE, 0.0, listOf(0.0, 0.0, 0.0)),
+            ),
+        ).getOrThrow()
+        assertEquals(0.0, measure(leftEast, rightWest).assembly.parallelDistanceMm, 0.01)
+        // Then 5 mm apart again, and a quarter turn about the face.
+        EngineJson.plateUpdate(
+            NativeEngine.nativeAssemble(
+                handle,
+                MeshToolsJson.encodeAssemble(leftEast, rightWest, FeatureFilter.PLANES, AssemblyStep.PARALLEL_DISTANCE, 5.0, listOf(0.0, 0.0, 0.0)),
+            ),
+        ).getOrThrow()
+        assertEquals(5.0, kotlin.math.abs(measure(leftEast, rightWest).assembly.parallelDistanceMm), 0.01)
+        assertTrue(
+            EngineJson.plateUpdate(
+                NativeEngine.nativeAssemble(
+                    handle,
+                    MeshToolsJson.encodeAssemble(leftEast, rightWest, FeatureFilter.PLANES, AssemblyStep.ROTATE_AROUND, 90.0, listOf(0.0, 0.0, 0.0)),
+                ),
+            ).isSuccess,
+        )
+        // Two faces of one part cannot be assembled.
+        assertTrue(!measure(leftEast, leftTop).assembly.differentParts)
+        val gcode = File(work, "assembled.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
     }
 
     /** Two 10 mm cubes 20 mm apart in one STL. */

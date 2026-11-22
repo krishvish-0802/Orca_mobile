@@ -80,6 +80,12 @@ internal object NativeEngine {
     /** What simplifying would leave (MeshToolsJson.encode(volume, settings)): `{"before","after"}` or `{"error"}`. */
     @JvmStatic external fun nativeSimplifyPreview(handle: Long, objectIndex: Int, requestJson: String): String
 
+    /** Features under picks (MeshToolsJson.encode(MeasureRequest)) and what lies between: see MeshToolsJson.measureOutcome. */
+    @JvmStatic external fun nativeMeasure(handle: Long, requestJson: String): String
+
+    /** One assembly step (MeshToolsJson.encodeAssemble): `{"placed":0,"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeAssemble(handle: Long, requestJson: String): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

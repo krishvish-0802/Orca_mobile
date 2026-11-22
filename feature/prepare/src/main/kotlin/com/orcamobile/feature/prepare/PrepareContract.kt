@@ -85,7 +85,13 @@ data class PrepareUiState(
 enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE, SPLIT }
 
 /** The desktop's mesh tools, each with a view model of its own. */
-enum class MeshTool { CUT, SIMPLIFY }
+enum class MeshTool {
+    CUT,
+    SIMPLIFY,
+
+    /** Measure and assembly; needs no selection. */
+    MEASURE,
+}
 
 sealed interface PlateNotice {
     /** Arranging left [count] instances beside the bed: they did not fit. */

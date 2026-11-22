@@ -61,6 +61,21 @@ SimplifyRequest simplify_request_from_json(std::size_t object, const std::string
 // {"before": n, "after": n}
 std::string to_json(const SimplifyOutcome& outcome);
 
+// Measure: {"picks":[{"object","instance","volume","facet","hit":[x,y,z]}],"filter"}.
+std::vector<FeaturePick> feature_picks_from_json(const std::string& payload, FeatureFilter& filter);
+// Assembly: {"first": pick, "second": pick, "filter", "step", "value", "xyz":[..]}.
+struct AssembleRequest {
+    FeaturePick first, second;
+    FeatureFilter filter = FeatureFilter::Any;
+    AssemblyStep step = AssemblyStep::Parallel;
+    double value = 0;
+    std::array<double, 3> xyz{};
+};
+AssembleRequest assemble_request_from_json(const std::string& payload);
+// {"features":[{"kind","a","b","radius"}],"measurement":{"angle","distance","from","to",
+// "distanceInfinite","xyz"},"assembly":{..}}; absent values are left out.
+std::string to_json(const MeasureOutcome& outcome);
+
 // {"error": message}, for calls that fail before producing their own result.
 std::string error_json(const std::string& message);
 

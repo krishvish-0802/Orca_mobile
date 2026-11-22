@@ -62,6 +62,12 @@ internal object NativeViewport {
     /** Shows what simplifying would leave as a wireframe; `{"before","after"}` or `{"error"}`. */
     @JvmStatic external fun nativeSimplifyShow(handle: Long, projectHandle: Long, objectIndex: Int, requestJson: String): String
 
+    /** The part surface under a screen point as a feature pick, or `{}`. */
+    @JvmStatic external fun nativeMeasurePick(handle: Long, x: Float, y: Float): String
+
+    /** Shows the picked features and the distance between them; the outcome as NativeEngine.nativeMeasure. */
+    @JvmStatic external fun nativeMeasureShow(handle: Long, projectHandle: Long, requestJson: String): String
+
     /** Where a screen point lands on the cut plane: `{"u","v","inside"}`, or `{}`. */
     @JvmStatic external fun nativeCutPointAt(handle: Long, projectHandle: Long, requestJson: String, x: Float, y: Float): String
 

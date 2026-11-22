@@ -84,6 +84,7 @@ fun PrepareRoute(
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
     cutTool: CutViewModel = hiltViewModel(),
+    measureTool: MeasureViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
@@ -99,6 +100,22 @@ fun PrepareRoute(
             cutTarget == null -> if (current.active) cutTool.onIntent(CutIntent.Close)
             current.project != cutTarget.first || current.request?.instance != cutTarget.second ->
                 cutTool.onIntent(CutIntent.Start(cutTarget.first, cutTarget.second))
+        }
+    }
+    val measure by measureTool.state.collectAsStateWithLifecycle()
+    val measuringIn = state.project?.id?.takeIf { state.meshTool == MeshTool.MEASURE }
+    LaunchedEffect(measuringIn) {
+        val current = measureTool.state.value
+        when {
+            measuringIn == null -> if (current.active) measureTool.onIntent(MeasureIntent.Close)
+            !current.active || current.project != measuringIn -> measureTool.onIntent(MeasureIntent.Open(measuringIn))
+        }
+    }
+    LaunchedEffect(measureTool) {
+        measureTool.events.collect { event ->
+            when (event) {
+                is MeasureEvent.PlateChanged -> viewModel.onIntent(PrepareIntent.ObjectChanged(event.objects))
+            }
         }
     }
     LaunchedEffect(cutTool) {
@@ -155,6 +172,11 @@ fun PrepareRoute(
             if (intent == PrepareIntent.PlateEdited) objectList.onIntent(ObjectListIntent.Refresh)
         },
         onListIntent = objectList::onIntent,
+        measure = measure,
+        onMeasureIntent = { intent ->
+            measureTool.onIntent(intent)
+            if (intent == MeasureIntent.Close) viewModel.onIntent(PrepareIntent.CloseMeshTool)
+        },
         cut = cut,
         onCutIntent = { intent ->
             cutTool.onIntent(intent)
@@ -185,6 +207,8 @@ fun PrepareScreen(
     onListIntent: (ObjectListIntent) -> Unit = {},
     cut: CutUiState = CutUiState(),
     onCutIntent: (CutIntent) -> Unit = {},
+    measure: MeasureUiState = MeasureUiState(),
+    onMeasureIntent: (MeasureIntent) -> Unit = {},
     onPickFile: (VolumeKind) -> Unit = {},
     /** The selected object's settings, or one of its parts' ([volume]) or height ranges' ([range]). */
     onOpenObjectSettings: (volume: Int?, range: Int?) -> Unit = { _, _ -> },
@@ -242,14 +266,23 @@ fun PrepareScreen(
                         SimplifyTarget(it.objectIndex, list.selectedVolume, state.simplify)
                     },
                     onSimplifyCounted = { onIntent(PrepareIntent.SimplifyCounted(it)) },
+                    measure = measure.request.takeIf { state.meshTool == MeshTool.MEASURE },
+                    onMeasurePick = { onMeasureIntent(MeasureIntent.Pick(it)) },
+                    onMeasured = { onMeasureIntent(MeasureIntent.Measured(it)) },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
                     PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
                 }
-                if ((state.paint != null || state.meshTool == MeshTool.CUT) && preview == null) {
+                if ((state.paint != null || state.meshTool == MeshTool.CUT || state.meshTool == MeshTool.MEASURE) && preview == null) {
                     Text(
-                        stringResource(if (state.paint != null) R.string.prepare_paint_gestures else R.string.prepare_cut_gestures),
+                        stringResource(
+                            when {
+                                state.paint != null -> R.string.prepare_paint_gestures
+                                state.meshTool == MeshTool.CUT -> R.string.prepare_cut_gestures
+                                else -> R.string.prepare_measure_gestures
+                            },
+                        ),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -305,6 +338,8 @@ fun PrepareScreen(
                 PresetBar(state, onIntent, onOpenSettings)
                 if (preview == null && state.meshTool == MeshTool.CUT) {
                     CutPanel(cut, state.selectedObjectName.orEmpty(), onCutIntent)
+                } else if (preview == null && state.meshTool == MeshTool.MEASURE) {
+                    MeasurePanel(measure, onMeasureIntent)
                 } else if (preview == null && state.meshTool == MeshTool.SIMPLIFY) {
                     SimplifyPanel(state, list.volume?.name, list.busy, onIntent) { settings ->
                         onListIntent(ObjectListIntent.Simplify(list.selectedVolume, settings))
