@@ -93,6 +93,7 @@ constexpr Color kBackground{0.90f, 0.92f, 0.92f, 1.0f};
 constexpr Color kPlate{0.78f, 0.80f, 0.80f, 1.0f};
 constexpr Color kGrid{0.62f, 0.65f, 0.65f, 1.0f};
 constexpr Color kOutline{0.25f, 0.28f, 0.28f, 1.0f};
+constexpr Color kFloor{0.80f, 0.83f, 0.83f, 1.0f};    // faint: just a sense of ground
 constexpr Color kModel{0.00f, 0.55f, 0.55f, 1.0f};
 constexpr Color kSelected{0.95f, 0.55f, 0.10f, 1.0f};
 
@@ -137,7 +138,7 @@ struct Viewport::Impl {
     GlProgram lit_program;
     GlProgram part_program;
     GlProgram line_program;
-    GpuBatch plate, grid, outline;
+    GpuBatch plate, grid, outline, floor;
     // One vertex array per part mesh, shared by the instances that use it.
     std::map<const PartMesh*, GpuBatch> part_batches;
     ToolpathRenderer toolpath_renderer;
@@ -211,6 +212,7 @@ void Viewport::on_surface_created()
     d.plate.abandon();
     d.grid.abandon();
     d.outline.abandon();
+    d.floor.abandon();
     for (auto& [mesh, batch] : d.part_batches)
         batch.abandon();
     d.part_batches.clear();   // re-uploaded at the next frame
@@ -258,6 +260,7 @@ void Viewport::draw()
             d.plate.upload(d.bed_geometry.plate_positions, &d.bed_geometry.plate_normals);
             d.grid.upload(d.bed_geometry.grid_lines, nullptr);
             d.outline.upload(d.bed_geometry.outline_lines, nullptr);
+            d.floor.upload(d.bed_geometry.floor_lines, nullptr);
             d.pending_bed.reset();
         }
         if (d.toolpaths_dirty) {
@@ -302,17 +305,26 @@ void Viewport::draw()
     const Eigen::Matrix4f view_proj = projection * view;
     const Eigen::Vector3f eye = camera.eye();
 
-    d.lit_program.use();
-    glUniformMatrix4fv(d.lit_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
-    glUniform3f(d.lit_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
-    glUniform4f(d.lit_program.uniform("u_color"), kPlate.r, kPlate.g, kPlate.b, kPlate.a);
-    d.plate.draw(GL_TRIANGLES);
+    // From under the bed the plate and its grid are hidden, so the first layer
+    // and the model's underside show; the outline and the floor stay for bearings.
+    const bool below_bed = eye.z() < 0.0f;
+    if (!below_bed) {
+        d.lit_program.use();
+        glUniformMatrix4fv(d.lit_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
+        glUniform3f(d.lit_program.uniform("u_eye"), eye.x(), eye.y(), eye.z());
+        glUniform4f(d.lit_program.uniform("u_color"), kPlate.r, kPlate.g, kPlate.b, kPlate.a);
+        d.plate.draw(GL_TRIANGLES);
+    }
 
     d.line_program.use();
     glUniformMatrix4fv(d.line_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
     const GLint line_color = d.line_program.uniform("u_color");
-    glUniform4f(line_color, kGrid.r, kGrid.g, kGrid.b, kGrid.a);
-    d.grid.draw(GL_LINES);
+    glUniform4f(line_color, kFloor.r, kFloor.g, kFloor.b, kFloor.a);
+    d.floor.draw(GL_LINES);
+    if (!below_bed) {
+        glUniform4f(line_color, kGrid.r, kGrid.g, kGrid.b, kGrid.a);
+        d.grid.draw(GL_LINES);
+    }
     glUniform4f(line_color, kOutline.r, kOutline.g, kOutline.b, kOutline.a);
     d.outline.draw(GL_LINES);
 
