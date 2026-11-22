@@ -77,6 +77,11 @@ class ObjectListViewModel @Inject constructor(
                 _state.update { it.copy(selectedVolume = null) }
                 edit(changesShape = true) { ObjectEdit.SplitToParts(intent.volume) }
             }
+            is ObjectListIntent.Simplify -> edit(changesShape = true) { ObjectEdit.Simplify(intent.volume, intent.settings) }
+            is ObjectListIntent.MeshBoolean -> {
+                _state.update { it.copy(selectedVolume = null) }
+                edit(changesShape = true) { ObjectEdit.MeshBoolean(intent.source, intent.tool, intent.operation, intent.deleteTool) }
+            }
             ObjectListIntent.AddRange -> addRange()
             is ObjectListIntent.SetRange -> edit(changesShape = false) {
                 ObjectEdit.SetRange(intent.range, intent.minZ, intent.maxZ)

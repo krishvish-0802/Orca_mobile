@@ -56,6 +56,11 @@ CutRequest cut_request_from_json(const std::string& payload);
 // "axisY","problems":[..],"canCut","reason","dovetailDepth"}.
 std::string to_json(const CutPreview& preview);
 
+// Simplify: parses {"volume": n or null, "byRatio", "ratio", "detail"} for `object`.
+SimplifyRequest simplify_request_from_json(std::size_t object, const std::string& payload);
+// {"before": n, "after": n}
+std::string to_json(const SimplifyOutcome& outcome);
+
 // {"error": message}, for calls that fail before producing their own result.
 std::string error_json(const std::string& message);
 

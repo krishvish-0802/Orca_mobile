@@ -14,6 +14,7 @@
 #include "JniUtils.hpp"
 #include "nlohmann/json.hpp"
 #include "orca_engine/Json.hpp"
+#include "orca_engine/MeshTools.hpp"
 #include "orca_engine/Painting.hpp"
 #include "orca_engine/Project.hpp"
 
@@ -63,6 +64,20 @@ void apply_edit(Project& project, std::size_t object, const nlohmann::json& edit
         run_on_engine_thread([&] { project.add_volume_from_file(object, kind(), path); });
     } else if (name == "splitToParts") {
         run_on_engine_thread([&] { project.split_to_parts(object, a.at("volume").get<std::size_t>()); });
+    } else if (name == "simplify") {
+        const auto request = json::simplify_request_from_json(object, a.dump());
+        run_on_engine_thread([&] { orca::engine::simplify(project, request); });
+    } else if (name == "boolean") {
+        orca::engine::BooleanRequest request;
+        request.object = object;
+        request.source = a.at("source").get<std::size_t>();
+        request.tool = a.at("tool").get<std::size_t>();
+        const int operation = a.at("operation").get<int>();
+        if (operation < 0 || operation > 2)
+            throw std::invalid_argument("No such boolean operation");
+        request.operation = static_cast<orca::engine::BooleanOperation>(operation);
+        request.delete_tool = a.value("deleteTool", false);
+        run_on_engine_thread([&] { orca::engine::mesh_boolean(project, request); });
     } else if (name == "removeVolume") {
         project.remove_volume(object, a.at("volume").get<std::size_t>());
     } else if (name == "setKind") {

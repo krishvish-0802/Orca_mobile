@@ -51,6 +51,8 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.SimplifyCounts
+import com.orcamobile.core.model.SimplifyTarget
 import com.orcamobile.core.model.ToolpathColoring
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -133,6 +135,9 @@ fun PlateViewport(
     onCutChecked: (CutCheck) -> Unit = {},
     onCutPlaneTap: (CutPlanePoint) -> Unit = {},
     onCutHeightDrag: (Double) -> Unit = {},
+    /** Previewing Simplify: the result's wireframe over the object; [onSimplifyCounted] gets its triangles. */
+    simplify: SimplifyTarget? = null,
+    onSimplifyCounted: (SimplifyCounts) -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -168,16 +173,30 @@ fun PlateViewport(
     val currentOnCutPlaneTap by rememberUpdatedState(onCutPlaneTap)
     val currentOnCutHeightDrag by rememberUpdatedState(onCutHeightDrag)
     var cutCenter by remember { mutableStateOf<List<Double>?>(null) }
-    // The engine sections the object for every change: off the main thread.
-    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, project, projectRevision) {
+    val currentOnSimplifyCounted by rememberUpdatedState(onSimplifyCounted)
+    val simplifying = simplify.takeIf { project != null && preview == null && !cutting }
+    // One tool's geometry over the plate at a time. The engine sections or
+    // simplifies the object for every change: off the main thread.
+    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, simplifying, project, projectRevision) {
         val request = cut.takeIf { cutting }
-        val checks = withContext(Dispatchers.Default) { surface.showCut(request?.let(MeshToolsJson::encode), cutShowsFace) }
-        if (request == null) {
-            cutCenter = null
-        } else {
-            checks?.let(MeshToolsJson::cutCheck)?.getOrNull()?.let { check ->
-                cutCenter = check.center
-                currentOnCutChecked(check)
+        when {
+            request != null -> {
+                val checks = withContext(Dispatchers.Default) { surface.showCut(MeshToolsJson.encode(request), cutShowsFace) }
+                checks?.let(MeshToolsJson::cutCheck)?.getOrNull()?.let { check ->
+                    cutCenter = check.center
+                    currentOnCutChecked(check)
+                }
+            }
+            simplifying != null -> {
+                cutCenter = null
+                val counts = withContext(Dispatchers.Default) {
+                    surface.showSimplify(simplifying.objectIndex, MeshToolsJson.encode(simplifying.volume, simplifying.settings))
+                }
+                counts?.let(MeshToolsJson::simplifyCounts)?.getOrNull()?.let(currentOnSimplifyCounted)
+            }
+            else -> {
+                cutCenter = null
+                withContext(Dispatchers.Default) { surface.showCut(null) }
             }
         }
     }

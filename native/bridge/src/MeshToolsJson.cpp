@@ -88,4 +88,28 @@ std::string to_json(const CutPreview& p)
     return j.dump();
 }
 
+SimplifyRequest simplify_request_from_json(std::size_t object, const std::string& payload)
+{
+    try {
+        const nlohmann::json j = nlohmann::json::parse(payload);
+        SimplifyRequest r;
+        r.object = object;
+        if (j.contains("volume") && !j["volume"].is_null())
+            r.volume = j["volume"].get<std::size_t>();
+        r.by_ratio = j.value("byRatio", false);
+        r.ratio_percent = j.value("ratio", r.ratio_percent);
+        r.detail = j.value("detail", r.detail);
+        if (r.detail < 0 || r.detail > 4)
+            throw std::runtime_error("No such detail level");
+        return r;
+    } catch (const nlohmann::json::exception& e) {
+        throw std::runtime_error(std::string("Malformed simplify: ") + e.what());
+    }
+}
+
+std::string to_json(const SimplifyOutcome& outcome)
+{
+    return nlohmann::json{{"before", outcome.before}, {"after", outcome.after}}.dump();
+}
+
 } // namespace orca::engine::json

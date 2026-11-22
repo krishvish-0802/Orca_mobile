@@ -11,6 +11,8 @@ add_library(orca_engine_core STATIC
     src/GCodePreview.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/MeshEdits.cpp
+    src/MeshToolsCommon.hpp
     src/MeshToolsJson.cpp
     src/PaintSession.cpp
     src/PlateTools.cpp

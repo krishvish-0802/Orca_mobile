@@ -6,6 +6,12 @@ import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.engine.jni.NativeProgressListener
 import com.orcamobile.core.engine.resources.EngineResources
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.Axes
+import com.orcamobile.core.model.BooleanOperation
+import com.orcamobile.core.model.ObjectEdit
+import com.orcamobile.core.model.PrimitiveShape
+import com.orcamobile.core.model.SimplifySettings
+import com.orcamobile.core.model.VolumeKind
 import com.orcamobile.core.model.ConnectorProblem
 import com.orcamobile.core.model.CutConnector
 import com.orcamobile.core.model.CutConnectorType
@@ -278,6 +284,39 @@ class NativePlateToolsDeviceTest {
         assertTrue(check(dovetail).reason, check(dovetail).canCut)
         assertEquals(2, cut(dovetail).getOrThrow().placed)
         assertTrue(slices("dovetail"))
+    }
+
+    @Test
+    fun simplifiesAndCombinesParts() {
+        load(box("cube", 20f, 20f, 20f))
+        fun edit(edit: ObjectEdit) = EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, EngineJson.encodeObjectEdit(edit))).getOrThrow()
+
+        // A sphere part has triangles to spare.
+        val withSphere = edit(ObjectEdit.AddPrimitive(VolumeKind.PART, PrimitiveShape.SPHERE, 20.0))
+        val sphere = withSphere.details.volumes.lastIndex
+        val before = withSphere.details.volumes[sphere].triangles
+        val halve = SimplifySettings(byRatio = true, ratioPercent = 50.0)
+        val counts = MeshToolsJson.simplifyCounts(
+            NativeEngine.nativeSimplifyPreview(handle, 0, MeshToolsJson.encode(sphere, halve)),
+        ).getOrThrow()
+        assertEquals(before, counts.before)
+        assertTrue("$counts", counts.after in (before / 2 - before / 10)..(before / 2 + before / 10))
+        val simplified = edit(ObjectEdit.Simplify(sphere, halve))
+        assertEquals(counts.after, simplified.details.volumes[sphere].triangles)
+
+        // The sphere half inside the cube: the difference bites it out of the cube.
+        edit(ObjectEdit.VolumeTransform(sphere, Axes(10.0, 0.0, 0.0), Axes(0.0, 0.0, 0.0), Axes(1.0, 1.0, 1.0)))
+        val combined = edit(ObjectEdit.MeshBoolean(0, sphere, BooleanOperation.DIFFERENCE, deleteTool = true))
+        assertEquals(1, combined.details.volumes.size)
+        assertTrue(combined.details.volumes[0].name.endsWith("difference"))
+        assertTrue(combined.details.volumes[0].triangles > 12)
+        assertTrue(combined.objects.single().sizeMm[0] < 20.5)
+        val gcode = File(work, "boolean.gcode")
+        assertTrue(NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+        // The same part twice is refused.
+        assertTrue(EngineJson.objectUpdate(
+            NativeEngine.nativeObjectEdit(handle, 0, EngineJson.encodeObjectEdit(ObjectEdit.MeshBoolean(0, 0, BooleanOperation.UNION, false))),
+        ).isFailure)
     }
 
     /** Two 10 mm cubes 20 mm apart in one STL. */

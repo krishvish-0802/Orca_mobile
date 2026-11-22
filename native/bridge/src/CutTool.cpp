@@ -15,6 +15,7 @@
 #include "libslic3r/Tesselate.hpp"
 #include "libslic3r/TriangleMesh.hpp"
 #include "libslic3r/TriangleMeshSlicer.hpp"
+#include "MeshToolsCommon.hpp"
 
 namespace orca::engine {
 
@@ -363,14 +364,7 @@ std::vector<std::size_t> cut(Project& project, const CutRequest& request)
             model.add_object(*piece);
         model.delete_object(request.via.object);
         for (std::size_t i = before - 1; i < model.objects.size(); ++i) {
-            Slic3r::ModelObject& piece = *model.objects[i];
-            piece.invalidate_bounding_box();
-            for (std::size_t k = 0; k < piece.instances.size(); ++k) {
-                const double min_z = piece.instance_bounding_box(k).min.z();
-                if (std::isfinite(min_z) && min_z != 0.0)
-                    piece.translate_instance(k, Vec3d(0, 0, -min_z));
-            }
-            piece.invalidate_bounding_box();
+            detail::settle_on_bed(*model.objects[i]);
             created.push_back(i);
         }
     });

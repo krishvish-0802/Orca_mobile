@@ -1,11 +1,13 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.model.BooleanOperation
 import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.ObjectDetails
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrimitiveShape
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.SimplifySettings
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.VolumeInfo
 import com.orcamobile.core.model.VolumeKind
@@ -62,6 +64,12 @@ sealed interface ObjectListIntent {
 
     /** The part's separate pieces become parts of their own. */
     data class SplitToParts(val volume: Int) : ObjectListIntent
+
+    /** Fewer triangles in [volume], or in every part when null. */
+    data class Simplify(val volume: Int?, val settings: SimplifySettings) : ObjectListIntent
+
+    /** Combines two volumes; the result takes [source]'s place. */
+    data class MeshBoolean(val source: Int, val tool: Int, val operation: BooleanOperation, val deleteTool: Boolean) : ObjectListIntent
 
     /** A change in the placement panel, applied to the selected volume within its object. */
     data class EditVolume(val edit: TransformEdit) : ObjectListIntent

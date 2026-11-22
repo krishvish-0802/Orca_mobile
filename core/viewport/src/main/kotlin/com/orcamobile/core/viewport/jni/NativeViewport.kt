@@ -59,6 +59,9 @@ internal object NativeViewport {
 
     @JvmStatic external fun nativeCutHide(handle: Long)
 
+    /** Shows what simplifying would leave as a wireframe; `{"before","after"}` or `{"error"}`. */
+    @JvmStatic external fun nativeSimplifyShow(handle: Long, projectHandle: Long, objectIndex: Int, requestJson: String): String
+
     /** Where a screen point lands on the cut plane: `{"u","v","inside"}`, or `{}`. */
     @JvmStatic external fun nativeCutPointAt(handle: Long, projectHandle: Long, requestJson: String, x: Float, y: Float): String
 

@@ -87,6 +87,7 @@ struct Overlay {
         bool lines = false;                // pairs of vertices; else triples
         std::array<float, 4> color{1, 1, 1, 1};   // alpha < 1 draws it see-through
         bool on_top = false;               // not hidden by the model
+        float line_width = 3.f;            // px, for lines
     };
     std::vector<Shape> shapes;
 };

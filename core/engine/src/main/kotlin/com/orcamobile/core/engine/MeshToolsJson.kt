@@ -4,8 +4,13 @@ import com.orcamobile.core.model.ConnectorProblem
 import com.orcamobile.core.model.CutCheck
 import com.orcamobile.core.model.CutPlanePoint
 import com.orcamobile.core.model.CutRequest
+import com.orcamobile.core.model.SimplifyCounts
+import com.orcamobile.core.model.SimplifySettings
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.addJsonObject
 import kotlinx.serialization.json.buildJsonObject
@@ -91,6 +96,28 @@ object MeshToolsJson {
         json.decodeFromString(PlanePointDto.serializer(), payload).takeIf { it.u != null && it.v != null }
             ?.let { CutPlanePoint(it.u!!, it.v!!, it.inside) }
     }.getOrNull()
+
+    /** Simplify's arguments: `{"volume": n or null, "byRatio", "ratio", "detail"}`. */
+    fun simplifyArguments(volume: Int?, settings: SimplifySettings): Map<String, JsonElement> = mapOf(
+        "volume" to (volume?.let { JsonPrimitive(it) } ?: JsonNull),
+        "byRatio" to JsonPrimitive(settings.byRatio),
+        "ratio" to JsonPrimitive(settings.ratioPercent),
+        "detail" to JsonPrimitive(settings.detail.nativeValue),
+    )
+
+    fun encode(volume: Int?, settings: SimplifySettings): String = JsonObject(simplifyArguments(volume, settings)).toString()
+
+    fun simplifyCounts(payload: String): Result<SimplifyCounts> = runCatching {
+        val element = json.parseToJsonElement(payload)
+        if (element is JsonObject && "error" in element) {
+            throw EngineException(element["error"]?.jsonPrimitive?.contentOrNull ?: "Unknown engine error")
+        }
+        val dto = json.decodeFromJsonElement(SimplifyCountsDto.serializer(), element)
+        SimplifyCounts(dto.before, dto.after)
+    }
+
+    @Serializable
+    private data class SimplifyCountsDto(val before: Long = 0, val after: Long = 0)
 
     @Serializable
     private data class CutCheckDto(

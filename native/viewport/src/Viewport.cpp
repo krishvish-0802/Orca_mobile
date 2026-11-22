@@ -287,8 +287,11 @@ struct Viewport::Impl {
                     line_program.use();
                     glUniformMatrix4fv(line_program.uniform("u_mvp"), 1, GL_FALSE, view_proj.data());
                     glUniform4f(line_program.uniform("u_color"), shape.color[0], shape.color[1], shape.color[2], shape.color[3]);
-                    glLineWidth(3.0f);
+                    glLineWidth(shape.line_width);
+                    // Lines on a surface: pulled slightly toward the camera so they win the depth test.
+                    glDepthRangef(0.0f, 0.99995f);
                     overlay_batches[i].draw(GL_LINES);
+                    glDepthRangef(0.0f, 1.0f);
                     glLineWidth(1.0f);
                 } else {
                     part_program.use();

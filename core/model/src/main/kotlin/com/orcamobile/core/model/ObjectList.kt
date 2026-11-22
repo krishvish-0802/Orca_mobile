@@ -91,6 +91,15 @@ sealed interface ObjectEdit {
 
     data class SetKind(val volume: Int, val kind: VolumeKind) : ObjectEdit
 
+    /** Fewer triangles in a part, or in every part when [volume] is null. */
+    data class Simplify(val volume: Int?, val settings: SimplifySettings) : ObjectEdit
+
+    /**
+     * Combines two volumes; the result takes [source]'s place. A union uses up
+     * [tool]; a difference or intersection keeps it unless [deleteTool].
+     */
+    data class MeshBoolean(val source: Int, val tool: Int, val operation: BooleanOperation, val deleteTool: Boolean) : ObjectEdit
+
     /** Renames a volume, or the object when [volume] is null. */
     data class Rename(val volume: Int?, val name: String) : ObjectEdit
 

@@ -140,6 +140,13 @@ internal object EngineJson {
             is ObjectEdit.RemoveVolume -> "removeVolume" to mapOf("volume" to JsonPrimitive(edit.volume))
             is ObjectEdit.SplitToParts -> "splitToParts" to mapOf("volume" to JsonPrimitive(edit.volume))
             is ObjectEdit.SetKind -> "setKind" to mapOf("volume" to JsonPrimitive(edit.volume), "kind" to JsonPrimitive(edit.kind.nativeValue))
+            is ObjectEdit.Simplify -> "simplify" to MeshToolsJson.simplifyArguments(edit.volume, edit.settings)
+            is ObjectEdit.MeshBoolean -> "boolean" to mapOf(
+                "source" to JsonPrimitive(edit.source),
+                "tool" to JsonPrimitive(edit.tool),
+                "operation" to JsonPrimitive(edit.operation.nativeValue),
+                "deleteTool" to JsonPrimitive(edit.deleteTool),
+            )
             is ObjectEdit.Rename -> "rename" to buildMap {
                 edit.volume?.let { put("volume", JsonPrimitive(it)) }
                 put("name", JsonPrimitive(edit.name))

@@ -109,3 +109,22 @@ data class CutCheck(
 
 /** A tap on the cut plane: mm from its center, and whether that is on the object's section. */
 data class CutPlanePoint(val u: Double, val v: Double, val insideSection: Boolean)
+
+/** How much detail Simplify keeps: how far the shape may move ([nativeValue] is the desktop's level). */
+enum class SimplifyDetail(val nativeValue: Int) { EXTRA_HIGH(0), HIGH(1), MEDIUM(2), LOW(3), EXTRA_LOW(4) }
+
+/** The desktop's Simplify: to a detail level, or removing [ratioPercent] of the triangles. */
+data class SimplifySettings(
+    val byRatio: Boolean = false,
+    val ratioPercent: Double = 50.0,
+    val detail: SimplifyDetail = SimplifyDetail.MEDIUM,
+)
+
+/** Triangles before and after simplifying. */
+data class SimplifyCounts(val before: Long, val after: Long)
+
+/** What Simplify works on: a part of the object, or all its parts when [volume] is null. */
+data class SimplifyTarget(val objectIndex: Int, val volume: Int?, val settings: SimplifySettings)
+
+/** The desktop's Mesh boolean between two parts ([nativeValue] is the bridge's BooleanOperation). */
+enum class BooleanOperation(val nativeValue: Int) { UNION(0), DIFFERENCE(1), INTERSECTION(2) }

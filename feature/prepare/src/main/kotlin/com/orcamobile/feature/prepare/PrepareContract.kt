@@ -17,6 +17,8 @@ import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectSummary
+import com.orcamobile.core.model.SimplifyCounts
+import com.orcamobile.core.model.SimplifySettings
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
 
@@ -57,13 +59,19 @@ data class PrepareUiState(
     val paint: PaintBrush? = null,
     /** Grows to erase everything painted of the brush's kind on the selected object. */
     val paintClearRequest: Int = 0,
-    /** A mesh tool open on the selected object; the plate belongs to it meanwhile. */
+    /**
+     * A mesh tool open on the selected object; the plate belongs to it meanwhile
+     * (the plate tools are hidden and the plate does not move the objects).
+     */
     val meshTool: MeshTool? = null,
+    /** Simplify's settings, kept between uses, and what the preview would leave. */
+    val simplify: SimplifySettings = SimplifySettings(),
+    val simplifyCounts: SimplifyCounts? = null,
 ) {
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
         get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
-            paint == null && meshTool == null
+            paint == null
 
     /** The paint kinds offered: colour needs more than one filament. */
     val paintKinds: List<PaintKind>
@@ -77,7 +85,7 @@ data class PrepareUiState(
 enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE, SPLIT }
 
 /** The desktop's mesh tools, each with a view model of its own. */
-enum class MeshTool { CUT }
+enum class MeshTool { CUT, SIMPLIFY }
 
 sealed interface PlateNotice {
     /** Arranging left [count] instances beside the bed: they did not fit. */
@@ -192,6 +200,11 @@ sealed interface PrepareIntent {
     data class OpenMeshTool(val tool: MeshTool) : PrepareIntent
 
     data object CloseMeshTool : PrepareIntent
+
+    data class SetSimplify(val settings: SimplifySettings) : PrepareIntent
+
+    /** The plate previewed Simplify. */
+    data class SimplifyCounted(val counts: SimplifyCounts) : PrepareIntent
 
     /** The cut tool replaced the object by [pieces] objects; the plate holds [objects] now. */
     data class Cut(val objects: List<ModelObjectInfo>, val pieces: Int) : PrepareIntent

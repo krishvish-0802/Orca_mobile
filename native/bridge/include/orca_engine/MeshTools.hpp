@@ -1,9 +1,11 @@
 #pragma once
 
-// The desktop's mesh tools on the plate: Cut (GLGizmoCut3D).
+// The desktop's mesh tools on the plate: Cut (GLGizmoCut3D), Simplify
+// (GLGizmoSimplify) and Mesh boolean (GLGizmoMeshBoolean).
 
 #include <array>
 #include <cstddef>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -109,5 +111,50 @@ PlanePoint cut_plane_point(const Project& project, const CutRequest& request, co
 // Throws std::invalid_argument when the cut cannot be made (nothing kept, a
 // connector that does not fit, a plane that misses the object).
 std::vector<std::size_t> cut(Project& project, const CutRequest& request);
+
+// --- Simplify ---
+
+// The desktop's Simplify: down to a detail level (how far the shape may move),
+// or by a share of the triangles.
+struct SimplifyRequest {
+    std::size_t object = 0;
+    std::optional<std::size_t> volume;   // none: every part of the object
+    bool by_ratio = false;
+    double ratio_percent = 50;           // the share of triangles to remove (the desktop's "Decimate ratio")
+    int detail = 2;                      // 0 extra high, 1 high, 2 medium, 3 low, 4 extra low
+};
+
+struct SimplifyOutcome {
+    std::size_t before = 0;              // triangles of the parts simplified
+    std::size_t after = 0;
+    std::vector<float> wireframe;        // preview only: the result's edges as segments, world, first instance
+};
+
+// What simplifying would leave, without changing the model. The wireframe is
+// left out past kMaxWireframeTriangles. Throws std::out_of_range for a bad index.
+SimplifyOutcome simplify_preview(const Project& project, const SimplifyRequest& request);
+// Simplifies, keeping paint, and leaves the object on the bed.
+SimplifyOutcome simplify(Project& project, const SimplifyRequest& request);
+
+constexpr std::size_t kMaxWireframeTriangles = 400000;
+
+// --- Mesh boolean ---
+
+enum class BooleanOperation : int { Union = 0, Difference = 1, Intersection = 2 };
+
+// Two volumes of one object combined as the desktop's Mesh boolean: the result
+// takes the source's place, name, kind and settings. A union always uses up the
+// tool; a difference or intersection keeps it unless `delete_tool`.
+struct BooleanRequest {
+    std::size_t object = 0;
+    std::size_t source = 0;
+    std::size_t tool = 0;
+    BooleanOperation operation = BooleanOperation::Union;
+    bool delete_tool = false;
+};
+
+// Returns the result's index in the object's volumes. Throws std::invalid_argument
+// when the volumes are the same or the operation leaves nothing.
+std::size_t mesh_boolean(Project& project, const BooleanRequest& request);
 
 } // namespace orca::engine

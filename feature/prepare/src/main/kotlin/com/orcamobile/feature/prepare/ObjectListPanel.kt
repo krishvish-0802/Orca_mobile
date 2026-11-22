@@ -48,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import com.orcamobile.core.designsystem.component.NumberField
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.model.BooleanOperation
 import com.orcamobile.core.model.PrimitiveShape
 import com.orcamobile.core.model.VolumeKind
 
@@ -66,6 +67,7 @@ internal fun PartsTab(
     val details = list.details ?: return
     val enabled = plateEditable && !list.busy
     var adding by rememberSaveable { mutableStateOf<VolumeKind?>(null) }
+    var combining by rememberSaveable { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // The desktop's Split to objects and Split to parts.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -81,6 +83,21 @@ internal fun PartsTab(
                 stringResource(R.string.prepare_parts_split_parts),
                 onClick = { splitPart?.let { onListIntent(ObjectListIntent.SplitToParts(it)) } },
                 enabled = enabled && splitPart != null,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        // The desktop's Simplify and Mesh boolean.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TonalPillButton(
+                stringResource(R.string.prepare_parts_simplify),
+                onClick = { onIntent(PrepareIntent.OpenMeshTool(MeshTool.SIMPLIFY)) },
+                enabled = enabled,
+                modifier = Modifier.weight(1f),
+            )
+            TonalPillButton(
+                stringResource(R.string.prepare_parts_boolean),
+                onClick = { combining = true },
+                enabled = enabled && details.volumes.count { it.kind.combinable } >= 2,
                 modifier = Modifier.weight(1f),
             )
         }
@@ -163,6 +180,17 @@ internal fun PartsTab(
                 )
             }
         }
+    }
+    if (combining) {
+        BooleanSheet(
+            volumes = details.volumes.map { it.name to it.kind },
+            selected = list.selectedVolume,
+            onApply = { source, tool, operation, deleteTool ->
+                combining = false
+                onListIntent(ObjectListIntent.MeshBoolean(source, tool, operation, deleteTool))
+            },
+            onDismiss = { combining = false },
+        )
     }
     adding?.let { kind ->
         ShapeSheet(
@@ -287,6 +315,83 @@ private fun ShapeSheet(kind: VolumeKind, onShape: (PrimitiveShape) -> Unit, onFi
             TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.prepare_parts_cancel)) }
         }
     }
+}
+
+/** Parts and negative volumes can be combined, as in the desktop's Mesh boolean. */
+private val VolumeKind.combinable: Boolean get() = this == VolumeKind.PART || this == VolumeKind.NEGATIVE_VOLUME
+
+/**
+ * The desktop's Mesh boolean: union, difference or intersection of two of the
+ * object's parts; the result replaces the source.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun BooleanSheet(
+    volumes: List<Pair<String, VolumeKind>>,
+    selected: Int?,
+    onApply: (source: Int, tool: Int, operation: BooleanOperation, deleteTool: Boolean) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val candidates = volumes.indices.filter { volumes[it].second.combinable }
+    var operation by rememberSaveable { mutableStateOf(BooleanOperation.UNION) }
+    var source by rememberSaveable { mutableStateOf(selected?.takeIf { it in candidates } ?: candidates.first()) }
+    var tool by rememberSaveable { mutableStateOf(candidates.first { it != source }) }
+    var deleteTool by rememberSaveable { mutableStateOf(false) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(stringResource(R.string.prepare_boolean_title), style = MaterialTheme.typography.titleLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (op in BooleanOperation.entries) {
+                    FilterChip(selected = operation == op, onClick = { operation = op }, label = { Text(stringResource(operationLabel(op))) })
+                }
+            }
+            Text(stringResource(R.string.prepare_boolean_source), style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (i in candidates) {
+                    FilterChip(
+                        selected = source == i,
+                        onClick = {
+                            source = i
+                            if (tool == i) tool = candidates.first { it != i }
+                        },
+                        label = { Text(volumes[i].first, maxLines = 1) },
+                    )
+                }
+            }
+            Text(stringResource(R.string.prepare_boolean_tool), style = MaterialTheme.typography.labelLarge)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (i in candidates.filter { it != source }) {
+                    FilterChip(selected = tool == i, onClick = { tool = i }, label = { Text(volumes[i].first, maxLines = 1) })
+                }
+            }
+            if (operation != BooleanOperation.UNION) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.prepare_boolean_delete_tool), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+                    androidx.compose.material3.Switch(checked = deleteTool, onCheckedChange = { deleteTool = it })
+                }
+            }
+            Text(
+                stringResource(R.string.prepare_boolean_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PrimaryPillButton(
+                stringResource(operationLabel(operation)),
+                onClick = { onApply(source, tool, operation, deleteTool) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.prepare_parts_cancel)) }
+        }
+    }
+}
+
+private fun operationLabel(operation: BooleanOperation): Int = when (operation) {
+    BooleanOperation.UNION -> R.string.prepare_boolean_union
+    BooleanOperation.DIFFERENCE -> R.string.prepare_boolean_difference
+    BooleanOperation.INTERSECTION -> R.string.prepare_boolean_intersection
 }
 
 /** The plate's colors for each kind (native/viewport/src/Viewport.cpp), opaque for the list. */

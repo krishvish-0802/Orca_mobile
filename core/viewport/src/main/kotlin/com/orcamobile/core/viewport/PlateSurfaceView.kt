@@ -94,6 +94,17 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         checks
     }
 
+    /** Shows what simplifying would leave on object [objectIndex] as a wireframe; its counts as JSON. */
+    fun showSimplify(objectIndex: Int, requestJson: String): String? = synchronized(toolLock) {
+        cutJson = null
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return null
+        val counts = NativeViewport.nativeSimplifyShow(h, project, objectIndex, requestJson)
+        requestRender()
+        counts
+    }
+
     /** Where a screen point lands on the shown cut's plane, as JSON (`{}` on a miss). */
     fun cutPointAt(x: Float, y: Float): String? = synchronized(toolLock) {
         val json = cutJson ?: return null

@@ -66,6 +66,7 @@ import com.orcamobile.core.designsystem.component.TonalPillButton
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.SimplifyTarget
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
 import com.orcamobile.core.model.VolumeKind
@@ -220,7 +221,7 @@ fun PrepareScreen(
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
-                    locked = state.plateTask != null,
+                    locked = state.plateTask != null || state.meshTool == MeshTool.SIMPLIFY,
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     highlightedVolume = list.selectedVolume,
@@ -237,6 +238,10 @@ fun PrepareScreen(
                     onCutChecked = { onCutIntent(CutIntent.Checked(it)) },
                     onCutPlaneTap = { onCutIntent(CutIntent.TapPlane(it)) },
                     onCutHeightDrag = { onCutIntent(CutIntent.MoveHeight(it)) },
+                    simplify = state.selection?.takeIf { state.meshTool == MeshTool.SIMPLIFY }?.let {
+                        SimplifyTarget(it.objectIndex, list.selectedVolume, state.simplify)
+                    },
+                    onSimplifyCounted = { onIntent(PrepareIntent.SimplifyCounted(it)) },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
@@ -253,7 +258,7 @@ fun PrepareScreen(
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
-                if (preview == null && state.selection != null && state.plateEditable) {
+                if (preview == null && state.selection != null && state.plateEditable && state.meshTool == null) {
                     HandleModePicker(
                         mode = state.handleMode,
                         onMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
@@ -300,6 +305,11 @@ fun PrepareScreen(
                 PresetBar(state, onIntent, onOpenSettings)
                 if (preview == null && state.meshTool == MeshTool.CUT) {
                     CutPanel(cut, state.selectedObjectName.orEmpty(), onCutIntent)
+                } else if (preview == null && state.meshTool == MeshTool.SIMPLIFY) {
+                    SimplifyPanel(state, list.volume?.name, list.busy, onIntent) { settings ->
+                        onListIntent(ObjectListIntent.Simplify(list.selectedVolume, settings))
+                        onIntent(PrepareIntent.CloseMeshTool)
+                    }
                 } else if (preview == null && state.paint != null) {
                     PaintPanel(state, onIntent, list.fuzzySkinDisabled) {
                         onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)

@@ -77,6 +77,9 @@ internal object NativeEngine {
     /** Cuts: `{"placed": how many pieces, "objects":[..]}` or `{"error": ...}`. */
     @JvmStatic external fun nativeCutPerform(handle: Long, requestJson: String): String
 
+    /** What simplifying would leave (MeshToolsJson.encode(volume, settings)): `{"before","after"}` or `{"error"}`. */
+    @JvmStatic external fun nativeSimplifyPreview(handle: Long, objectIndex: Int, requestJson: String): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

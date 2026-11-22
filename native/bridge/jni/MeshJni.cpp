@@ -132,6 +132,45 @@ jstring native_cut_point_at(JNIEnv* env, jclass, jlong viewport_handle, jlong pr
     }
 }
 
+// What simplifying would leave: {"before","after"}, or {"error"}.
+jstring native_simplify_preview(JNIEnv* env, jclass, jlong project_handle, jint object, jstring request_json)
+{
+    auto* project = from_handle<Project>(project_handle);
+    if (project == nullptr || object < 0)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const auto request = json::simplify_request_from_json(std::size_t(object), to_std_string(env, request_json));
+        orca::engine::SimplifyOutcome outcome;
+        run_on_engine_thread([&] { outcome = orca::engine::simplify_preview(*project, request); });
+        return to_jstring(env, json::to_json(outcome));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// Shows what simplifying would leave as a wireframe over the object; returns
+// its counts as nativeSimplifyPreview.
+jstring native_simplify_show(JNIEnv* env, jclass, jlong viewport_handle, jlong project_handle, jint object,
+                             jstring request_json)
+{
+    auto* v = from_handle<Viewport>(viewport_handle);
+    auto* project = from_handle<Project>(project_handle);
+    if (v == nullptr || project == nullptr || object < 0)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const auto request = json::simplify_request_from_json(std::size_t(object), to_std_string(env, request_json));
+        orca::engine::SimplifyOutcome outcome = orca::engine::simplify_preview(*project, request);
+        auto overlay = std::make_shared<orca::viewport::Overlay>();
+        overlay->shapes.push_back(shape(std::move(outcome.wireframe), true, {0.10f, 0.10f, 0.12f, 1.0f}));
+        overlay->shapes.back().line_width = 1.f;
+        v->set_overlay(overlay);
+        v->set_cut_view(std::nullopt);
+        return to_jstring(env, json::to_json(outcome));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 // How far (mm) a vertical drag between two screen points moves a point at
 // (ax, ay, az) up or down; NaN when the camera looks straight down.
 jfloat native_vertical_drag(JNIEnv*, jclass, jlong viewport_handle, jfloat ax, jfloat ay, jfloat az, jfloat x0, jfloat y0,
@@ -148,11 +187,13 @@ jfloat native_vertical_drag(JNIEnv*, jclass, jlong viewport_handle, jfloat ax, j
 const JNINativeMethod kEngineMethods[] = {
     {"nativeCutPreview", "(J" STR ")" STR, reinterpret_cast<void*>(native_cut_preview)},
     {"nativeCutPerform", "(J" STR ")" STR, reinterpret_cast<void*>(native_cut_perform)},
+    {"nativeSimplifyPreview", "(JI" STR ")" STR, reinterpret_cast<void*>(native_simplify_preview)},
 };
 const JNINativeMethod kViewportMethods[] = {
     {"nativeCutShow", "(JJ" STR "Z)" STR, reinterpret_cast<void*>(native_cut_show)},
     {"nativeCutHide", "(J)V", reinterpret_cast<void*>(native_cut_hide)},
     {"nativeCutPointAt", "(JJ" STR "FF)" STR, reinterpret_cast<void*>(native_cut_point_at)},
+    {"nativeSimplifyShow", "(JJI" STR ")" STR, reinterpret_cast<void*>(native_simplify_show)},
     {"nativeVerticalDrag", "(JFFFFFFF)F", reinterpret_cast<void*>(native_vertical_drag)},
 };
 #undef STR

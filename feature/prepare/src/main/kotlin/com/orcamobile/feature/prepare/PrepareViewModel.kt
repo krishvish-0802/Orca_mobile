@@ -144,9 +144,17 @@ class PrepareViewModel @Inject constructor(
                 }
             }
             is PrepareIntent.OpenMeshTool -> _state.update {
-                if (it.selection != null && it.plateEditable) it.copy(meshTool = intent.tool, layingOnFace = false) else it
+                if (it.selection != null && it.plateEditable) {
+                    it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null)
+                } else {
+                    it
+                }
             }
-            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null) }
+            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null, simplifyCounts = null) }
+            is PrepareIntent.SetSimplify -> _state.update { it.copy(simplify = intent.settings) }
+            is PrepareIntent.SimplifyCounted -> _state.update {
+                if (it.meshTool == MeshTool.SIMPLIFY) it.copy(simplifyCounts = intent.counts) else it
+            }
             is PrepareIntent.Cut -> {
                 _state.update {
                     it.copy(
