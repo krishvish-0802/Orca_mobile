@@ -82,14 +82,16 @@ struct SettingTarget {
 enum class SettingScope : int { Object = 0, Volume = 1, LayerRange = 2 };
 std::vector<std::string> setting_keys(SettingScope scope);
 
-// An object's mesh for drawing: every volume's triangles in object
-// coordinates, model parts first, with which volume each run is.
+// An object's mesh for drawing: every volume's triangles in that volume's own
+// coordinates, model parts first, with which volume each run is and where the
+// volume sits in the object (column-major 4x4).
 struct ObjectMesh {
     struct Piece {
         std::size_t volume = 0;
         VolumeKind kind = VolumeKind::ModelPart;
         std::size_t first_triangle = 0;
         std::size_t triangle_count = 0;
+        std::array<double, 16> transform{};
     };
     std::vector<float> positions;   // x, y, z per vertex, three vertices per triangle
     std::vector<Piece> pieces;
@@ -180,6 +182,14 @@ public:
     InstanceTransform volume_transform(std::size_t object, std::size_t volume) const;
     void set_volume_transform(std::size_t object, std::size_t volume, const std::array<double, 3>& position,
                               const std::array<double, 3>& rotation_deg, const std::array<double, 3>& scale);
+    // A volume's placement in its object, column-major 4x4.
+    std::array<double, 16> volume_matrix(std::size_t object, std::size_t volume) const;
+    // Gestures on the plate, seen through instance `via`: move a volume by a
+    // world distance (mm), or turn it about the vertical through its center.
+    void translate_volume(const InstanceRef& via, std::size_t volume, const std::array<double, 3>& world_delta);
+    void rotate_volume_z(const InstanceRef& via, std::size_t volume, double radians);
+    // Where a volume's center is on the plate, through instance `via` (mm).
+    std::array<double, 3> volume_center(const InstanceRef& via, std::size_t volume) const;
 
     void set_setting(const SettingTarget& target, const std::string& key, const std::string& value);
     void reset_setting(const SettingTarget& target, const std::string& key);

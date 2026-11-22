@@ -189,13 +189,16 @@ ObjectMesh Project::object_mesh(std::size_t object_index) const
             if (volume.is_model_part() != (pass == 0))
                 continue;
             const indexed_triangle_set& its = volume.mesh().its;
-            const Slic3r::Transform3f matrix = volume.get_matrix().cast<float>();
             for (const auto& face : its.indices)
                 for (int k = 0; k < 3; ++k) {
-                    const Slic3r::Vec3f p = matrix * its.vertices[face[k]];
+                    const Slic3r::Vec3f& p = its.vertices[face[k]];
                     mesh.positions.insert(mesh.positions.end(), {p.x(), p.y(), p.z()});
                 }
-            mesh.pieces.push_back({v, to_kind(volume.type()), triangles, its.indices.size()});
+            ObjectMesh::Piece piece{v, to_kind(volume.type()), triangles, its.indices.size(), {}};
+            const Slic3r::Transform3d& matrix = volume.get_matrix();
+            for (int i = 0; i < 16; ++i)
+                piece.transform[i] = matrix.matrix().data()[i];
+            mesh.pieces.push_back(piece);
             triangles += its.indices.size();
         }
     }
@@ -312,6 +315,73 @@ void Project::set_volume_transform(std::size_t object_index, std::size_t volume_
     volume.set_scaling_factor(Slic3r::Vec3d(scale[0], scale[1], scale[2]));
     object.invalidate_bounding_box();
     m_impl->settle_all(object_index);
+}
+
+std::array<double, 16> Project::volume_matrix(std::size_t object_index, std::size_t volume_index) const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    const Slic3r::Transform3d& matrix = volume_of(m_impl->object(object_index), volume_index).get_matrix();
+    std::array<double, 16> out{};
+    for (int i = 0; i < 16; ++i)
+        out[i] = matrix.matrix().data()[i];
+    return out;
+}
+
+namespace {
+
+// The instance's rotation and scale, to turn world directions into object ones.
+Slic3r::Matrix3d instance_linear(const Slic3r::ModelInstance& instance)
+{
+    return instance.get_matrix_no_offset().matrix().topLeftCorner<3, 3>();
+}
+
+} // namespace
+
+void Project::translate_volume(const InstanceRef& via, std::size_t volume_index, const std::array<double, 3>& world_delta)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    const Slic3r::ModelInstance& instance = m_impl->instance(via);
+    ModelObject& object = m_impl->object(via.object);
+    ModelVolume& volume = volume_of(object, volume_index);
+    const Slic3r::Vec3d delta(world_delta[0], world_delta[1], world_delta[2]);
+    if (!delta.allFinite())
+        return;
+    volume.set_offset(volume.get_offset() + instance_linear(instance).inverse() * delta);
+    object.invalidate_bounding_box();
+    if (volume.is_model_part())
+        m_impl->settle_all(via.object);
+}
+
+void Project::rotate_volume_z(const InstanceRef& via, std::size_t volume_index, double radians)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!std::isfinite(radians) || radians == 0.0)
+        return;
+    const Slic3r::ModelInstance& instance = m_impl->instance(via);
+    ModelObject& object = m_impl->object(via.object);
+    ModelVolume& volume = volume_of(object, volume_index);
+    // A turn about the world's vertical, written in the object's coordinates,
+    // about the volume's own center.
+    const Slic3r::Matrix3d linear = instance_linear(instance);
+    const Slic3r::Matrix3d turn = linear.inverse() * Eigen::AngleAxisd(radians, Slic3r::Vec3d::UnitZ()).toRotationMatrix() * linear;
+    const Slic3r::Vec3d center = volume.get_matrix() * volume.mesh().bounding_box().center();
+    Slic3r::Transform3d about = Slic3r::Transform3d::Identity();
+    about.translate(center);
+    about.linear() = turn;
+    about.translate(-center);
+    volume.set_transformation(Slic3r::Geometry::Transformation(about * volume.get_matrix()));
+    object.invalidate_bounding_box();
+    if (volume.is_model_part())
+        m_impl->settle_all(via.object);
+}
+
+std::array<double, 3> Project::volume_center(const InstanceRef& via, std::size_t volume_index) const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    const Slic3r::ModelInstance& instance = m_impl->instance(via);
+    const ModelVolume& volume = volume_of(m_impl->object(via.object), volume_index);
+    const Slic3r::Vec3d center = instance.get_matrix() * (volume.get_matrix() * volume.mesh().bounding_box().center());
+    return {center.x(), center.y(), center.z()};
 }
 
 namespace {

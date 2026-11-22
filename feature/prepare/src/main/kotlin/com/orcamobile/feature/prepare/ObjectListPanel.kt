@@ -67,6 +67,11 @@ internal fun PartsTab(
     val enabled = plateEditable && !list.busy
     var adding by rememberSaveable { mutableStateOf<VolumeKind?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            stringResource(if (list.selectedVolume == null) R.string.prepare_parts_hint else R.string.prepare_parts_hint_selected),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         details.volumes.forEachIndexed { index, volume ->
             val selected = list.selectedVolume == index
             Row(

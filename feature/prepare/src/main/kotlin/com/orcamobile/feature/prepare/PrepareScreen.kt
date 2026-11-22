@@ -124,7 +124,11 @@ fun PrepareRoute(
     PrepareScreen(
         state = state,
         list = list,
-        onIntent = viewModel::onIntent,
+        onIntent = { intent ->
+            viewModel.onIntent(intent)
+            // A drag or twist on the plate may have moved a volume: the list shows where it is now.
+            if (intent == PrepareIntent.PlateEdited) objectList.onIntent(ObjectListIntent.Refresh)
+        },
         onListIntent = objectList::onIntent,
         onPickFile = { kind ->
             pickingFor = kind
@@ -189,6 +193,9 @@ fun PrepareScreen(
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     highlightedVolume = list.selectedVolume,
+                    onVolumeSelectionChange = { instance, volume ->
+                        onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
+                    },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null) {

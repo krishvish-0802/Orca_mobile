@@ -33,18 +33,20 @@ bool hits_box(const Eigen::AlignedBox3f& box, const Eigen::Vector3f& o, const Ei
 
 } // namespace
 
-Eigen::AlignedBox3f bounds_of(const PartMesh& mesh)
+Eigen::AlignedBox3f bounds_of(const PartMesh& mesh, std::size_t first, std::size_t count)
 {
     Eigen::AlignedBox3f box;
     const auto& p = mesh.positions;
-    for (size_t i = 0; i + 2 < p.size(); i += 3)
+    const std::size_t end = std::min(p.size(), (first + count) * 9);
+    for (std::size_t i = first * 9; i + 2 < end; i += 3)
         box.extend(Eigen::Vector3f(p[i], p[i + 1], p[i + 2]));
     return box;
 }
 
-std::optional<float> intersect(const PartMesh& mesh, const Eigen::AlignedBox3f& local_box,
-                               const Eigen::Matrix4f& transform, const Eigen::Vector3f& origin,
-                               const Eigen::Vector3f& direction, std::size_t* triangle)
+std::optional<float> intersect(const PartMesh& mesh, std::size_t first, std::size_t count,
+                               const Eigen::AlignedBox3f& local_box, const Eigen::Matrix4f& transform,
+                               const Eigen::Vector3f& origin, const Eigen::Vector3f& direction,
+                               std::size_t* triangle)
 {
     if (local_box.isEmpty())
         return std::nullopt;
@@ -60,8 +62,8 @@ std::optional<float> intersect(const PartMesh& mesh, const Eigen::AlignedBox3f& 
     constexpr float kEpsilon = 1e-9f;
     float nearest = std::numeric_limits<float>::infinity();
     const auto& p = mesh.positions;
-    const size_t end = std::min(p.size(), mesh.pickable_triangles() * 9);
-    for (size_t i = 0; i + 8 < end; i += 9) {
+    const size_t end = std::min(p.size(), (first + count) * 9);
+    for (size_t i = first * 9; i + 8 < end; i += 9) {
         const Eigen::Vector3f v0(p[i], p[i + 1], p[i + 2]);
         const Eigen::Vector3f e1 = Eigen::Vector3f(p[i + 3], p[i + 4], p[i + 5]) - v0;
         const Eigen::Vector3f e2 = Eigen::Vector3f(p[i + 6], p[i + 7], p[i + 8]) - v0;

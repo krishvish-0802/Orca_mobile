@@ -16,6 +16,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -49,6 +50,8 @@ internal fun ObjectPanel(
 ) {
     val transform = state.transform ?: return
     var tab by rememberSaveable { mutableStateOf(ObjectTab.PLACEMENT) }
+    // A volume picked on the plate opens the Parts tab.
+    LaunchedEffect(list.selectedVolume) { if (list.selectedVolume != null) tab = ObjectTab.PARTS }
     val enabled = state.plateEditable
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

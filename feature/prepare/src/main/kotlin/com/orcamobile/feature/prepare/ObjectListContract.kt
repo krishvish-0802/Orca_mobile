@@ -41,7 +41,11 @@ sealed interface ObjectListIntent {
     /** Shows [context]'s object, or nothing. */
     data class Show(val context: ObjectListContext?) : ObjectListIntent
 
-    data class SelectVolume(val volume: Int?) : ObjectListIntent
+    /**
+     * Picks a volume of the shown object, or of object [objectIndex] when given:
+     * the plate may pick one on another object, which the list shows next.
+     */
+    data class SelectVolume(val volume: Int?, val objectIndex: Int? = null) : ObjectListIntent
 
     data class AddShape(val kind: VolumeKind, val shape: PrimitiveShape) : ObjectListIntent
 

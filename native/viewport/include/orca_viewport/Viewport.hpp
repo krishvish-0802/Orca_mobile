@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <memory>
@@ -34,33 +33,24 @@ enum class VolumeKind : int {
     PaintedModifier = 11,
 };
 
-// A run of an object mesh's triangles that belongs to one of its volumes.
+// A run of an object mesh's triangles that belongs to one of its volumes, in
+// that volume's coordinates; `transform` (column-major 4x4) places the volume in
+// its object.
 struct MeshPiece {
     int volume = 0;                  // index in the object's volumes
     VolumeKind kind = VolumeKind::ModelPart;
     std::size_t first_triangle = 0;
     std::size_t triangle_count = 0;
+    std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
 };
 
-// An object's triangles in its own coordinates (mm): x, y, z per vertex, three
-// vertices per triangle. Shared by every instance of the object. `pieces` says
-// which volume each run of triangles is, model parts first; without pieces the
-// whole mesh is one model part. Only model parts can be picked.
+// An object's triangles: x, y, z per vertex, three vertices per triangle.
+// Shared by every instance of the object. `pieces` says which volume each run
+// of triangles is; without pieces the whole mesh is one model part in object
+// coordinates.
 struct PartMesh {
     std::vector<float> positions;
     std::vector<MeshPiece> pieces;
-
-    // Triangles from the start that belong to model parts.
-    std::size_t pickable_triangles() const
-    {
-        if (pieces.empty())
-            return positions.size() / 9;
-        std::size_t count = 0;
-        for (const MeshPiece& piece : pieces)
-            if (piece.kind == VolumeKind::ModelPart)
-                count = std::max(count, piece.first_triangle + piece.triangle_count);
-        return count;
-    }
 };
 
 // Identifies an instance on the plate: object and instance index, as the engine numbers them.
@@ -122,6 +112,22 @@ public:
 
     // The instance under a screen point, nearest first; none if the point hits no part.
     std::optional<PartRef> pick(float x_px, float y_px) const;
+    // The volume under a screen point: the nearest volume that is not a part
+    // (they are drawn see-through, so one inside a part can be tapped), else the
+    // nearest part.
+    struct VolumeHit {
+        PartRef part;
+        int volume = 0;
+        VolumeKind kind = VolumeKind::ModelPart;
+    };
+    std::optional<VolumeHit> pick_volume(float x_px, float y_px) const;
+    // Moves a volume within its object (every instance of it shows the change).
+    void set_volume_transform(int object, int volume, const std::array<float, 16>& transform);
+    std::optional<int> highlighted_volume() const;
+    // How far a vertical drag from (x0, y0) to (x1, y1) moves a point at
+    // `anchor` (world, mm) up or down: on the upright plane through it facing the camera.
+    std::optional<float> vertical_drag(const std::array<float, 3>& anchor, float x0, float y0, float x1, float y1) const;
+
     // The instance under a screen point and the normal (world, unit) of the face
     // hit there, turned toward the camera.
     struct FaceHit {

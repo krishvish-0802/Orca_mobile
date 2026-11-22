@@ -98,10 +98,14 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
             orca::engine::ObjectMesh object = project->object_mesh(ref.object);
             PartMesh part;
             part.positions = std::move(object.positions);
-            for (const auto& piece : object.pieces)
-                part.pieces.push_back({static_cast<int>(piece.volume),
-                                       static_cast<orca::viewport::VolumeKind>(static_cast<int>(piece.kind)),
-                                       piece.first_triangle, piece.triangle_count});
+            for (const auto& piece : object.pieces) {
+                orca::viewport::MeshPiece shown{static_cast<int>(piece.volume),
+                                                static_cast<orca::viewport::VolumeKind>(static_cast<int>(piece.kind)),
+                                                piece.first_triangle, piece.triangle_count};
+                for (int i = 0; i < 16; ++i)
+                    shown.transform[i] = static_cast<float>(piece.transform[i]);
+                part.pieces.push_back(shown);
+            }
             mesh = std::make_shared<const PartMesh>(std::move(part));
         }
         parts.push_back({{static_cast<int>(ref.object), static_cast<int>(ref.instance)}, mesh,
@@ -205,6 +209,96 @@ jlong native_lay_on_face(JNIEnv*, jclass, jlong handle, jlong project_handle, jf
     }
 }
 
+// The volume under a screen point as [object, instance, volume, kind], or null.
+jintArray native_pick_volume(JNIEnv* env, jclass, jlong handle, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return nullptr;
+    const auto hit = v->pick_volume(x, y);
+    if (!hit)
+        return nullptr;
+    const jint values[4] = {hit->part.object, hit->part.instance, hit->volume, static_cast<jint>(hit->kind)};
+    jintArray out = env->NewIntArray(4);
+    if (out != nullptr)
+        env->SetIntArrayRegion(out, 0, 4, values);
+    return out;
+}
+
+// After a volume moved: its placement in the object, and every instance of the
+// object (moving a part can lift them all back onto the bed).
+void show_volume_change(Viewport& v, const orca::engine::Project& project, const PartRef& part, int volume)
+{
+    const auto matrix = project.volume_matrix(static_cast<std::size_t>(part.object), static_cast<std::size_t>(volume));
+    std::array<float, 16> shown{};
+    for (int i = 0; i < 16; ++i)
+        shown[i] = static_cast<float>(matrix[i]);
+    v.set_volume_transform(part.object, volume, shown);
+    for (const orca::engine::InstanceRef& ref : project.instances())
+        if (static_cast<int>(ref.object) == part.object)
+            v.set_part_transform({part.object, static_cast<int>(ref.instance)}, to_float_matrix(project.placement(ref)));
+}
+
+// Runs `change` on the highlighted volume of the selected instance.
+template<class Change>
+jboolean change_volume(jlong handle, jlong project_handle, Change&& change)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const std::optional<PartRef> selection = v->selection();
+    const std::optional<int> volume = v->highlighted_volume();
+    if (!selection || !volume)
+        return JNI_FALSE;
+    try {
+        if (!change(*v, *project, to_instance(*selection), static_cast<std::size_t>(*volume)))
+            return JNI_FALSE;
+        show_volume_change(*v, *project, *selection, *volume);
+        return JNI_TRUE;
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+}
+
+// Slides the highlighted volume by the bed distance between two screen points.
+jboolean native_move_volume(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x0, jfloat y0, jfloat x1, jfloat y1)
+{
+    return change_volume(handle, project_handle, [&](Viewport& v, orca::engine::Project& project,
+                                                     const orca::engine::InstanceRef& ref, std::size_t volume) {
+        const auto from = v.bed_point(x0, y0);
+        const auto to = v.bed_point(x1, y1);
+        if (!from || !to)
+            return false;
+        project.translate_volume(ref, volume, {(*to)[0] - (*from)[0], (*to)[1] - (*from)[1], 0.0});
+        return true;
+    });
+}
+
+// Raises or lowers the highlighted volume by a vertical drag between two screen points.
+jboolean native_lift_volume(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x0, jfloat y0, jfloat x1, jfloat y1)
+{
+    return change_volume(handle, project_handle, [&](Viewport& v, orca::engine::Project& project,
+                                                     const orca::engine::InstanceRef& ref, std::size_t volume) {
+        const auto center = project.volume_center(ref, volume);
+        const auto dz = v.vertical_drag({float(center[0]), float(center[1]), float(center[2])}, x0, y0, x1, y1);
+        if (!dz)
+            return false;
+        project.translate_volume(ref, volume, {0.0, 0.0, *dz});
+        return true;
+    });
+}
+
+// Turns the highlighted volume about the vertical (counter-clockwise seen from above).
+jboolean native_rotate_volume(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat radians)
+{
+    return change_volume(handle, project_handle, [&](Viewport&, orca::engine::Project& project,
+                                                     const orca::engine::InstanceRef& ref, std::size_t volume) {
+        project.rotate_volume_z(ref, volume, radians);
+        return true;
+    });
+}
+
 // Shows a loaded G-code preview's toolpaths; they stay shared with the preview.
 void native_show_preview(JNIEnv*, jclass, jlong handle, jlong preview_handle)
 {
@@ -278,6 +372,10 @@ const JNINativeMethod kMethods[] = {
     {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
     {"nativeLayOnFace", "(JJFF)J", reinterpret_cast<void*>(native_lay_on_face)},
     {"nativeHighlightVolume", "(JI)V", reinterpret_cast<void*>(native_highlight_volume)},
+    {"nativePickVolume", "(JFF)[I", reinterpret_cast<void*>(native_pick_volume)},
+    {"nativeMoveVolume", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_volume)},
+    {"nativeLiftVolume", "(JJFFFF)Z", reinterpret_cast<void*>(native_lift_volume)},
+    {"nativeRotateVolume", "(JJF)Z", reinterpret_cast<void*>(native_rotate_volume)},
     {"nativeShowPreview", "(JJ)V", reinterpret_cast<void*>(native_show_preview)},
     {"nativeClearToolpaths", "(J)V", reinterpret_cast<void*>(native_clear_toolpaths)},
     {"nativeSetLayerRange", "(JII)V", reinterpret_cast<void*>(native_set_layer_range)},

@@ -125,6 +125,27 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private var highlightedVolume: Int? = null
 
+    /** The volume under a point: its instance, its index in the object, and whether it is a part. */
+    fun pickVolume(x: Float, y: Float): VolumeHit? {
+        val h = handle
+        if (h == 0L) return null
+        val hit = NativeViewport.nativePickVolume(h, x, y) ?: return null
+        return VolumeHit(InstanceRef(hit[0], hit[1]), hit[2], isPart = hit[3] == 0)
+    }
+
+    fun moveVolume(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
+        volumeEdit { h, project -> NativeViewport.nativeMoveVolume(h, project, x0, y0, x1, y1) }
+
+    fun liftVolume(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
+        volumeEdit { h, project -> NativeViewport.nativeLiftVolume(h, project, x0, y0, x1, y1) }
+
+    fun rotateVolume(radians: Float): Boolean = volumeEdit { h, project -> NativeViewport.nativeRotateVolume(h, project, radians) }
+
+    private inline fun volumeEdit(action: (Long, Long) -> Boolean): Boolean {
+        if (highlightedVolume == null) return false
+        return edit(action)
+    }
+
     fun setHighlightedVolume(volume: Int?) {
         if (volume == highlightedVolume) return
         highlightedVolume = volume
@@ -217,3 +238,6 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 }
+
+/** A volume hit on the plate: [volume] is its index in the instance's object. */
+data class VolumeHit(val instance: InstanceRef, val volume: Int, val isPart: Boolean)

@@ -41,6 +41,8 @@
     <string name="prepare_parts_from_file">From a file…</string>
     <string name="prepare_parts_add_hint">New shapes appear at the object\'s front right corner. Tap one in the list to move or size it.</string>
     <string name="prepare_parts_cancel">Cancel</string>
+    <string name="prepare_parts_hint">Tap a part or modifier here or on the plate to pick it.</string>
+    <string name="prepare_parts_hint_selected">On the plate: drag it to move it, twist two fingers to turn it, and drag the Z handle to raise or lower it. Tap empty space to finish.</string>
     <string name="prepare_kind_part">Part</string>
     <string name="prepare_kind_negative">Negative volume</string>
     <string name="prepare_kind_modifier">Modifier</string>

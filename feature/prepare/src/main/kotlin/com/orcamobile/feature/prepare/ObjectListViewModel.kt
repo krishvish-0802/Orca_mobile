@@ -43,12 +43,22 @@ class ObjectListViewModel @Inject constructor(
     val events: Flow<ObjectListEvent> = _events.receiveAsFlow()
 
     private var context: ObjectListContext? = null
+    /** A volume picked on an object the list is about to show: (object, volume). */
+    private var pendingVolume: Pair<Int, Int>? = null
     private var job: Job? = null
 
     fun onIntent(intent: ObjectListIntent) {
         when (intent) {
             is ObjectListIntent.Show -> show(intent.context)
-            is ObjectListIntent.SelectVolume -> _state.update { it.copy(selectedVolume = intent.volume) }
+            is ObjectListIntent.SelectVolume -> {
+                val objectIndex = intent.objectIndex
+                if (objectIndex != null && objectIndex != context?.objectIndex) {
+                    pendingVolume = intent.volume?.let { objectIndex to it }
+                } else {
+                    pendingVolume = null
+                    _state.update { it.copy(selectedVolume = intent.volume) }
+                }
+            }
             is ObjectListIntent.AddShape -> {
                 val size = (context?.bedSizeMm ?: DEFAULT_BED_MM) * SHAPE_FRACTION
                 edit(changesShape = true) { ObjectEdit.AddPrimitive(intent.kind, intent.shape, size) }
@@ -86,7 +96,11 @@ class ObjectListViewModel @Inject constructor(
         }
         val sameObject = previous?.project == next.project && previous.objectIndex == next.objectIndex
         if (sameObject && _state.value.details != null && previous?.revision == next.revision) return
-        if (!sameObject) _state.value = ObjectListUiState(project = next.project, objectIndex = next.objectIndex)
+        if (!sameObject) {
+            val picked = pendingVolume?.takeIf { it.first == next.objectIndex }?.second
+            pendingVolume = null
+            _state.value = ObjectListUiState(project = next.project, objectIndex = next.objectIndex, selectedVolume = picked)
+        }
         reload()
     }
 

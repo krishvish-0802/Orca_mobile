@@ -176,4 +176,15 @@ class ObjectListViewModelTest {
         assertNull(vm.state.value.selectedVolume)
         assertEquals(1, vm.state.value.details?.volumes?.size)
     }
+
+    @Test
+    fun `a volume picked on another object is shown once that object is`() {
+        vm.onIntent(ObjectListIntent.Show(context()))
+        vm.onIntent(ObjectListIntent.SelectVolume(0, objectIndex = 3))
+        assertNull(vm.state.value.selectedVolume)
+        vm.onIntent(ObjectListIntent.Show(context().copy(objectIndex = 3)))
+        assertEquals(0, vm.state.value.selectedVolume)
+        vm.onIntent(ObjectListIntent.Show(context().copy(objectIndex = 1)))
+        assertNull(vm.state.value.selectedVolume)
+    }
 }

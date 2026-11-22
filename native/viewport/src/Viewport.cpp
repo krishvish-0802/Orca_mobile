@@ -138,12 +138,33 @@ Eigen::Matrix4f to_matrix(const std::array<float, 16>& m)
     return Eigen::Map<const Eigen::Matrix4f>(m.data());   // column-major, like Eigen
 }
 
+// One volume of a shown instance: its triangles, where it sits in the object,
+// and their bounds in its own coordinates.
+struct PieceState {
+    MeshPiece piece;
+    Eigen::Matrix4f transform;   // volume to object
+    Eigen::AlignedBox3f box;
+};
+
 // A part with what the viewport derives from it.
 struct PartState {
     Part part;
-    Eigen::Matrix4f transform;
-    Eigen::AlignedBox3f local_box;
+    Eigen::Matrix4f transform;   // object to world
+    std::vector<PieceState> pieces;
 };
+
+// An instance's volumes; a mesh without pieces is one model part.
+std::vector<PieceState> pieces_of(const PartMesh& mesh)
+{
+    std::vector<MeshPiece> pieces = mesh.pieces;
+    if (pieces.empty())
+        pieces.push_back({0, VolumeKind::ModelPart, 0, mesh.positions.size() / 9});
+    std::vector<PieceState> states;
+    states.reserve(pieces.size());
+    for (const MeshPiece& piece : pieces)
+        states.push_back({piece, to_matrix(piece.transform), bounds_of(mesh, piece.first_triangle, piece.triangle_count)});
+    return states;
+}
 
 } // namespace
 
@@ -184,14 +205,16 @@ struct Viewport::Impl {
     Eigen::AlignedBox3f parts_box_locked() const
     {
         Eigen::AlignedBox3f box;
-        for (const PartState& state : parts) {
-            if (state.local_box.isEmpty())
-                continue;
-            for (int corner = 0; corner < 8; ++corner) {
-                const Eigen::Vector3f c = state.local_box.corner(static_cast<Eigen::AlignedBox3f::CornerType>(corner));
-                box.extend((state.transform * c.homogeneous()).head<3>());
+        for (const PartState& state : parts)
+            for (const PieceState& piece : state.pieces) {
+                if (piece.box.isEmpty())
+                    continue;
+                const Eigen::Matrix4f placed = state.transform * piece.transform;
+                for (int corner = 0; corner < 8; ++corner) {
+                    const Eigen::Vector3f c = piece.box.corner(static_cast<Eigen::AlignedBox3f::CornerType>(corner));
+                    box.extend((placed * c.homogeneous()).head<3>());
+                }
             }
-        }
         return box;
     }
 
@@ -389,19 +412,12 @@ void Viewport::draw()
             if (batch == d.part_batches.end())
                 continue;
             const bool selected = selection && *selection == state.part.ref;
-            glUniformMatrix4fv(model_matrix, 1, GL_FALSE, state.transform.data());
-            const PartMesh& mesh = *state.part.mesh;
-            if (mesh.pieces.empty()) {
-                if (see_through)
-                    continue;
-                const Color& c = selected ? kSelected : kModel;
-                glUniform4f(part_color, c.r, c.g, c.b, c.a);
-                batch->second.draw(GL_TRIANGLES);
-                continue;
-            }
-            for (const MeshPiece& piece : mesh.pieces) {
+            for (const PieceState& piece_state : state.pieces) {
+                const MeshPiece& piece = piece_state.piece;
                 if ((piece.kind != VolumeKind::ModelPart) != see_through)
                     continue;
+                const Eigen::Matrix4f placed = state.transform * piece_state.transform;
+                glUniformMatrix4fv(model_matrix, 1, GL_FALSE, placed.data());
                 Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
                 if (selected && highlighted_volume && *highlighted_volume == piece.volume)
                     c = piece.kind == VolumeKind::ModelPart ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kHighlightedVolume;
@@ -426,17 +442,17 @@ void Viewport::set_bed(Bed bed)
 
 void Viewport::set_parts(std::vector<Part> parts)
 {
-    std::map<const PartMesh*, Eigen::AlignedBox3f> boxes;
+    std::map<const PartMesh*, std::vector<PieceState>> pieces;
     std::vector<PartState> states;
     states.reserve(parts.size());
     for (Part& part : parts) {
         if (!part.mesh)
             continue;
-        auto box = boxes.find(part.mesh.get());
-        if (box == boxes.end())
-            box = boxes.emplace(part.mesh.get(), bounds_of(*part.mesh)).first;
+        auto found = pieces.find(part.mesh.get());
+        if (found == pieces.end())
+            found = pieces.emplace(part.mesh.get(), pieces_of(*part.mesh)).first;
         const Eigen::Matrix4f transform = to_matrix(part.transform);
-        states.push_back({std::move(part), transform, box->second});
+        states.push_back({std::move(part), transform, found->second});
     }
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     Impl& d = *m_impl;
@@ -470,6 +486,25 @@ void Viewport::set_selection(std::optional<PartRef> selection)
     m_impl->selection = selection;
 }
 
+void Viewport::set_volume_transform(int object, int volume, const std::array<float, 16>& transform)
+{
+    const Eigen::Matrix4f matrix = to_matrix(transform);
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    for (PartState& state : m_impl->parts) {
+        if (state.part.ref.object != object)
+            continue;
+        for (PieceState& piece : state.pieces)
+            if (piece.piece.volume == volume)
+                piece.transform = matrix;
+    }
+}
+
+std::optional<int> Viewport::highlighted_volume() const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->highlighted_volume;
+}
+
 void Viewport::set_highlighted_volume(std::optional<int> volume)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
@@ -484,6 +519,14 @@ std::optional<PartRef> Viewport::selection() const
 
 std::optional<PartRef> Viewport::pick(float x_px, float y_px) const
 {
+    const auto hit = pick_face(x_px, y_px);
+    if (!hit)
+        return std::nullopt;
+    return hit->part;
+}
+
+std::optional<Viewport::VolumeHit> Viewport::pick_volume(float x_px, float y_px) const
+{
     std::vector<PartState> parts;
     Eigen::Vector3f origin, direction;
     {
@@ -493,16 +536,51 @@ std::optional<PartRef> Viewport::pick(float x_px, float y_px) const
         m_impl->camera.ray(x_px, y_px, origin, direction);
         parts = m_impl->parts;
     }
-    std::optional<PartRef> best;
-    float nearest = std::numeric_limits<float>::infinity();
-    for (const PartState& state : parts) {
-        const std::optional<float> t = intersect(*state.part.mesh, state.local_box, state.transform, origin, direction);
-        if (t && *t < nearest) {
-            nearest = *t;
-            best = state.part.ref;
+    std::optional<VolumeHit> part_hit, other_hit;
+    float part_t = std::numeric_limits<float>::infinity();
+    float other_t = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts)
+        for (const PieceState& piece : state.pieces) {
+            const std::optional<float> t = intersect(*state.part.mesh, piece.piece.first_triangle, piece.piece.triangle_count,
+                                                     piece.box, state.transform * piece.transform, origin, direction);
+            if (!t)
+                continue;
+            const bool is_part = piece.piece.kind == VolumeKind::ModelPart;
+            float& nearest = is_part ? part_t : other_t;
+            if (*t < nearest) {
+                nearest = *t;
+                (is_part ? part_hit : other_hit) = VolumeHit{state.part.ref, piece.piece.volume, piece.piece.kind};
+            }
         }
+    return other_hit ? other_hit : part_hit;
+}
+
+std::optional<float> Viewport::vertical_drag(const std::array<float, 3>& anchor, float x0, float y0, float x1, float y1) const
+{
+    Eigen::Vector3f o0, d0, o1, d1;
+    Eigen::Vector3f forward;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        m_impl->camera.ray(x0, y0, o0, d0);
+        m_impl->camera.ray(x1, y1, o1, d1);
     }
-    return best;
+    // The upright plane through the anchor, facing the camera horizontally.
+    Eigen::Vector3f normal(d0.x(), d0.y(), 0.0f);
+    if (normal.norm() < 1e-4f)
+        return std::nullopt;   // looking straight down: no upright plane faces the camera
+    normal.normalize();
+    const Eigen::Vector3f a(anchor[0], anchor[1], anchor[2]);
+    const auto hit = [&](const Eigen::Vector3f& o, const Eigen::Vector3f& d) -> std::optional<Eigen::Vector3f> {
+        const float denominator = d.dot(normal);
+        if (std::abs(denominator) < 1e-6f)
+            return std::nullopt;
+        return o + d * ((a - o).dot(normal) / denominator);
+    };
+    const auto p0 = hit(o0, d0);
+    const auto p1 = hit(o1, d1);
+    if (!p0 || !p1)
+        return std::nullopt;
+    return p1->z() - p0->z();
 }
 
 std::optional<Viewport::FaceHit> Viewport::pick_face(float x_px, float y_px) const
@@ -516,21 +594,26 @@ std::optional<Viewport::FaceHit> Viewport::pick_face(float x_px, float y_px) con
         m_impl->camera.ray(x_px, y_px, origin, direction);
         parts = m_impl->parts;
     }
+    // Only parts: the other volumes are drawn see-through and not printed.
     std::optional<FaceHit> best;
     float nearest = std::numeric_limits<float>::infinity();
-    for (const PartState& state : parts) {
-        std::size_t triangle = 0;
-        const std::optional<float> t =
-            intersect(*state.part.mesh, state.local_box, state.transform, origin, direction, &triangle);
-        if (t && *t < nearest) {
-            nearest = *t;
-            Eigen::Vector3f n = world_normal(*state.part.mesh, triangle, state.transform);
-            // The face seen is the one facing the camera, whatever the mesh's winding says.
-            if (n.dot(direction) > 0.0f)
-                n = -n;
-            best = FaceHit{state.part.ref, {n.x(), n.y(), n.z()}};
+    for (const PartState& state : parts)
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.kind != VolumeKind::ModelPart)
+                continue;
+            const Eigen::Matrix4f placed = state.transform * piece.transform;
+            std::size_t triangle = 0;
+            const std::optional<float> t = intersect(*state.part.mesh, piece.piece.first_triangle, piece.piece.triangle_count,
+                                                     piece.box, placed, origin, direction, &triangle);
+            if (t && *t < nearest) {
+                nearest = *t;
+                Eigen::Vector3f n = world_normal(*state.part.mesh, triangle, placed);
+                // The face seen is the one facing the camera, whatever the mesh's winding says.
+                if (n.dot(direction) > 0.0f)
+                    n = -n;
+                best = FaceHit{state.part.ref, {n.x(), n.y(), n.z()}};
+            }
         }
-    }
     return best;
 }
 

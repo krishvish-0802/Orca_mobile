@@ -10,19 +10,28 @@ import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.PointerInputScope
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.orcamobile.core.engine.EngineLibrary
 import com.orcamobile.core.engine.NativePreviewRegistry
@@ -49,7 +58,11 @@ import kotlin.math.PI
  * - a finger that starts on the selected object drags it across the bed;
  * - twisting two fingers turns the selected object about the vertical axis;
  * - with [layOnFace] on, a tap on an object lays it on the side tapped instead
- *   of selecting ([onLaidOnFace] reports which).
+ *   of selecting ([onLaidOnFace] reports which);
+ * - a tap on a modifier, negative volume or other see-through volume picks it
+ *   ([onVolumeSelectionChange]); while one is picked, a tap on a part of the same
+ *   object picks that part, and a drag, twist or the height handle moves the
+ *   picked volume instead of the object.
  *
  * Editing happens in the engine directly. [onPlateEdited] reports, once per
  * gesture, that the placement changed, so earlier slicing results are stale.
@@ -74,6 +87,8 @@ fun PlateViewport(
     onLaidOnFace: (InstanceRef) -> Unit = {},
     /** A volume of the selected object to highlight (its index in the object), for the object list. */
     highlightedVolume: Int? = null,
+    /** A volume was picked on the plate (its instance and index in the object), or none. */
+    onVolumeSelectionChange: (InstanceRef?, Int?) -> Unit = { _, _ -> },
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -96,6 +111,8 @@ fun PlateViewport(
     val currentOnPlateEdited by rememberUpdatedState(onPlateEdited)
     val currentLayOnFace by rememberUpdatedState(layOnFace)
     val currentOnLaidOnFace by rememberUpdatedState(onLaidOnFace)
+    val currentVolume by rememberUpdatedState(highlightedVolume.takeIf { selection != null })
+    val currentOnVolumeSelectionChange by rememberUpdatedState(onVolumeSelectionChange)
 
     Box(modifier) {
         AndroidView(
@@ -120,7 +137,24 @@ fun PlateViewport(
                             when {
                                 !currentEditable -> Unit
                                 currentLayOnFace -> surface.layOnFace(position.x, position.y)?.let(currentOnLaidOnFace)
-                                else -> currentOnSelectionChange(surface.pick(position.x, position.y))
+                                else -> {
+                                    val hit = surface.pickVolume(position.x, position.y)
+                                    val pickingVolumes = currentVolume != null && hit?.instance == currentSelection
+                                    when {
+                                        hit == null -> {
+                                            currentOnSelectionChange(null)
+                                            currentOnVolumeSelectionChange(null, null)
+                                        }
+                                        !hit.isPart || pickingVolumes -> {
+                                            currentOnSelectionChange(hit.instance)
+                                            currentOnVolumeSelectionChange(hit.instance, hit.volume)
+                                        }
+                                        else -> {
+                                            currentOnSelectionChange(hit.instance)
+                                            currentOnVolumeSelectionChange(hit.instance, null)
+                                        }
+                                    }
+                                }
                             }
                         },
                     )
@@ -129,13 +163,29 @@ fun PlateViewport(
                     plateGestures(
                         grabsSelection = { position ->
                             val selected = currentSelection
-                            currentEditable && selected != null && surface.pick(position.x, position.y) == selected
+                            val volume = currentVolume
+                            when {
+                                !currentEditable || selected == null -> false
+                                volume != null -> surface.pickVolume(position.x, position.y)
+                                    .let { it?.instance == selected && it.volume == volume }
+                                else -> surface.pick(position.x, position.y) == selected
+                            }
                         },
-                        onDrag = { from, to -> surface.moveSelection(from.x, from.y, to.x, to.y) },
+                        onDrag = { from, to ->
+                            if (currentVolume != null) {
+                                surface.moveVolume(from.x, from.y, to.x, to.y)
+                            } else {
+                                surface.moveSelection(from.x, from.y, to.x, to.y)
+                            }
+                        },
                         onTwist = { degrees ->
                             // Screen angles grow clockwise; seen from above that is a negative turn about Z.
-                            currentEditable && currentSelection != null &&
-                                surface.rotateSelection(-degrees * (PI.toFloat() / 180f))
+                            val radians = -degrees * (PI.toFloat() / 180f)
+                            when {
+                                !currentEditable || currentSelection == null -> false
+                                currentVolume != null -> surface.rotateVolume(radians)
+                                else -> surface.rotateSelection(radians)
+                            }
                         },
                         onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                         onPan = { delta -> surface.pan(delta.x, delta.y) },
@@ -144,8 +194,55 @@ fun PlateViewport(
                     )
                 },
         )
+        if (editable && selection != null && highlightedVolume != null) {
+            HeightHandle(
+                onLift = { from, to -> surface.liftVolume(from.x, from.y, to.x, to.y) },
+                onEdited = { currentOnPlateEdited() },
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+            )
+        }
     }
 }
+
+/** A handle to drag up or down: raises or lowers the picked volume. */
+@Composable
+private fun HeightHandle(onLift: (from: Offset, to: Offset) -> Boolean, onEdited: () -> Unit, modifier: Modifier = Modifier) {
+    val currentOnLift by rememberUpdatedState(onLift)
+    val currentOnEdited by rememberUpdatedState(onEdited)
+    var origin by remember { mutableStateOf(Offset.Zero) }
+    Surface(
+        modifier = modifier
+            .size(width = 48.dp, height = 160.dp)
+            .onGloballyPositioned { origin = it.positionInParent() }
+            .pointerInput(Unit) {
+                awaitEachGesture {
+                    val down = awaitFirstDown()
+                    var edited = false
+                    var last = down.position
+                    do {
+                        val event = awaitPointerEvent()
+                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                        if (change.position != last) {
+                            // In the plate's coordinates, as the camera's rays are.
+                            edited = currentOnLift(origin + last, origin + change.position) || edited
+                            last = change.position
+                        }
+                        change.consume()
+                    } while (change.pressed)
+                    if (edited) currentOnEdited()
+                }
+            },
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.9f),
+        tonalElevation = 2.dp,
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text("▲\n\n${HEIGHT_LABEL}\n\n▼", style = MaterialTheme.typography.labelMedium, textAlign = TextAlign.Center)
+        }
+    }
+}
+
+private const val HEIGHT_LABEL = "Z"
 
 /**
  * One finger orbits, or drags the selection when it starts on it ([grabsSelection]);

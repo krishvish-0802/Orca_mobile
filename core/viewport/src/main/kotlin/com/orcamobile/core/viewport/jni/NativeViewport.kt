@@ -25,6 +25,18 @@ internal object NativeViewport {
     /** The instance under a screen point as (object shl 32 or instance), or -1. */
     @JvmStatic external fun nativePick(handle: Long, x: Float, y: Float): Long
 
+    /** The volume under a screen point as [object, instance, volume, kind], or null. */
+    @JvmStatic external fun nativePickVolume(handle: Long, x: Float, y: Float): IntArray?
+
+    /** Slides the highlighted volume of the selected instance by the bed distance between two screen points. */
+    @JvmStatic external fun nativeMoveVolume(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
+
+    /** Raises or lowers the highlighted volume by a vertical drag between two screen points. */
+    @JvmStatic external fun nativeLiftVolume(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
+
+    /** Turns the highlighted volume about the vertical, counter-clockwise seen from above. */
+    @JvmStatic external fun nativeRotateVolume(handle: Long, projectHandle: Long, radians: Float): Boolean
+
     /** Highlights a volume (index in its object) of the selected instance; negative for none. */
     @JvmStatic external fun nativeHighlightVolume(handle: Long, volume: Int)
 
