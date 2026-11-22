@@ -6,6 +6,7 @@ import com.orcamobile.core.printer.http.PrintHostHttpException
 import com.orcamobile.core.printer.moonraker.MoonrakerClient
 import com.orcamobile.core.printer.moonraker.moonrakerCandidates
 import com.orcamobile.core.printer.octoprint.OctoPrintClient
+import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
@@ -162,8 +163,40 @@ class PrintHostClientsTest {
                 com.orcamobile.core.printer.octoprint.OctoPrintAdapter(),
             ),
             http,
+            com.orcamobile.core.common.CoroutineDispatchers(
+                kotlinx.coroutines.Dispatchers.Default,
+                kotlinx.coroutines.Dispatchers.IO,
+                kotlinx.coroutines.Dispatchers.Default,
+            ),
         )
-        assertIs<MoonrakerClient>(factory.create(config(PrintHostType.MOONRAKER)))
-        assertIs<OctoPrintClient>(factory.create(config(PrintHostType.OCTOPRINT)))
+        assertIs<MoonrakerClient>(assertIs<BackgroundPrintHostClient>(factory.create(config(PrintHostType.MOONRAKER))).client)
+        assertIs<OctoPrintClient>(assertIs<BackgroundPrintHostClient>(factory.create(config(PrintHostType.OCTOPRINT))).client)
+    }
+
+    @Test
+    fun `clients run off the calling thread`() {
+        val io = java.util.concurrent.Executors.newSingleThreadExecutor { Thread(it, "printer-io") }
+        try {
+            var threadName = ""
+            val recording = object : com.orcamobile.core.domain.printer.PrintHostClient {
+                override suspend fun testConnection(): Result<com.orcamobile.core.model.PrintHostInfo> {
+                    threadName = Thread.currentThread().name
+                    return Result.success(com.orcamobile.core.model.PrintHostInfo("ok"))
+                }
+
+                override suspend fun upload(
+                    localPath: String,
+                    remoteName: String,
+                    startPrint: Boolean,
+                    options: com.orcamobile.core.model.PrintStartOptions,
+                    onProgress: (sent: Long, total: Long) -> Unit,
+                ) = Result.success(Unit)
+            }
+            val client = BackgroundPrintHostClient(recording, io.asCoroutineDispatcher())
+            kotlinx.coroutines.runBlocking { client.testConnection() }
+            assertEquals("printer-io", threadName)
+        } finally {
+            io.shutdown()
+        }
     }
 }

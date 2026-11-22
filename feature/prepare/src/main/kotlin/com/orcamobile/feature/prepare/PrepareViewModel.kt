@@ -377,7 +377,7 @@ class PrepareViewModel @Inject constructor(
                     settings.savePrintHost(host)
                     PrintHostStatus.Connected(it.description)
                 },
-                { PrintHostStatus.Failed(it.message ?: "Connection failed") },
+                { PrintHostStatus.Failed(it.message ?: "Connection failed (${it.javaClass.simpleName})") },
             )
         }
     }
@@ -396,7 +396,7 @@ class PrepareViewModel @Inject constructor(
                     settings.savePrintHost(host)
                     PrintHostStatus.Sent(startPrint)
                 },
-                { PrintHostStatus.Failed(it.message ?: "Upload failed") },
+                { PrintHostStatus.Failed(it.message ?: "Upload failed (${it.javaClass.simpleName})") },
             )
         }
     }
