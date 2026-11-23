@@ -62,7 +62,7 @@ class PresetPickerTest {
     }
 
     @Test
-    fun `saved filaments come back with their colours; unknown ones give way to the default`() = runTest {
+    fun `saved filaments come back with their colours, and unknown ones give way to the default`() = runTest {
         val saved = start.copy(filaments = listOf("PETG", "Gone"), filamentColours = listOf("#00FF00", ""))
         val picker = PresetPicker(Catalog(), Settings(saved))
         picker.load()
