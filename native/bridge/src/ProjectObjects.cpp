@@ -173,8 +173,8 @@ ObjectDetails Project::details(std::size_t object_index) const
     details.name = object.name;
     details.settings = values_of(object.config);
     for (const ModelVolume* volume : object.volumes)
-        details.volumes.push_back(
-            {volume->name, to_kind(volume->type()), volume->mesh().its.indices.size(), values_of(volume->config)});
+        details.volumes.push_back({volume->name, to_kind(volume->type()), volume->mesh().its.indices.size(),
+                                   values_of(volume->config), volume->emboss_shape.has_value() || volume->text_configuration.has_value()});
     for (const auto& [range, config] : object.layer_config_ranges)
         details.layer_ranges.push_back({range.first, range.second, values_of(config)});
     return details;

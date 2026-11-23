@@ -4,6 +4,7 @@ import androidx.compose.ui.geometry.Offset
 import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
@@ -204,6 +205,22 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 
+    /** Whether screen point (x, y) is on the text [target] (or near it). */
+    fun embossHits(target: EmbossTarget, x: Float, y: Float): Boolean {
+        val h = handle
+        return h != 0L && NativeViewport.nativeEmbossHits(h, target.instance.objectIndex, target.instance.instanceIndex, target.volume, x, y)
+    }
+
+    /** Slides the text [target] onto the surface under (x, y); whether it moved. */
+    fun embossDrag(target: EmbossTarget, x: Float, y: Float): Boolean = textEdit { h, project ->
+        NativeViewport.nativeEmbossDrag(h, project, target.instance.objectIndex, target.instance.instanceIndex, target.volume, x, y)
+    }
+
+    /** Turns the text [target] on its surface; whether it turned. */
+    fun embossRotate(target: EmbossTarget, radians: Float): Boolean = textEdit { h, project ->
+        NativeViewport.nativeEmbossRotate(h, project, target.instance.objectIndex, target.instance.instanceIndex, target.volume, radians)
+    }
+
     /** Where screen point (x, y) meets the bed, mm. */
     fun bedPoint(x: Float, y: Float): Offset? {
         val h = handle
@@ -366,6 +383,14 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         edit { h, project -> NativeViewport.nativeMoveSelection(h, project, x0, y0, x1, y1) }
 
     fun rotateSelection(radians: Float): Boolean = edit { h, project -> NativeViewport.nativeRotateSelection(h, project, radians) }
+
+    /** As [edit], for a text: it needs no selected object. */
+    private inline fun textEdit(action: (Long, Long) -> Boolean): Boolean {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return false
+        return action(h, project).also { if (it) requestRender() }
+    }
 
     private inline fun edit(action: (Long, Long) -> Boolean): Boolean {
         val h = handle

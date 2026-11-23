@@ -200,7 +200,19 @@ class PrepareViewModel @Inject constructor(
                     it
                 }
             }
-            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null, simplifyCounts = null) }
+            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null, simplifyCounts = null, textToEdit = null) }
+            is PrepareIntent.EditText -> _state.update {
+                val selected = it.selection
+                if (selected == null || !it.plateEditable) {
+                    it
+                } else {
+                    it.copy(
+                        meshTool = MeshTool.EMBOSS,
+                        layingOnFace = false,
+                        textToEdit = com.orcamobile.core.model.EmbossTarget(selected, intent.volume),
+                    )
+                }
+            }
             is PrepareIntent.SetSimplify -> _state.update { it.copy(simplify = intent.settings) }
             is PrepareIntent.SimplifyCounted -> _state.update {
                 if (it.meshTool == MeshTool.SIMPLIFY) it.copy(simplifyCounts = intent.counts) else it

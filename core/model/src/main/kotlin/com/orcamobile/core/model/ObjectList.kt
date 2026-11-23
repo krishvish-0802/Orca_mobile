@@ -42,6 +42,8 @@ data class VolumeInfo(
     val settings: Map<String, String>,
     /** Its placement in the object. */
     val transform: InstanceTransform,
+    /** A text or an SVG, which the Text tool edits. */
+    val embossed: Boolean = false,
 )
 
 /** A height range of an object with settings of its own, as the desktop's height range modifier. */

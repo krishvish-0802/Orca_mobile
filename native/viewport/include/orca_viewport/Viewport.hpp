@@ -179,6 +179,12 @@ public:
         std::array<float, 3> camera{};
     };
     std::optional<SurfaceHit> pick_surface(float x_px, float y_px) const;
+    // As pick_surface(), on the parts of `object` only and passing through its
+    // volume `skip` (a text being dragged over the surface it sits on).
+    std::optional<SurfaceHit> pick_surface_of(float x_px, float y_px, int object, int skip) const;
+    // Whether the screen point's ray passes through volume `volume` of `part`'s
+    // bounds, grown by `margin_mm`: a finger on a text, raised or engraved.
+    bool hits_volume(float x_px, float y_px, const PartRef& part, int volume, float margin_mm) const;
 
     // Paint drawn over a volume of an object (every instance of it); null removes it.
     void set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay);

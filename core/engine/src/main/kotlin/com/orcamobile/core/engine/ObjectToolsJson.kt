@@ -2,16 +2,21 @@ package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.BrimEar
 import com.orcamobile.core.model.EmbossSource
+import com.orcamobile.core.model.EmbossedVolume
 import com.orcamobile.core.model.LayerProfile
 import com.orcamobile.core.model.LayerProfileAction
+import com.orcamobile.core.model.VolumeKind
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.double
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -91,6 +96,32 @@ object ObjectToolsJson {
         put("svg", source.svgPath)
         put("svgWidth", source.svgWidthMm)
         put("depth", source.depthMm)
+    }
+
+    /** An embossed volume's settings, or null for `{}` (not a text or SVG). */
+    fun embossed(payload: String): Result<EmbossedVolume?> = decode(payload) { element ->
+        val o = element.jsonObject
+        val s = o["source"]?.jsonObject ?: return@decode null
+        fun num(key: String, fallback: Double = 0.0) = s[key]?.jsonPrimitive?.doubleOrNull ?: fallback
+        fun str(key: String) = s[key]?.jsonPrimitive?.contentOrNull.orEmpty()
+        EmbossedVolume(
+            source = EmbossSource(
+                text = str("text"),
+                fontPath = str("font"),
+                letterHeightMm = num("height", 10.0),
+                charGap = num("charGap"),
+                lineGap = num("lineGap"),
+                boldnessMm = num("boldness"),
+                skew = num("skew"),
+                svgPath = str("svg"),
+                svgWidthMm = num("svgWidth"),
+                depthMm = num("depth", 2.0),
+            ),
+            kind = VolumeKind.of(o["kind"]?.jsonPrimitive?.intOrNull ?: 0),
+            useSurface = o["surface"]?.jsonPrimitive?.booleanOrNull ?: false,
+            widthMm = o["width"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+            heightMm = o["height"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+        )
     }
 
     fun embossSize(payload: String): Result<Pair<Double, Double>> = decode(payload) { element ->

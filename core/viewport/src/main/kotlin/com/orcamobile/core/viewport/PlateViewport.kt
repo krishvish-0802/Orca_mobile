@@ -44,6 +44,7 @@ import com.orcamobile.core.engine.MeshToolsJson
 import com.orcamobile.core.engine.ObjectToolsJson
 import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BrimEar
@@ -166,6 +167,15 @@ fun PlateViewport(
     /** Taps report the part surface they land on ([onSurfaceTap]), for placing text. */
     pickingSurface: Boolean = false,
     onSurfaceTap: (FeaturePick) -> Unit = {},
+    /**
+     * A text being edited (with [pickingSurface]): one finger on it slides it
+     * over the surface, two twist it on the surface, and a Size handle at the
+     * plate's edge scales it ([onTextResize], a factor). [onTextMoved] follows a
+     * drag or twist.
+     */
+    editingText: EmbossTarget? = null,
+    onTextMoved: () -> Unit = {},
+    onTextResize: (Double) -> Unit = {},
     /**
      * The plate's prime tower: drawn on the bed (red when it meets an object);
      * a one-finger drag on it moves it, and [onWipeTowerMoved] gets its new corner.
@@ -297,6 +307,8 @@ fun PlateViewport(
             },
             modifier = Modifier.fillMaxSize(),
         )
+        val currentText by rememberUpdatedState(editingText)
+        val currentOnTextMoved by rememberUpdatedState(onTextMoved)
         // Gestures are read here, above the GL view, so they stay in Compose.
         if (measuring != null || editingEars != null || surfaceTaps) {
             Box(
@@ -323,13 +335,19 @@ fun PlateViewport(
                     }
                     .pointerInput(surface) {
                         plateGestures(
-                            grabsSelection = { false },
-                            onDrag = { _, _ -> false },
-                            onTwist = { false },
+                            grabsSelection = { position ->
+                                val text = currentText
+                                text != null && surface.embossHits(text, position.x, position.y)
+                            },
+                            onDrag = { _, to -> currentText?.let { surface.embossDrag(it, to.x, to.y) } ?: false },
+                            onTwist = { degrees ->
+                                // Screen angles grow clockwise; seen from the surface that is a negative turn.
+                                currentText?.let { surface.embossRotate(it, -degrees * (PI.toFloat() / 180f)) } ?: false
+                            },
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onPan = { delta -> surface.pan(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onEdited = {},
+                            onEdited = { currentOnTextMoved() },
                         )
                     },
             )
@@ -464,6 +482,14 @@ fun PlateViewport(
                         )
                     },
             )
+        }
+        if (editingText != null && surfaceTaps && preview == null) {
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+                DragHandle("Size", "⇕", MaterialTheme.colorScheme.primary, onEdited = {}) { _, _, upDp ->
+                    onTextResize(exp(upDp * SCALE_PER_DP).toDouble())
+                    true
+                }
+            }
         }
         if (editable && selection != null && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
             val onEdited = { currentOnPlateEdited() }

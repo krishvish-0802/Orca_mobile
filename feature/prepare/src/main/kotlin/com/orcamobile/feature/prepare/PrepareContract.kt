@@ -8,6 +8,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.ModelObjectInfo
@@ -78,6 +79,8 @@ data class PrepareUiState(
     val slicingAll: Pair<Int, Int>? = null,
     /** The current plate's prime tower as the slice will place it; null when it prints none. */
     val wipeTower: WipeTower? = null,
+    /** A text or SVG to open in the Text tool for editing (from the Parts tab). */
+    val textToEdit: EmbossTarget? = null,
 ) {
     /** Another plate may be shown: not while a tool, a slice or painting holds this one. */
     val canSwitchPlate: Boolean
@@ -292,6 +295,9 @@ sealed interface PrepareIntent {
     data class OpenMeshTool(val tool: MeshTool) : PrepareIntent
 
     data object CloseMeshTool : PrepareIntent
+
+    /** Opens the Text tool on volume [volume] of the selected object, a text or SVG, to edit it. */
+    data class EditText(val volume: Int) : PrepareIntent
 
     data class SetSimplify(val settings: SimplifySettings) : PrepareIntent
 

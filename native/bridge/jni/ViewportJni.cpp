@@ -15,6 +15,7 @@
 
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
+#include "orca_engine/Emboss.hpp"
 #include "orca_engine/GCodePreview.hpp"
 #include "orca_engine/Project.hpp"
 #include "orca_viewport/Viewport.hpp"
@@ -418,6 +419,57 @@ void native_fit(JNIEnv*, jclass, jlong handle)
         v->fit();
 }
 
+// Whether the screen point is on the text (volume `volume` of the instance), or
+// within a few mm of it: where a drag moves it.
+jboolean native_emboss_hits(JNIEnv*, jclass, jlong handle, jint object, jint instance, jint volume, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    return v != nullptr && v->hits_volume(x, y, {object, instance}, volume, 2.0f) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Moves the text onto the surface under the screen point (another part of its
+// object); whether it moved.
+jboolean native_emboss_drag(JNIEnv*, jclass, jlong handle, jlong project_handle, jint object, jint instance, jint volume,
+                            jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const auto hit = v->pick_surface_of(x, y, object, volume);
+    if (!hit)
+        return JNI_FALSE;
+    orca::engine::FeaturePick at;
+    at.via = {std::size_t(hit->part.object), std::size_t(hit->part.instance)};
+    at.volume = std::size_t(hit->volume);
+    at.facet = int(hit->triangle);
+    at.hit = {hit->hit[0], hit->hit[1], hit->hit[2]};
+    try {
+        orca::engine::emboss_move(*project, std::size_t(volume), at);   // plain math: on the gesture's thread
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+    show_volume_change(*v, *project, {object, instance}, volume);
+    return JNI_TRUE;
+}
+
+// Turns the text about its normal by `radians`; whether it turned.
+jboolean native_emboss_rotate(JNIEnv*, jclass, jlong handle, jlong project_handle, jint object, jint instance, jint volume,
+                              jfloat radians)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    try {
+        orca::engine::emboss_rotate(*project, std::size_t(object), std::size_t(volume), radians);
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+    show_volume_change(*v, *project, {object, instance}, volume);
+    return JNI_TRUE;
+}
+
 // The prime tower on the plate: `tower` is x, y, width, depth, height, brim,
 // rotation (degrees), overlaps (0/1); empty hides it. A grey block on its brim's
 // outline, red when it meets an object.
@@ -515,6 +567,9 @@ const JNINativeMethod kMethods[] = {
     {"nativeZoom", "(JFFF)V", reinterpret_cast<void*>(native_zoom)},
     {"nativeFit", "(J)V", reinterpret_cast<void*>(native_fit)},
     {"nativeShowWipeTower", "(J[F)V", reinterpret_cast<void*>(native_show_wipe_tower)},
+    {"nativeEmbossHits", "(JIIIFF)Z", reinterpret_cast<void*>(native_emboss_hits)},
+    {"nativeEmbossDrag", "(JJIIIFF)Z", reinterpret_cast<void*>(native_emboss_drag)},
+    {"nativeEmbossRotate", "(JJIIIF)Z", reinterpret_cast<void*>(native_emboss_rotate)},
     {"nativeBedPoint", "(JFF)[F", reinterpret_cast<void*>(native_bed_point)},
 };
 

@@ -117,6 +117,18 @@ internal object NativeEngine {
     @JvmStatic external fun nativeEmbossSize(sourceJson: String): String
 
     /** Embosses onto a surface or as a new object: `{"placed","objects"}` or `{"error"}`. */
+    /** An embossed volume's settings: `{"source","kind","surface","width","height"}`, `{}` for none, or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossed(handle: Long, objectIndex: Int, volume: Int): String
+
+    /** Makes an embossed volume anew: `{"source","kind","surface"}`; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossUpdate(handle: Long, objectIndex: Int, volume: Int, requestJson: String): String
+
+    /** Moves an embossed volume onto `{"pick":{..}}`; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossMove(handle: Long, volume: Int, requestJson: String): String
+
+    /** Puts an object back on the bed after a text moved; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossSettle(handle: Long, objectIndex: Int): String
+
     @JvmStatic external fun nativeEmboss(handle: Long, requestJson: String): String
 
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */

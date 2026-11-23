@@ -51,13 +51,49 @@ class NativeObjectTools @Inject constructor(
         runCatching { ObjectToolsJson.embossSize(NativeEngine.nativeEmbossSize(ObjectToolsJson.source(source).toString())).getOrThrow() }
     }
 
-    override suspend fun embossOnSurface(project: ProjectId, at: FeaturePick, kind: VolumeKind, source: EmbossSource) = call(project) { handle ->
+    override suspend fun embossOnSurface(
+        project: ProjectId,
+        at: FeaturePick,
+        kind: VolumeKind,
+        source: EmbossSource,
+        useSurface: Boolean,
+    ) = call(project) { handle ->
         val request = buildJsonObject {
             put("source", ObjectToolsJson.source(source))
             put("pick", MeshToolsJson.pick(at))
             put("kind", kind.nativeValue)
+            put("surface", useSurface)
         }
         EngineJson.plateUpdate(NativeEngine.nativeEmboss(handle, request.toString())).getOrThrow()
+    }
+
+    override suspend fun embossed(project: ProjectId, objectIndex: Int, volume: Int) = call(project) { handle ->
+        ObjectToolsJson.embossed(NativeEngine.nativeEmbossed(handle, objectIndex, volume)).getOrThrow()
+    }
+
+    override suspend fun embossUpdate(
+        project: ProjectId,
+        objectIndex: Int,
+        volume: Int,
+        kind: VolumeKind,
+        source: EmbossSource,
+        useSurface: Boolean,
+    ) = call(project) { handle ->
+        val request = buildJsonObject {
+            put("source", ObjectToolsJson.source(source))
+            put("kind", kind.nativeValue)
+            put("surface", useSurface)
+        }
+        EngineJson.plateUpdate(NativeEngine.nativeEmbossUpdate(handle, objectIndex, volume, request.toString())).getOrThrow()
+    }
+
+    override suspend fun embossMove(project: ProjectId, volume: Int, at: FeaturePick) = call(project) { handle ->
+        val request = buildJsonObject { put("pick", MeshToolsJson.pick(at)) }
+        EngineJson.plateUpdate(NativeEngine.nativeEmbossMove(handle, volume, request.toString())).getOrThrow()
+    }
+
+    override suspend fun embossSettle(project: ProjectId, objectIndex: Int) = call(project) { handle ->
+        EngineJson.plateUpdate(NativeEngine.nativeEmbossSettle(handle, objectIndex)).getOrThrow()
     }
 
     override suspend fun embossObject(project: ProjectId, source: EmbossSource, x: Double, y: Double) = call(project) { handle ->

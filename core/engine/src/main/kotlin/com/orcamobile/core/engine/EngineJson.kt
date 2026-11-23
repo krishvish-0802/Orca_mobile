@@ -121,7 +121,7 @@ internal object EngineJson {
                 name = o.name,
                 settings = o.settings,
                 volumes = o.volumes.map {
-                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel())
+                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel(), it.embossed)
                 },
                 layerRanges = o.layerRanges.map { LayerRange(it.min, it.max, it.settings) },
             ),
@@ -323,6 +323,7 @@ internal object EngineJson {
         val triangles: Long = 0,
         val settings: Map<String, String> = emptyMap(),
         val transform: TransformDto,
+        val embossed: Boolean = false,
     )
 
     @Serializable

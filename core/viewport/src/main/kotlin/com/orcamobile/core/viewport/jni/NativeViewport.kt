@@ -129,6 +129,19 @@ internal object NativeViewport {
     /** The prime tower: x, y, width, depth, height, brim, rotation (degrees), overlaps (0/1); empty hides it. */
     @JvmStatic external fun nativeShowWipeTower(handle: Long, tower: FloatArray)
 
+    /** Whether a screen point is on (or within 2 mm of) volume [volume] of the instance: a text to drag. */
+    @JvmStatic external fun nativeEmbossHits(handle: Long, objectIndex: Int, instanceIndex: Int, volume: Int, x: Float, y: Float): Boolean
+
+    /** Moves embossed [volume] onto the surface under the screen point; whether it moved. */
+    @JvmStatic external fun nativeEmbossDrag(
+        handle: Long, project: Long, objectIndex: Int, instanceIndex: Int, volume: Int, x: Float, y: Float,
+    ): Boolean
+
+    /** Turns embossed [volume] about its normal; whether it turned. */
+    @JvmStatic external fun nativeEmbossRotate(
+        handle: Long, project: Long, objectIndex: Int, instanceIndex: Int, volume: Int, radians: Float,
+    ): Boolean
+
     /** Where a screen point meets the bed, {x, y} mm, or null. */
     @JvmStatic external fun nativeBedPoint(handle: Long, x: Float, y: Float): FloatArray?
 

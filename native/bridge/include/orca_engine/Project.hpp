@@ -51,6 +51,7 @@ struct VolumeInfo {
     VolumeKind kind = VolumeKind::ModelPart;
     std::size_t triangle_count = 0;
     SettingValues settings;
+    bool embossed = false;          // a text or an SVG, which the Emboss tool edits
 };
 
 // A height range of an object with settings of its own (layer height and

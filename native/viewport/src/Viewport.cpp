@@ -670,6 +670,89 @@ std::optional<Viewport::SurfaceHit> Viewport::pick_surface(float x_px, float y_p
     return best;
 }
 
+std::optional<Viewport::SurfaceHit> Viewport::pick_surface_of(float x_px, float y_px, int object, int skip) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction, eye;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return std::nullopt;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        eye = m_impl->camera.eye();
+        parts = m_impl->parts;
+    }
+    std::optional<SurfaceHit> best;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts) {
+        if (state.part.ref.object != object)
+            continue;
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.kind != VolumeKind::ModelPart || piece.piece.volume == skip)
+                continue;
+            const Eigen::Matrix4f placed = state.transform * piece.transform;
+            std::size_t triangle = 0;
+            const std::optional<float> t = intersect(*state.part.mesh, piece.piece.first_triangle, piece.piece.triangle_count,
+                                                     piece.box, placed, origin, direction, &triangle);
+            if (!t || *t >= nearest)
+                continue;
+            nearest = *t;
+            const Eigen::Matrix4f inverse = placed.inverse();
+            const Eigen::Vector3f hit = (inverse * (origin + direction * *t).homogeneous()).head<3>();
+            const Eigen::Vector3f camera = (inverse * eye.homogeneous()).head<3>();
+            best = SurfaceHit{state.part.ref, piece.piece.volume, triangle - piece.piece.first_triangle,
+                              {hit.x(), hit.y(), hit.z()}, {camera.x(), camera.y(), camera.z()}};
+        }
+    }
+    return best;
+}
+
+bool Viewport::hits_volume(float x_px, float y_px, const PartRef& part, int volume, float margin_mm) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return false;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        parts = m_impl->parts;
+    }
+    for (const PartState& state : parts) {
+        if (!(state.part.ref == part))
+            continue;
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.volume != volume || piece.box.isEmpty())
+                continue;
+            // The ray in the volume's own coordinates, against its box (slab test).
+            const Eigen::Matrix4f inverse = (state.transform * piece.transform).inverse();
+            const Eigen::Vector3f o = (inverse * origin.homogeneous()).head<3>();
+            const Eigen::Vector3f d = inverse.topLeftCorner<3, 3>() * direction;
+            // The margin in world mm, as the volume may be scaled.
+            const float scale = std::max(1e-6f, (state.transform * piece.transform).topLeftCorner<3, 3>().col(0).norm());
+            const Eigen::Vector3f grow = Eigen::Vector3f::Constant(margin_mm / scale);
+            const Eigen::Vector3f lo = piece.box.min() - grow, hi = piece.box.max() + grow;
+            float t0 = -std::numeric_limits<float>::infinity(), t1 = std::numeric_limits<float>::infinity();
+            bool hit = true;
+            for (int a = 0; a < 3 && hit; ++a) {
+                if (std::abs(d[a]) < 1e-9f) {
+                    hit = o[a] >= lo[a] && o[a] <= hi[a];
+                    continue;
+                }
+                float ta = (lo[a] - o[a]) / d[a], tb = (hi[a] - o[a]) / d[a];
+                if (ta > tb)
+                    std::swap(ta, tb);
+                t0 = std::max(t0, ta);
+                t1 = std::min(t1, tb);
+                hit = t0 <= t1 && t1 >= 0;
+            }
+            if (hit)
+                return true;
+        }
+    }
+    return false;
+}
+
 void Viewport::set_bed(Bed bed)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);

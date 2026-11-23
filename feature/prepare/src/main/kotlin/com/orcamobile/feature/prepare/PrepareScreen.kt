@@ -148,6 +148,8 @@ fun PrepareRoute(
             if (embossTool.state.value.active) embossTool.onIntent(EmbossIntent.Close)
         } else {
             embossTool.onIntent(EmbossIntent.Open(embossIn))
+            // Opened from the Parts tab's Edit text: that text into the panel.
+            state.textToEdit?.let { embossTool.onIntent(EmbossIntent.Edit(it)) }
         }
     }
     LaunchedEffect(layerTool) {
@@ -335,6 +337,9 @@ fun PrepareScreen(
                     wipeTower = state.wipeTower.takeIf { state.meshTool == null && state.paint == null },
                     onWipeTowerMoved = { x, y -> onIntent(PrepareIntent.MoveWipeTower(x, y)) },
                     pickingSurface = state.meshTool == MeshTool.EMBOSS,
+                    editingText = tools.emboss.editing.takeIf { state.meshTool == MeshTool.EMBOSS },
+                    onTextMoved = { tools.onEmboss(EmbossIntent.Moved) },
+                    onTextResize = { tools.onEmboss(EmbossIntent.Resize(it)) },
                     onSurfaceTap = { pick -> tools.onEmboss(EmbossIntent.PlaceOn(pick)) },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -346,6 +351,7 @@ fun PrepareScreen(
                     state.meshTool == MeshTool.CUT -> R.string.prepare_cut_gestures
                     state.meshTool == MeshTool.MEASURE -> R.string.prepare_measure_gestures
                     state.meshTool == MeshTool.BRIM_EARS -> R.string.prepare_ears_gestures
+                    state.meshTool == MeshTool.EMBOSS && tools.emboss.editing != null -> R.string.prepare_emboss_editing_gestures
                     state.meshTool == MeshTool.EMBOSS -> R.string.prepare_emboss_gestures
                     else -> null
                 }

@@ -421,4 +421,12 @@
     <string name="prepare_object_filament">Filament</string>
     <string name="prepare_object_filament_default">As the object</string>
     <string name="prepare_wipe_tower_overlaps">The prime tower meets an object: drag the grey block clear of it.</string>
+    <string name="prepare_parts_edit_text">Edit text</string>
+    <string name="prepare_emboss_new">New text</string>
+    <string name="prepare_emboss_delete">Delete</string>
+    <string name="prepare_emboss_surface">Wrap onto the surface</string>
+    <string name="prepare_emboss_surface_hint">The letters follow a curved surface instead of standing flat on it.</string>
+    <string name="prepare_emboss_editing">Editing: changes apply to this text. Drag it to move it, twist two fingers to turn it, drag Size to scale it. Tap the surface to move it there.</string>
+    <string name="prepare_emboss_editing_gestures">Drag the text to move it · twist to turn it · Size handle scales it</string>
+    <string name="prepare_emboss_font_missing">This text\'s font (%1$s) is not on this phone: edits use %2$s.</string>
 </resources>
