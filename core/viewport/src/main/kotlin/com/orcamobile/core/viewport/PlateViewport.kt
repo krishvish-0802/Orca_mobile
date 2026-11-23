@@ -44,6 +44,7 @@ import com.orcamobile.core.engine.MeshToolsJson
 import com.orcamobile.core.engine.ObjectToolsJson
 import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
+import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BrimEar
 import com.orcamobile.core.model.CutCheck
@@ -66,6 +67,8 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.exp
 
 /**
@@ -163,6 +166,12 @@ fun PlateViewport(
     /** Taps report the part surface they land on ([onSurfaceTap]), for placing text. */
     pickingSurface: Boolean = false,
     onSurfaceTap: (FeaturePick) -> Unit = {},
+    /**
+     * The plate's prime tower: drawn on the bed (red when it meets an object);
+     * a one-finger drag on it moves it, and [onWipeTowerMoved] gets its new corner.
+     */
+    wipeTower: WipeTower? = null,
+    onWipeTowerMoved: (x: Double, y: Double) -> Unit = { _, _ -> },
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -190,6 +199,21 @@ fun PlateViewport(
     val currentPaint by rememberUpdatedState(paint)
     val currentOnPainted by rememberUpdatedState(onPainted)
     val painting = paint != null && project != null && preview == null && selection != null
+    // A drag on the tower moves it here at once; the engine's answer then replaces it.
+    var towerDrag by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(wipeTower) { towerDrag = Offset.Zero }
+    val shownTower = wipeTower?.let { it.copy(x = it.x + towerDrag.x, y = it.y + towerDrag.y) }
+    val currentTower by rememberUpdatedState(shownTower)
+    val currentOnWipeTowerMoved by rememberUpdatedState(onWipeTowerMoved)
+    val towerGrab = remember { BooleanArray(1) }
+    val towerArray = remember(shownTower, preview) {
+        shownTower?.takeIf { preview == null }?.let {
+            floatArrayOf(
+                it.x.toFloat(), it.y.toFloat(), it.width.toFloat(), it.depth.toFloat(), it.height.toFloat(),
+                it.brim.toFloat(), it.rotationDegrees.toFloat(), if (it.overlapsObjects) 1f else 0f,
+            )
+        } ?: FloatArray(0)
+    }
     val filamentArray = remember(filamentColours) {
         filamentColours.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
     }
@@ -264,6 +288,7 @@ fun PlateViewport(
             update = { view ->
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
                 view.setFilamentColours(filamentArray)
+                view.setWipeTower(towerArray)
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
@@ -394,7 +419,11 @@ fun PlateViewport(
                             grabsSelection = { position ->
                                 val selected = currentSelection
                                 val volume = currentVolume
+                                towerGrab[0] = currentEditable && currentTower?.let { tower ->
+                                    surface.bedPoint(position.x, position.y)?.let { tower.holds(it) }
+                                } == true
                                 when {
+                                    towerGrab[0] -> true
                                     !currentEditable || selected == null -> false
                                     volume != null -> surface.pickVolume(position.x, position.y)
                                         .let { it?.instance == selected && it.volume == volume }
@@ -402,7 +431,12 @@ fun PlateViewport(
                                 }
                             },
                             onDrag = { from, to ->
-                                if (currentVolume != null) {
+                                if (towerGrab[0]) {
+                                    val a = surface.bedPoint(from.x, from.y)
+                                    val b = surface.bedPoint(to.x, to.y)
+                                    if (a != null && b != null) towerDrag += b - a
+                                    a != null && b != null
+                                } else if (currentVolume != null) {
                                     surface.moveVolume(from.x, from.y, to.x, to.y)
                                 } else {
                                     surface.moveSelection(from.x, from.y, to.x, to.y)
@@ -420,7 +454,13 @@ fun PlateViewport(
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onPan = { delta -> surface.pan(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onEdited = { currentOnPlateEdited() },
+                            onEdited = {
+                                if (towerGrab[0]) {
+                                    currentTower?.let { currentOnWipeTowerMoved(it.x, it.y) }
+                                } else {
+                                    currentOnPlateEdited()
+                                }
+                            },
                         )
                     },
             )
@@ -631,3 +671,17 @@ internal interface ViewportEntryPoint {
 
     fun previewRegistry(): NativePreviewRegistry
 }
+
+/** Whether bed point [p] (mm) is on the tower or its brim, turned as it is. */
+private fun WipeTower.holds(p: Offset): Boolean {
+    val a = rotationDegrees * PI / 180
+    val dx = p.x - x
+    val dy = p.y - y
+    val u = dx * cos(a) + dy * sin(a)
+    val v = -dx * sin(a) + dy * cos(a)
+    val reach = brim + TOWER_REACH_MM
+    return u >= -reach && u <= width + reach && v >= -reach && v <= depth + reach
+}
+
+/** How far around the tower a finger still grabs it, mm. */
+private const val TOWER_REACH_MM = 3.0

@@ -420,4 +420,5 @@
     <string name="prepare_filament_remove_hint">Objects, parts and painting on a removed filament print with filament 1; later filaments move up.</string>
     <string name="prepare_object_filament">Filament</string>
     <string name="prepare_object_filament_default">As the object</string>
+    <string name="prepare_wipe_tower_overlaps">The prime tower meets an object: drag the grey block clear of it.</string>
 </resources>

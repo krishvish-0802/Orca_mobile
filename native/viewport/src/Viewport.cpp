@@ -185,6 +185,7 @@ struct Viewport::Impl {
     std::vector<std::array<float, 4>> paint_palette;
     std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
+    std::shared_ptr<const Overlay> scene_overlay;
     std::optional<CutView> cut_view;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
@@ -206,9 +207,14 @@ struct Viewport::Impl {
     // One vertex array per part mesh, shared by the instances that use it.
     std::map<const PartMesh*, GpuBatch> part_batches;
     std::map<const PaintOverlayMesh*, GpuBatch> paint_batches;
-    // The overlay shown and its vertex arrays, one per shape.
-    const Overlay* overlay_uploaded = nullptr;
-    std::vector<GpuBatch> overlay_batches;
+    // The overlays shown and their vertex arrays, one per shape: the tool's,
+    // and the scene's own (the prime tower).
+    struct OverlaySlot {
+        const Overlay* uploaded = nullptr;
+        std::vector<GpuBatch> batches;
+    };
+    OverlaySlot tool_slot;
+    OverlaySlot scene_slot;
     ToolpathRenderer toolpath_renderer;
     bool gl_ready = false;
 
@@ -267,8 +273,9 @@ struct Viewport::Impl {
     }
 
     // GL thread: opaque shapes first, then see-through ones, then those on top.
-    void draw_overlay(const Overlay& shown, const Eigen::Matrix4f& view_proj, const Eigen::Vector3f& eye)
+    void draw_overlay(const Overlay& shown, OverlaySlot& slot, const Eigen::Matrix4f& view_proj, const Eigen::Vector3f& eye)
     {
+        std::vector<GpuBatch>& overlay_batches = slot.batches;
         const Eigen::Matrix4f identity = Eigen::Matrix4f::Identity();
         for (int pass = 0; pass < 3; ++pass) {
             for (std::size_t i = 0; i < shown.shapes.size() && i < overlay_batches.size(); ++i) {
@@ -318,19 +325,19 @@ struct Viewport::Impl {
         }
     }
 
-    void sync_overlay(const std::shared_ptr<const Overlay>& shown)
+    void sync_overlay(const std::shared_ptr<const Overlay>& shown, OverlaySlot& slot)
     {
-        if (shown.get() == overlay_uploaded && overlay_batches.size() == (shown ? shown->shapes.size() : 0))
+        if (shown.get() == slot.uploaded && slot.batches.size() == (shown ? shown->shapes.size() : 0))
             return;
-        for (GpuBatch& batch : overlay_batches)
+        for (GpuBatch& batch : slot.batches)
             batch.release();
-        overlay_batches.clear();
-        overlay_uploaded = shown.get();
+        slot.batches.clear();
+        slot.uploaded = shown.get();
         if (!shown)
             return;
-        overlay_batches.resize(shown->shapes.size());
+        slot.batches.resize(shown->shapes.size());
         for (std::size_t i = 0; i < shown->shapes.size(); ++i)
-            overlay_batches[i].upload(shown->shapes[i].positions, nullptr);
+            slot.batches[i].upload(shown->shapes[i].positions, nullptr);
     }
 
     void sync_part_batches(const std::vector<PartState>& shown)
@@ -376,10 +383,12 @@ void Viewport::on_surface_created()
     for (auto& [mesh, batch] : d.paint_batches)
         batch.abandon();
     d.paint_batches.clear();
-    for (GpuBatch& batch : d.overlay_batches)
-        batch.abandon();
-    d.overlay_batches.clear();
-    d.overlay_uploaded = nullptr;
+    for (Impl::OverlaySlot* slot : {&d.tool_slot, &d.scene_slot}) {
+        for (GpuBatch& batch : slot->batches)
+            batch.abandon();
+        slot->batches.clear();
+        slot->uploaded = nullptr;
+    }
 
     std::string error;
     d.gl_ready = d.lit_program.build(shaders::kLitVertex, shaders::kLitFragment, error) &&
@@ -418,6 +427,7 @@ void Viewport::draw()
     std::vector<std::array<float, 4>> paint_palette;
     std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
+    std::shared_ptr<const Overlay> scene_overlay;
     std::optional<CutView> cut_view;
     bool show_toolpaths = false;
     {
@@ -464,6 +474,7 @@ void Viewport::draw()
         paint_palette = d.paint_palette;
         filament_colours = d.filament_colours;
         overlay = d.overlay;
+        scene_overlay = d.scene_overlay;
         cut_view = d.cut_view;
         show_toolpaths = d.has_toolpaths;
     }
@@ -474,7 +485,8 @@ void Viewport::draw()
         return;
     d.sync_part_batches(parts);
     d.sync_paint_batches(paint_overlays);
-    d.sync_overlay(overlay);
+    d.sync_overlay(overlay, d.tool_slot);
+    d.sync_overlay(scene_overlay, d.scene_slot);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -597,8 +609,10 @@ void Viewport::draw()
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
     }
+    if (scene_overlay)
+        d.draw_overlay(*scene_overlay, d.scene_slot, view_proj, eye);
     if (overlay)
-        d.draw_overlay(*overlay, view_proj, eye);
+        d.draw_overlay(*overlay, d.tool_slot, view_proj, eye);
 }
 
 void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay)
@@ -866,6 +880,12 @@ void Viewport::set_overlay(std::shared_ptr<const Overlay> overlay)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->overlay = std::move(overlay);
+}
+
+void Viewport::set_scene_overlay(std::shared_ptr<const Overlay> overlay)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->scene_overlay = std::move(overlay);
 }
 
 void Viewport::set_cut_view(std::optional<CutView> view)

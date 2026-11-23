@@ -102,6 +102,27 @@ class NativeFilamentsDeviceTest {
         assertEquals(null, details(0).settings["extruder"])
     }
 
+    @Test
+    fun thePrimeTowerStandsOnTheBedOnlyForSeveralFilaments() {
+        loadTwoObjects()
+        val presets = EngineJson.encode(twoFilaments())
+        val none = EngineJson.wipeTower(NativeEngine.nativePlateWipeTower(handle, presets, emptyArray(), emptyArray())).getOrThrow()
+        assertEquals("one filament in use: no tower", null, none)
+
+        edit(1, ObjectEdit.SetSetting(SettingTarget.OBJECT, "extruder", "2"))
+        val tower = requireNotNull(EngineJson.wipeTower(NativeEngine.nativePlateWipeTower(handle, presets, emptyArray(), emptyArray())).getOrThrow())
+        assertTrue("$tower", tower.width > 0 && tower.depth > 0)
+
+        // Dragged far off the bed, it comes back onto it.
+        NativeEngine.nativePlates(handle, EngineJson.encode(com.orcamobile.core.model.PlateAction.SetSetting(0, "wipe_tower_x", "-500")))
+        val moved = requireNotNull(EngineJson.wipeTower(NativeEngine.nativePlateWipeTower(handle, presets, emptyArray(), emptyArray())).getOrThrow())
+        assertTrue("x ${moved.x}", moved.x > 0 && moved.x + moved.width < 256)
+
+        val gcode = File(work, "tower.gcode")
+        val result = EngineJson.sliceResult(NativeEngine.nativeSliceProject(handle, gcode.path, presets, emptyArray(), emptyArray(), Quiet, 0L), gcode.path)
+        assertTrue("$result", result is SliceResult.Succeeded)
+    }
+
     /** A cube and a second part beside it, split into two objects. */
     private fun loadTwoObjects() {
         handle = EngineJson.loadedProject(NativeEngine.nativeProjectLoad(box("cube", 20f).path)).getOrThrow().handle

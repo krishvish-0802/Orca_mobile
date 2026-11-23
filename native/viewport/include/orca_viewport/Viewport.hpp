@@ -198,6 +198,9 @@ public:
 
     // Tool geometry over the plate; null removes it.
     void set_overlay(std::shared_ptr<const Overlay> overlay);
+    // Shapes that belong to the plate rather than a tool (the prime tower),
+    // drawn under any tool's overlay; null hides them.
+    void set_scene_overlay(std::shared_ptr<const Overlay> overlay);
     // Splits an object's colors by a cut plane, or stops.
     void set_cut_view(std::optional<CutView> view);
     // Where a screen point lands on the plane through `origin` with `normal`

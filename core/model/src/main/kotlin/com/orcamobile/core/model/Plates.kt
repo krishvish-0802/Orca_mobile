@@ -59,6 +59,10 @@ object PlateSettingKeys {
     /** "1" or "0". */
     const val SPIRAL_VASE = "spiral_mode"
 
+    /** Where the plate's prime tower stands (its front left corner), mm; set by dragging it. */
+    const val WIPE_TOWER_X = "wipe_tower_x"
+    const val WIPE_TOWER_Y = "wipe_tower_y"
+
     /** Values of [BED_TYPE], as the config writes them, with their labels in the desktop. */
     val bedTypes: List<Pair<String, String>> = listOf(
         "Cool Plate" to "Smooth Cool Plate",
@@ -72,3 +76,19 @@ object PlateSettingKeys {
     const val BY_LAYER = "by layer"
     const val BY_OBJECT = "by object"
 }
+
+/**
+ * The current plate's prime tower before slicing, as the desktop draws it: its
+ * corner on the bed, its estimated footprint and brim (mm) and its turn about Z.
+ */
+data class WipeTower(
+    val x: Double,
+    val y: Double,
+    val width: Double,
+    val depth: Double,
+    val height: Double,
+    val brim: Double,
+    val rotationDegrees: Double,
+    /** It, brim included, meets an object or its brim: it would print into it. */
+    val overlapsObjects: Boolean,
+)

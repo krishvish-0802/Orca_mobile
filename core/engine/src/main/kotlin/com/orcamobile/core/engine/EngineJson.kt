@@ -31,6 +31,7 @@ import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.VolumeInfo
 import com.orcamobile.core.model.VolumeKind
+import com.orcamobile.core.model.WipeTower
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -218,6 +219,15 @@ internal object EngineJson {
         },
     )
 
+    fun wipeTower(payload: String): Result<WipeTower?> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(WipeTowerDto.serializer(), element)
+        if (dto.width == null || dto.depth == null) {
+            null
+        } else {
+            WipeTower(dto.x, dto.y, dto.width, dto.depth, dto.height, dto.brim, dto.rotation, dto.overlaps)
+        }
+    }
+
     fun plates(payload: String): Result<Plates> = decodeOrError(payload) { element ->
         val dto = json.decodeFromJsonElement(PlatesDto.serializer(), element)
         Plates(dto.current, dto.plates.map { PlateInfo(it.name, it.settings, it.instances) }, dto.objects.map { it.toModel() })
@@ -356,6 +366,18 @@ internal object EngineJson {
 
     @Serializable
     private data class PlateDto(val name: String = "", val settings: Map<String, String> = emptyMap(), val instances: Int = 0)
+
+    @Serializable
+    private data class WipeTowerDto(
+        val x: Double = 0.0,
+        val y: Double = 0.0,
+        val width: Double? = null,
+        val depth: Double? = null,
+        val height: Double = 0.0,
+        val brim: Double = 0.0,
+        val rotation: Double = 0.0,
+        val overlaps: Boolean = false,
+    )
 
     @Serializable
     private data class PlatesDto(val current: Int, val plates: List<PlateDto>, val objects: List<ObjectDto>)

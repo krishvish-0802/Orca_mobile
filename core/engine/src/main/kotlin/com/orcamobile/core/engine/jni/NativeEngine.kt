@@ -78,6 +78,9 @@ internal object NativeEngine {
      */
     @JvmStatic external fun nativePlates(handle: Long, actionJson: String): String
 
+    /** The current plate's prime tower: `{"x","y","width","depth","height","brim","rotation","overlaps"}`, `{}` for none, or `{"error"}`. */
+    @JvmStatic external fun nativePlateWipeTower(handle: Long, presetsJson: String, keys: Array<String>, values: Array<String>): String
+
     // Mesh tools (native/bridge/jni/MeshJni.cpp); requests are MeshToolsJson.encode.
 
     /** The cut's checks: `{"canCut","reason","problems",..}` or `{"error": ...}`. */

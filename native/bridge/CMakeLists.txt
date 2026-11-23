@@ -14,6 +14,8 @@ add_library(orca_engine_core STATIC
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp
     src/SliceJob.cpp
+    src/WipeTower.cpp
+    src/WipeTower.hpp
     src/JsonCodec.cpp
     src/LayerHeights.cpp
     src/MeasureTool.cpp

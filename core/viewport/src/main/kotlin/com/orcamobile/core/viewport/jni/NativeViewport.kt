@@ -126,6 +126,12 @@ internal object NativeViewport {
     /** Colours by painted state, r, g, b, a for each (state 0 first). */
     @JvmStatic external fun nativeSetPaintPalette(handle: Long, rgba: FloatArray)
 
+    /** The prime tower: x, y, width, depth, height, brim, rotation (degrees), overlaps (0/1); empty hides it. */
+    @JvmStatic external fun nativeShowWipeTower(handle: Long, tower: FloatArray)
+
+    /** Where a screen point meets the bed, {x, y} mm, or null. */
+    @JvmStatic external fun nativeBedPoint(handle: Long, x: Float, y: Float): FloatArray?
+
     /** RGBA per filament, filament 1 first: model parts take their filament's colour; empty for one filament. */
     @JvmStatic external fun nativeSetFilamentColours(handle: Long, rgba: FloatArray)
 

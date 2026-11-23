@@ -3,7 +3,9 @@
 // on any thread.
 #include <jni.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <map>
@@ -416,6 +418,71 @@ void native_fit(JNIEnv*, jclass, jlong handle)
         v->fit();
 }
 
+// The prime tower on the plate: `tower` is x, y, width, depth, height, brim,
+// rotation (degrees), overlaps (0/1); empty hides it. A grey block on its brim's
+// outline, red when it meets an object.
+void native_show_wipe_tower(JNIEnv* env, jclass, jlong handle, jfloatArray tower)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return;
+    const std::vector<float> t = to_float_vector(env, tower);
+    if (t.size() < 8) {
+        v->set_scene_overlay(nullptr);
+        return;
+    }
+    const float x = t[0], y = t[1], w = t[2], d = t[3], h = std::max(t[4], 1.0f), brim = t[5];
+    const float angle = t[6] * 3.14159265f / 180.0f;
+    const bool overlaps = t[7] > 0.5f;
+    const float c = std::cos(angle), s = std::sin(angle);
+    // Corner (x, y), turned about it as the tower turns.
+    const auto at = [&](float u, float w_) { return std::array<float, 2>{x + u * c - w_ * s, y + u * s + w_ * c}; };
+    const std::array<std::array<float, 2>, 4> base{at(0, 0), at(w, 0), at(w, d), at(0, d)};
+    orca::viewport::Overlay::Shape body;
+    body.color = overlaps ? std::array<float, 4>{0.90f, 0.25f, 0.20f, 0.75f} : std::array<float, 4>{0.55f, 0.57f, 0.60f, 0.75f};
+    const auto tri = [&](const std::array<float, 3>& a, const std::array<float, 3>& b, const std::array<float, 3>& c3) {
+        body.positions.insert(body.positions.end(), {a[0], a[1], a[2], b[0], b[1], b[2], c3[0], c3[1], c3[2]});
+    };
+    for (int i = 0; i < 4; ++i) {
+        const auto& p = base[i];
+        const auto& q = base[(i + 1) % 4];
+        tri({p[0], p[1], 0}, {q[0], q[1], 0}, {q[0], q[1], h});
+        tri({p[0], p[1], 0}, {q[0], q[1], h}, {p[0], p[1], h});
+    }
+    tri({base[0][0], base[0][1], h}, {base[1][0], base[1][1], h}, {base[2][0], base[2][1], h});
+    tri({base[0][0], base[0][1], h}, {base[2][0], base[2][1], h}, {base[3][0], base[3][1], h});
+    orca::viewport::Overlay::Shape outline;
+    outline.lines = true;
+    outline.line_width = 2.f;
+    outline.color = body.color;
+    outline.color[3] = 1.0f;
+    const std::array<std::array<float, 2>, 4> rim{at(-brim, -brim), at(w + brim, -brim), at(w + brim, d + brim), at(-brim, d + brim)};
+    for (int i = 0; i < 4; ++i) {
+        const auto& p = rim[i];
+        const auto& q = rim[(i + 1) % 4];
+        outline.positions.insert(outline.positions.end(), {p[0], p[1], 0.05f, q[0], q[1], 0.05f});
+    }
+    auto overlay = std::make_shared<orca::viewport::Overlay>();
+    overlay->shapes.push_back(std::move(body));
+    overlay->shapes.push_back(std::move(outline));
+    v->set_scene_overlay(std::move(overlay));
+}
+
+// Where the screen point (x, y) meets the bed: {x, y} in mm, or null.
+jfloatArray native_bed_point(JNIEnv* env, jclass, jlong handle, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return nullptr;
+    const auto point = v->plane_point(x, y, {0, 0, 0}, {0, 0, 1});
+    if (!point)
+        return nullptr;
+    jfloatArray out = env->NewFloatArray(2);
+    const jfloat values[2] = {(*point)[0], (*point)[1]};
+    env->SetFloatArrayRegion(out, 0, 2, values);
+    return out;
+}
+
 const JNINativeMethod kMethods[] = {
     {"nativeCreate", "()J", reinterpret_cast<void*>(native_create)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(native_destroy)},
@@ -447,6 +514,8 @@ const JNINativeMethod kMethods[] = {
     {"nativePan", "(JFF)V", reinterpret_cast<void*>(native_pan)},
     {"nativeZoom", "(JFFF)V", reinterpret_cast<void*>(native_zoom)},
     {"nativeFit", "(J)V", reinterpret_cast<void*>(native_fit)},
+    {"nativeShowWipeTower", "(J[F)V", reinterpret_cast<void*>(native_show_wipe_tower)},
+    {"nativeBedPoint", "(JFF)[F", reinterpret_cast<void*>(native_bed_point)},
 };
 
 } // namespace

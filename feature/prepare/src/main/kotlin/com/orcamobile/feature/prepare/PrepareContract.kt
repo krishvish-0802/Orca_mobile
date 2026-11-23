@@ -9,6 +9,7 @@ import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.model.PlateInfo
+import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.viewport.HandleMode
@@ -75,6 +76,8 @@ data class PrepareUiState(
     val slicedPlates: Set<Int> = emptySet(),
     /** Slicing every plate: which one of how many is being sliced (1-based), null otherwise. */
     val slicingAll: Pair<Int, Int>? = null,
+    /** The current plate's prime tower as the slice will place it; null when it prints none. */
+    val wipeTower: WipeTower? = null,
 ) {
     /** Another plate may be shown: not while a tool, a slice or painting holds this one. */
     val canSwitchPlate: Boolean
@@ -281,6 +284,9 @@ sealed interface PrepareIntent {
 
     /** Slices every plate with something on it, one after another. */
     data object SliceAll : PrepareIntent
+
+    /** The prime tower was dragged to ([x], [y]) on the current plate. */
+    data class MoveWipeTower(val x: Double, val y: Double) : PrepareIntent
 
     /** Opens a mesh tool on the selected object. */
     data class OpenMeshTool(val tool: MeshTool) : PrepareIntent

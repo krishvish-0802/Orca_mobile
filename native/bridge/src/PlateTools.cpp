@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "ConfigBuilder.hpp"
+#include "WipeTower.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
@@ -114,6 +115,26 @@ void add_exclude_areas(const DynamicPrintConfig& config, ArrangePolygons& fixed)
     }
 }
 
+// The plate's prime tower, kept clear as the desktop's arrange keeps it
+// (PartPlate::estimate_wipe_tower_polygon): it does not move.
+void add_wipe_tower(const std::optional<WipeTowerPlacement>& tower, ArrangePolygons& fixed)
+{
+    if (!tower)
+        return;
+    const double b = tower->brim;
+    ArrangePolygon item;
+    item.poly.contour = Slic3r::Polygon({{scaled(tower->x - b), scaled(tower->y - b)},
+                                         {scaled(tower->x + tower->width + b), scaled(tower->y - b)},
+                                         {scaled(tower->x + tower->width + b), scaled(tower->y + tower->depth + b)},
+                                         {scaled(tower->x - b), scaled(tower->y + tower->depth + b)}});
+    item.bed_idx = 0;
+    item.is_virt_object = true;
+    item.is_wipe_tower = true;
+    item.height = tower->height;
+    item.name = "WipeTower";
+    fixed.push_back(std::move(item));
+}
+
 // Where an item packed onto logical bed `bed_idx` goes: that many bed widths to
 // the right, where the desktop would put its next plates.
 coord_t bed_stride(const Slic3r::Points& bed)
@@ -211,6 +232,9 @@ PlateChange arrange_plates(Project& project, const PlateConfig& plate_config, co
                            PresetCatalog* catalog, bool all_plates)
 {
     const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+    // Each plate has its own tower; Arrange all leaves them to be placed after.
+    const std::optional<WipeTowerPlacement> tower =
+        all_plates ? std::nullopt : detail::place_wipe_tower(project, config);
     PlateChange change;
     project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         ArrangeParams params = make_params(config, options);
@@ -229,6 +253,7 @@ PlateChange arrange_plates(Project& project, const PlateConfig& plate_config, co
         if (selected.empty())
             return;
         add_exclude_areas(config, fixed);
+        add_wipe_tower(tower, fixed);
 
         Slic3r::arrangement::update_arrange_items(selected, fixed, &config, params);
         const Slic3r::Points bed = Slic3r::arrangement::get_shrink_bedpts(&config, params);
@@ -297,6 +322,7 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
                        const PlateConfig& plate_config, const ArrangeOptions& options, PresetCatalog* catalog)
 {
     const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+    const std::optional<WipeTowerPlacement> tower = detail::place_wipe_tower(project, config);
     PlateChange change;
     project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         check(model, source);
@@ -315,6 +341,7 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
                 fixed.push_back(std::move(item));
             }
         add_exclude_areas(config, fixed);
+        add_wipe_tower(tower, fixed);
 
         const ArrangePolygon pattern = Slic3r::get_instance_arrange_poly(original, config);
         std::size_t wanted = count.value_or(0);

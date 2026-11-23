@@ -12,6 +12,7 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
+import com.orcamobile.core.model.WipeTower
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -81,6 +82,16 @@ class NativePlateEditor @Inject constructor(
             val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
             EngineJson.plateUpdate(NativeEngine.nativeProjectRemove(handle, instance.objectIndex, instance.instanceIndex))
                 .getOrThrow()
+        }
+    }
+
+    override suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
+            environment.ensureInitialized()
+            val keys = config.overrides.keys.toTypedArray()
+            val values = keys.map { config.overrides.getValue(it) }.toTypedArray()
+            EngineJson.wipeTower(NativeEngine.nativePlateWipeTower(handle, EngineJson.encode(config.presets), keys, values)).getOrThrow()
         }
     }
 

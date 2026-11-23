@@ -18,6 +18,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PlateAction
+import com.orcamobile.core.model.PlateSettingKeys
 import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
@@ -65,6 +66,10 @@ class PrepareViewModel @Inject constructor(
     /** Each plate's last slice, while it still matches the plate; the current plate's is [PrepareUiState.slice]. */
     private val plateResults = mutableMapOf<Int, SliceUiState.Done>()
 
+    /** Grows when something the prime tower depends on changed besides what the state shows (paint, settings). */
+    private val towerInputs = MutableStateFlow(0)
+    private var towerJob: Job? = null
+
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
         viewModelScope.launch {
@@ -81,12 +86,20 @@ class PrepareViewModel @Inject constructor(
             updateHost { copy(startOptions = options) }
         }
         viewModelScope.launch { followSettingsChanges() }
+        viewModelScope.launch { followWipeTower() }
     }
 
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
             PrepareIntent.SliceAll -> sliceAllPlates()
+            is PrepareIntent.MoveWipeTower -> {
+                val plate = _state.value.currentPlate
+                changePlates(stale = setOf(plate)) { project ->
+                    plateTools.plates(project, PlateAction.SetSetting(plate, PlateSettingKeys.WIPE_TOWER_X, intent.x.mm())).getOrThrow()
+                    plateTools.plates(project, PlateAction.SetSetting(plate, PlateSettingKeys.WIPE_TOWER_Y, intent.y.mm())).getOrThrow()
+                }
+            }
             is PrepareIntent.SelectPlate -> selectPlate(intent.plate)
             PrepareIntent.AddPlate -> changePlates { project ->
                 val added = plateTools.plates(project, PlateAction.Add).getOrThrow()
@@ -138,14 +151,20 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SetBrush -> _state.update { if (it.paint == null) it else it.copy(paint = intent.brush) }
             PrepareIntent.ClearPaint -> _state.update { if (it.paint == null) it else it.copy(paintClearRequest = it.paintClearRequest + 1) }
             PrepareIntent.StopPainting -> _state.update { it.copy(paint = null) }
-            PrepareIntent.Painted -> dropStaleResult()
+            PrepareIntent.Painted -> {
+                dropStaleResult()
+                towerInputs.update { it + 1 }
+            }
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }
                 dropStaleResult()
                 loadTransform()
             }
-            PrepareIntent.ObjectSettingsChanged -> dropStaleResult()
+            PrepareIntent.ObjectSettingsChanged -> {
+                dropStaleResult()
+                towerInputs.update { it + 1 }
+            }
             is PrepareIntent.LaidOnFace -> {
                 _state.update { it.copy(selection = intent.instance, layingOnFace = false) }
                 dropStaleResult()
@@ -451,6 +470,29 @@ class PrepareViewModel @Inject constructor(
         }
     }
 
+    // --- prime tower --------------------------------------------------------
+
+    /**
+     * The current plate's prime tower, read again whenever what it depends on
+     * changed: the objects, the plate, its settings, the presets or the paint.
+     */
+    private suspend fun followWipeTower() {
+        combine(
+            _state.map { Triple(it.project?.id, it.plateRevision, it.currentPlate) }.distinctUntilChanged(),
+            _state.map { it.presets to it.plates.getOrNull(it.currentPlate)?.settings }.distinctUntilChanged(),
+            towerInputs,
+        ) { _, _, _ -> }.collect {
+            val project = _state.value.project ?: return@collect
+            towerJob?.cancel()
+            towerJob = viewModelScope.launch {
+                val tower = plateTools.wipeTower(project.id, _state.value.presets).getOrNull()
+                _state.update { it.copy(wipeTower = tower) }
+            }
+        }
+    }
+
+    private fun Double.mm(): String = String.format(java.util.Locale.ROOT, "%.2f", this)
+
     // --- filaments ----------------------------------------------------------
 
     /** As the desktop's delete filament: the model's numbers follow before the slot goes. */
@@ -580,6 +622,7 @@ class PrepareViewModel @Inject constructor(
         }.distinctUntilChanged().collect { changes ->
             _state.update { it.copy(changedSettings = changes.size) }
             if (previous != null) dropAllResults()
+            towerInputs.update { it + 1 }
             previous = changes
         }
     }

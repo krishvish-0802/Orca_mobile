@@ -332,6 +332,8 @@ fun PrepareScreen(
                         BrimEarsView(it, tools.ears.ears, tools.ears.selected)
                     },
                     onBrimEarTap = { tap -> tools.onEars(BrimEarsIntent.Tap(tap.bedX, tap.bedY, tap.x, tap.y)) },
+                    wipeTower = state.wipeTower.takeIf { state.meshTool == null && state.paint == null },
+                    onWipeTowerMoved = { x, y -> onIntent(PrepareIntent.MoveWipeTower(x, y)) },
                     pickingSurface = state.meshTool == MeshTool.EMBOSS,
                     onSurfaceTap = { pick -> tools.onEmboss(EmbossIntent.PlaceOn(pick)) },
                     modifier = Modifier.fillMaxSize(),
@@ -370,6 +372,18 @@ fun PrepareScreen(
                     onIntent,
                     Modifier.align(Alignment.TopCenter).padding(top = if (state.preview is PreviewUiState.Ready) 56.dp else 8.dp),
                 )
+                if (preview == null && state.wipeTower?.overlapsObjects == true && state.meshTool == null && state.paint == null) {
+                    Text(
+                        stringResource(R.string.prepare_wipe_tower_overlaps),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 8.dp, bottom = 88.dp)
+                            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.small)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
                 val selectedName = state.selectedObjectName
                 if (preview == null && selectedName != null && state.plateTask == null && state.plateNotice == null) {
                     Text(

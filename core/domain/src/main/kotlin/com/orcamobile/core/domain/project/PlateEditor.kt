@@ -9,6 +9,7 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
+import com.orcamobile.core.model.WipeTower
 
 /**
  * The desktop's plate tools, run by the engine on a loaded project. Each
@@ -56,4 +57,7 @@ interface PlateEditor {
 
     /** Reads or changes the project's plates. */
     suspend fun plates(project: ProjectId, action: PlateAction): Result<Plates>
+
+    /** The current plate's prime tower, or null when it prints none. */
+    suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = Result.success(null)
 }
