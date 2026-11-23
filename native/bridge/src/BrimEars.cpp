@@ -139,11 +139,11 @@ std::vector<BrimEar> find_brim_ears(const Project& project, const InstanceRef& v
                 for (const Slic3r::Point& p : points)
                     out.push_back({Slic3r::unscale<double>(p.x()), Slic3r::unscale<double>(p.y()), radius});
             };
-            add(Slic3r::make_brim_ear_points(island.contour, Slic3r::coord_t(scale_(detection_length)), max_angle_deg, true));
+            add(Slic3r::make_brim_ear_points(island.contour, coord_t(scale_(detection_length)), max_angle_deg, true));
             Slic3r::Polygons holes = island.holes;
             Slic3r::polygons_reverse(holes);
             for (const Slic3r::Polygon& hole : holes)
-                add(Slic3r::make_brim_ear_points(hole, Slic3r::coord_t(scale_(detection_length)), max_angle_deg, false));
+                add(Slic3r::make_brim_ear_points(hole, coord_t(scale_(detection_length)), max_angle_deg, false));
         }
     });
     return out;
