@@ -190,7 +190,8 @@
     <string name="prepare_layers_smooth">Smooth</string>
     <string name="prepare_layers_reset">Reset</string>
     <string name="prepare_ears_title">Brim ears: %1$s</string>
-    <string name="prepare_ears_not_painted">This object\'s brim type is not \"Painted\", so the ears will not print.</string>
+    <string name="prepare_ears_not_painted">This object\'s brim type is not \"Painted\", so ears will not print. Adding one switches it.</string>
+    <string name="prepare_ears_switched">This object\'s brim type is now \"Painted\", so the ears print. Slice again to see them.</string>
     <string name="prepare_ears_use_painted">Use painted brim ears for this object</string>
     <plurals name="prepare_ears_count">
         <item quantity="one">%1$d ear</item>

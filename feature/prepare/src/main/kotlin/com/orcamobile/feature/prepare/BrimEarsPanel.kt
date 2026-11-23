@@ -30,6 +30,13 @@ internal fun BrimEarsPanel(state: BrimEarsUiState, objectName: String, onIntent:
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.prepare_ears_title, objectName), style = MaterialTheme.typography.titleMedium, maxLines = 1)
+            if (state.switchedToPainted) {
+                Text(
+                    stringResource(R.string.prepare_ears_switched),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
             if (state.brimPainted == false) {
                 Text(
                     stringResource(R.string.prepare_ears_not_painted),

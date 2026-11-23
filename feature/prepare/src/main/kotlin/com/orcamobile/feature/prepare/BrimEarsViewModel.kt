@@ -38,6 +38,8 @@ data class BrimEarsUiState(
     val detectionMm: Double = 1.0,
     /** Whether the ears will print: the object's brim type is "painted". Null until known. */
     val brimPainted: Boolean? = null,
+    /** Adding ears switched the object's brim type to "painted", so they print. */
+    val switchedToPainted: Boolean = false,
     /** The last tap missed the object's outline. */
     val missed: Boolean = false,
     val busy: Boolean = false,
@@ -195,18 +197,20 @@ class BrimEarsViewModel @Inject constructor(
             tools.setBrimEars(project, instance, ears).onSuccess { kept ->
                 _state.update { if (it.instance == instance) it.copy(ears = kept, busy = false) else it }
                 _events.send(BrimEarsEvent.Changed)
+                // Ears only print with the painted brim type: placing one asks for it.
+                if (kept.isNotEmpty() && _state.value.brimPainted != true) usePaintedBrim(switched = true)
             }.onFailure { error -> _state.update { it.copy(busy = false, error = error.message) } }
         }
     }
 
-    private fun usePaintedBrim() {
+    private fun usePaintedBrim(switched: Boolean = false) {
         val s = _state.value
         val project = s.project ?: return
         val instance = s.instance ?: return
         viewModelScope.launch {
             objects.edit(project, instance.objectIndex, ObjectEdit.SetSetting(SettingTarget.OBJECT, BRIM_TYPE, PAINTED))
                 .onSuccess {
-                    _state.update { it.copy(brimPainted = true) }
+                    _state.update { it.copy(brimPainted = true, switchedToPainted = switched) }
                     _events.send(BrimEarsEvent.Changed)
                 }
                 .onFailure { error -> _state.update { it.copy(error = error.message) } }

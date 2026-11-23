@@ -424,7 +424,15 @@ class NativePlateToolsDeviceTest {
         assertEquals(110.0, kept.last().x, 0.01)
         assertEquals(5, ears(ObjectToolsJson.encodeEarsRequest("get")).size)
         EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"brim_type","value":"painted"}}""")).getOrThrow()
+        // Painted ears print as brim, even with the brim width at 0, and only where they are.
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"brim_width","value":"0"}}""")).getOrThrow()
         assertTrue(slices("ears"))
+        val earsGcode = File(work, "ears.gcode").readText()
+        assertTrue("no brim in the G-code", earsGcode.contains(";TYPE:Brim"))
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"brim_type","value":"no_brim"}}""")).getOrThrow()
+        assertTrue(slices("no-ears"))
+        assertTrue(!File(work, "no-ears.gcode").readText().contains(";TYPE:Brim"))
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"brim_type","value":"painted"}}""")).getOrThrow()
 
         // Text on the cube's top, raised; then as an object of its own; then an SVG.
         val font = listOf("/system/fonts/Roboto-Regular.ttf", "/system/fonts/DroidSans.ttf")
