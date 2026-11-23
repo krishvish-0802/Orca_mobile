@@ -6,6 +6,13 @@ plugins {
 
 android {
     namespace = "com.orcamobile.core.update"
+    buildFeatures.buildConfig = true
+    defaultConfig {
+        // The release this build updates from: main's builds use latest-build, a
+        // milestone branch's its own (see .github/workflows/native.yml).
+        val tag = providers.gradleProperty("orca.updateTag").orNull ?: "latest-build"
+        buildConfigField("String", "UPDATE_TAG", "\"$tag\"")
+    }
 }
 
 dependencies {
