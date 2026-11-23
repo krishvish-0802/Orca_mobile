@@ -183,6 +183,7 @@ struct Viewport::Impl {
     bool framed = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
+    std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
     std::optional<CutView> cut_view;
 
@@ -415,6 +416,7 @@ void Viewport::draw()
     std::optional<int> highlighted_volume;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
+    std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
     std::optional<CutView> cut_view;
     bool show_toolpaths = false;
@@ -460,6 +462,7 @@ void Viewport::draw()
         highlighted_volume = d.highlighted_volume;
         paint_overlays = d.paint_overlays;
         paint_palette = d.paint_palette;
+        filament_colours = d.filament_colours;
         overlay = d.overlay;
         cut_view = d.cut_view;
         show_toolpaths = d.has_toolpaths;
@@ -537,6 +540,13 @@ void Viewport::draw()
                 const Eigen::Matrix4f placed = state.transform * piece_state.transform;
                 glUniformMatrix4fv(model_matrix, 1, GL_FALSE, placed.data());
                 Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
+                // Several filaments: a part in its filament's colour, the selection tinted.
+                if (piece.kind == VolumeKind::ModelPart && piece.filament >= 1 &&
+                    std::size_t(piece.filament) <= filament_colours.size()) {
+                    const auto& f = filament_colours[std::size_t(piece.filament) - 1];
+                    const float t = selected ? 0.45f : 0.0f;
+                    c = Color{f[0] + (kSelected.r - f[0]) * t, f[1] + (kSelected.g - f[1]) * t, f[2] + (kSelected.b - f[2]) * t, 1.0f};
+                }
                 if (selected && highlighted_volume && *highlighted_volume == piece.volume)
                     c = piece.kind == VolumeKind::ModelPart ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kHighlightedVolume;
                 const bool cut = cut_view && cut_view->object == state.part.ref.object && piece.kind == VolumeKind::ModelPart;
@@ -651,6 +661,12 @@ void Viewport::set_bed(Bed bed)
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->pending_bed = std::move(bed);
     m_impl->framed = false;
+}
+
+void Viewport::set_filament_colours(std::vector<std::array<float, 4>> colours)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->filament_colours = std::move(colours);
 }
 
 void Viewport::set_parts(std::vector<Part> parts)

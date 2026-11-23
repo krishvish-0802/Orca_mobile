@@ -265,7 +265,7 @@ internal object EngineJson {
         selection?.let {
             json.encodeToString(
                 PresetSelectionDto.serializer(),
-                PresetSelectionDto(it.vendor, it.printer, it.process, it.filaments),
+                PresetSelectionDto(it.vendor, it.printer, it.process, it.filaments, it.filamentColours),
             )
         } ?: ""
 
@@ -435,6 +435,7 @@ internal object EngineJson {
         val printer: String,
         val process: String,
         val filaments: List<String>,
+        val filamentColours: List<String> = emptyList(),
     )
 
     @Serializable

@@ -50,6 +50,22 @@ void native_project_center_on(JNIEnv*, jclass, jlong handle, jdouble x, jdouble 
         project->center_on(x, y);
 }
 
+// The filaments changed: `removed` (0-based, or -1) was taken away and `count`
+// are left.
+void native_project_filaments(JNIEnv*, jclass, jlong handle, jint removed, jint count)
+{
+    auto* project = from_handle<orca::engine::Project>(handle);
+    if (project == nullptr || count < 1)
+        return;
+    try {
+        if (removed >= 0)
+            project->remove_filament(std::size_t(removed), std::size_t(count));
+        project->limit_filaments(std::size_t(count));
+    } catch (const std::exception&) {
+        // Nothing to undo: the model keeps what it had.
+    }
+}
+
 // Reads, and with `edit_json` changes, an instance's transform:
 // "" reads; {"position":[x,y]}, {"rotation":[x,y,z]} (degrees), {"scale":[x,y,z]},
 // {"mirror":axis} or {"reset":true} change it first.
@@ -96,6 +112,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeProjectObjects", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_project_objects)},
     {"nativeProjectCenterOn", "(JDD)V", reinterpret_cast<void*>(native_project_center_on)},
     {"nativeProjectRelease", "(J)V", reinterpret_cast<void*>(native_project_release)},
+    {"nativeProjectFilaments", "(JII)V", reinterpret_cast<void*>(native_project_filaments)},
     {"nativeInstanceTransform", "(JIILjava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(native_instance_transform)},
 };

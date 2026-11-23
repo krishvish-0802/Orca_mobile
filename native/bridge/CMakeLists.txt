@@ -4,6 +4,8 @@ add_library(orca_engine_core STATIC
     src/BrimEars.cpp
     src/ConfigBuilder.cpp
     src/ConfigBuilder.hpp
+    src/Filaments.cpp
+    src/Filaments.hpp
     src/ConfigOptions.cpp
     src/ConfigValues.hpp
     src/CutTool.cpp
@@ -22,6 +24,7 @@ add_library(orca_engine_core STATIC
     src/PlateTools.cpp
     src/ProjectImpl.hpp
     src/ProjectObjects.cpp
+    src/ProjectFilaments.cpp
     src/ProjectPlates.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp

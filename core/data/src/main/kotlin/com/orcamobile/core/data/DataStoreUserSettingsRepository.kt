@@ -32,7 +32,9 @@ class DataStoreUserSettingsRepository @Inject constructor(
         val process = prefs[PROCESS] ?: return null
         val filaments = prefs[FILAMENTS]?.split(LIST_SEPARATOR)?.filter { it.isNotEmpty() }.orEmpty()
         if (filaments.isEmpty()) return null
-        return PresetSelection(vendor, printer, process, filaments)
+        // Kept with the filaments, an empty entry where a slot follows its preset.
+        val colours = prefs[FILAMENT_COLOURS]?.split(LIST_SEPARATOR).orEmpty().take(filaments.size)
+        return PresetSelection(vendor, printer, process, filaments, colours.takeIf { c -> c.any { it.isNotEmpty() } }.orEmpty())
     }
 
     override suspend fun savePresetSelection(selection: PresetSelection) {
@@ -41,6 +43,7 @@ class DataStoreUserSettingsRepository @Inject constructor(
             it[PRINTER] = selection.printer
             it[PROCESS] = selection.process
             it[FILAMENTS] = selection.filaments.joinToString(LIST_SEPARATOR)
+            it[FILAMENT_COLOURS] = selection.filamentColours.joinToString(LIST_SEPARATOR)
         }
     }
 
@@ -85,6 +88,7 @@ class DataStoreUserSettingsRepository @Inject constructor(
         val PRINTER = stringPreferencesKey("preset_printer")
         val PROCESS = stringPreferencesKey("preset_process")
         val FILAMENTS = stringPreferencesKey("preset_filaments")
+        val FILAMENT_COLOURS = stringPreferencesKey("preset_filament_colours")
         val HOST_TYPE = stringPreferencesKey("host_type")
         val HOST_ADDRESS = stringPreferencesKey("host_address")
         val HOST_API_KEY = stringPreferencesKey("host_api_key")

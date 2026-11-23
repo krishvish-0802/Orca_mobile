@@ -83,6 +83,12 @@ sealed interface ObjectListIntent {
 
     data class RemoveRange(val range: Int) : ObjectListIntent
 
+    /**
+     * Prints the object, or part [volume], with filament [filament] (1-based);
+     * null lets a part follow its object.
+     */
+    data class SetFilament(val volume: Int?, val filament: Int?) : ObjectListIntent
+
     data object DismissError : ObjectListIntent
 
     /** Reads the object again (back from its settings): an earlier slice is stale if they changed. */

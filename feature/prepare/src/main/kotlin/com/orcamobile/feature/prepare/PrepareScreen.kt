@@ -309,7 +309,8 @@ fun PrepareScreen(
                     highlightedVolume = list.selectedVolume,
                     handleMode = state.handleMode,
                     paint = state.paint,
-                    paintPalette = state.paint?.let { paletteFor(it.kind) }.orEmpty(),
+                    paintPalette = state.paint?.let { paletteFor(it.kind, state.choices.slotColoursOrDefault()) }.orEmpty(),
+                    filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
                     onPainted = { onIntent(PrepareIntent.Painted) },
                     onVolumeSelectionChange = { instance, volume ->
@@ -487,7 +488,6 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
         PresetChip(stringResource(R.string.prepare_preset_vendor), choices.vendor, enabled = choices.vendors.isNotEmpty()) { choosing = PresetField.VENDOR }
         PresetChip(stringResource(R.string.prepare_preset_printer), choices.printer, enabled = choices.printers.isNotEmpty()) { choosing = PresetField.PRINTER }
         PresetChip(stringResource(R.string.prepare_preset_process), choices.process, enabled = choices.processes.isNotEmpty()) { choosing = PresetField.PROCESS }
-        PresetChip(stringResource(R.string.prepare_preset_filament), choices.filament, enabled = choices.filaments.isNotEmpty()) { choosing = PresetField.FILAMENT }
         FilledTonalButton(onClick = onOpenSettings) {
             Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(
@@ -500,6 +500,7 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             )
         }
     }
+    FilamentBar(choices, onIntent)
     if (choices.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     choices.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 

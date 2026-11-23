@@ -226,7 +226,17 @@ sealed interface PrepareIntent {
 
     data class SelectProcess(val process: String) : PrepareIntent
 
-    data class SelectFilament(val filament: String) : PrepareIntent
+    /** Loads [filament] as filament [slot] + 1. */
+    data class SelectFilament(val filament: String, val slot: Int = 0) : PrepareIntent
+
+    /** Adds a filament, a copy of the last. */
+    data object AddFilament : PrepareIntent
+
+    /** Takes filament [slot] + 1 away; what used it falls back to filament 1. */
+    data class RemoveFilament(val slot: Int) : PrepareIntent
+
+    /** Filament [slot] + 1 prints in [colour] ("#RRGGBB"), or its preset's colour when null. */
+    data class SetFilamentColour(val slot: Int, val colour: String?) : PrepareIntent
 
     /** Objects were moved or turned on the plate: earlier slicing results no longer match it. */
     data object PlateEdited : PrepareIntent

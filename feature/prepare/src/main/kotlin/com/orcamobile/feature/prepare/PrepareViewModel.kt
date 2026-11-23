@@ -106,7 +106,10 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
             is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
             is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
-            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
+            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.slot, intent.filament) }
+            PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }
+            is PrepareIntent.RemoveFilament -> removeFilament(intent.slot)
+            is PrepareIntent.SetFilamentColour -> viewModelScope.launch { picker.setFilamentColour(intent.slot, intent.colour) }
             is PrepareIntent.Select -> {
                 // An object of another plate (picked from the list): show its plate first.
                 val plate = intent.instance?.let { ref -> _state.value.project?.objects?.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) }
@@ -261,6 +264,12 @@ class PrepareViewModel @Inject constructor(
         }
         _state.update { it.copy(presets = selection, bed = bed) }
         val project = _state.value.project
+        // Fewer filaments (another printer): nothing may print with one that is gone.
+        val count = selection?.filaments?.size ?: 0
+        if (project != null && count > 0 && count < (old.presets?.filaments?.size ?: 0)) {
+            projects.filamentsChanged(project.id, null, count)
+            _state.update { it.copy(plateRevision = it.plateRevision + 1) }
+        }
         if (project != null && printerChanged) {
             val (x, y) = bed.center
             projects.centerOn(project.id, x, y)
@@ -439,6 +448,19 @@ class PrepareViewModel @Inject constructor(
                 _state.update { it.copy(slicingAll = null, slice = if (end is SliceUiState.Running || end is SliceUiState.Idle) it.slice else end) }
             }
             (last as? SliceUiState.Done)?.let { loadPreview(it.gcodePath) }
+        }
+    }
+
+    // --- filaments ----------------------------------------------------------
+
+    /** As the desktop's delete filament: the model's numbers follow before the slot goes. */
+    private fun removeFilament(slot: Int) {
+        val count = _state.value.choices.slots.size
+        if (count <= 1 || slot !in 0 until count) return
+        viewModelScope.launch {
+            _state.value.project?.let { projects.filamentsChanged(it.id, slot, count - 1) }
+            picker.removeFilament(slot)
+            _state.update { it.copy(plateRevision = it.plateRevision + 1) }
         }
     }
 

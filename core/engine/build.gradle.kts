@@ -73,7 +73,8 @@ android {
 // Extend `includes` as later milestones need more of resources/.
 val packEngineResources = tasks.register<PackEngineResourcesTask>("packEngineResources") {
     resourcesRoot.set(rootProject.layout.projectDirectory.dir("third_party/OrcaSlicer/resources"))
-    includes.set(listOf("profiles/**/*.json"))
+    // flush/: the purge volumes between filament colours (FlushVolPredictor).
+    includes.set(listOf("profiles/**/*.json", "flush/*.txt"))
     outputDir.set(layout.buildDirectory.dir("generated/engineResources"))
 }
 

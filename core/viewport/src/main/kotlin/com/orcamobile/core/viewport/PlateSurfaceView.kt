@@ -36,6 +36,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     private var layerRange: IntRange? = null
     private var coloring = 0
     private var selection: InstanceRef? = null
+    private var filamentColours = FloatArray(0)
 
     init {
         setEGLContextClientVersion(3)
@@ -49,6 +50,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         if (handle == 0L) {
             handle = NativeViewport.nativeCreate()
             bed?.let { NativeViewport.nativeSetBed(handle, it, bedHeight) }
+            NativeViewport.nativeSetFilamentColours(handle, filamentColours)
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
             if (previewHandle != 0L) applyPreview()
             selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
@@ -177,6 +179,16 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         projectHandle = project
         projectRevision = revision
         if (handle != 0L) showProjectOnGlThread(project)
+    }
+
+    /** Model parts in their filament's colour: r, g, b, a per filament, filament 1 first; empty for the plain colour. */
+    fun setFilamentColours(rgba: FloatArray) {
+        if (rgba.contentEquals(filamentColours)) return
+        filamentColours = rgba
+        if (handle != 0L) {
+            NativeViewport.nativeSetFilamentColours(handle, rgba)
+            requestRender()
+        }
     }
 
     /** Shows the toolpaths of the preview with native handle [preview] instead of the model; 0 hides them. */

@@ -126,6 +126,9 @@ internal object NativeViewport {
     /** Colours by painted state, r, g, b, a for each (state 0 first). */
     @JvmStatic external fun nativeSetPaintPalette(handle: Long, rgba: FloatArray)
 
+    /** RGBA per filament, filament 1 first: model parts take their filament's colour; empty for one filament. */
+    @JvmStatic external fun nativeSetFilamentColours(handle: Long, rgba: FloatArray)
+
     /** Highlights a volume (index in its object) of the selected instance; negative for none. */
     @JvmStatic external fun nativeHighlightVolume(handle: Long, volume: Int)
 

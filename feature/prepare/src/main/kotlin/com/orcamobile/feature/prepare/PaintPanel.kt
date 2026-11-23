@@ -71,7 +71,7 @@ internal fun PaintPanel(
                         onClick = { set(brush.copy(state = value)) },
                         label = { Text(label) },
                         leadingIcon = if (value == PaintBrush.ERASE) null else {
-                            { ColorDot(paletteFor(brush.kind).getOrElse(value) { Color.Gray }) }
+                            { ColorDot(paletteFor(brush.kind, state.choices.slotColoursOrDefault()).getOrElse(value) { Color.Gray }) }
                         },
                     )
                 }
@@ -188,12 +188,27 @@ private fun statesFor(kind: PaintKind, state: PrepareUiState): List<Pair<Int, St
         (PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase))
 }
 
-/** Colours by painted state (0 is unpainted), as the desktop draws them. */
-internal fun paletteFor(kind: PaintKind): List<Color> = when (kind) {
+/**
+ * Colours by painted state (0 is unpainted), as the desktop draws them; colour
+ * painting draws each filament in its own colour ([filaments], filament 1 first).
+ */
+internal fun paletteFor(kind: PaintKind, filaments: List<Color> = emptyList()): List<Color> = when (kind) {
     PaintKind.SUPPORTS -> listOf(Color.Transparent, Color(0xFF33CC4D), Color(0xFFE64040))
     PaintKind.SEAM -> listOf(Color.Transparent, Color(0xFF3380FF), Color(0xFFE64040))
     PaintKind.FUZZY_SKIN -> listOf(Color.Transparent, Color(0xFFFF9919))
-    PaintKind.COLOR -> listOf(Color.Transparent) + FILAMENT_COLORS
+    PaintKind.COLOR -> listOf(Color.Transparent) + filaments + FILAMENT_COLORS.drop(filaments.size)
+}
+
+/** The loaded filaments' colours, filament 1 first; a slot not yet known takes the stock colour. */
+internal fun com.orcamobile.core.model.PresetChoices.slotColoursOrDefault(): List<Color> =
+    slots.indices.map { i -> colourOf(i)?.let(::parseFilamentColour) ?: FILAMENT_COLORS[i % FILAMENT_COLORS.size] }
+
+/** "#RRGGBB" or "#RRGGBBAA" as profiles write it; null for anything else. */
+internal fun parseFilamentColour(hex: String): Color? {
+    val digits = hex.removePrefix("#")
+    if (digits.length != 6 && digits.length != 8) return null
+    val value = digits.toLongOrNull(16) ?: return null
+    return if (digits.length == 6) Color(0xFF000000 or value) else Color(((value and 0xFF) shl 24) or (value ushr 8))
 }
 
 private val FILAMENT_COLORS = listOf(

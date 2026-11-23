@@ -103,6 +103,7 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
                 orca::viewport::MeshPiece shown{static_cast<int>(piece.volume),
                                                 static_cast<orca::viewport::VolumeKind>(static_cast<int>(piece.kind)),
                                                 piece.first_triangle, piece.triangle_count};
+                shown.filament = piece.filament;
                 for (int i = 0; i < 16; ++i)
                     shown.transform[i] = static_cast<float>(piece.transform[i]);
                 part.pieces.push_back(shown);

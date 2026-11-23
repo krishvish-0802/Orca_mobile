@@ -40,6 +40,9 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectObjects(handle: Long): String
 
+    /** The filaments changed: [removed] (0-based, or -1) was taken away and [count] are left. */
+    @JvmStatic external fun nativeProjectFilaments(handle: Long, removed: Int, count: Int)
+
     @JvmStatic external fun nativeProjectCenterOn(handle: Long, x: Double, y: Double)
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)

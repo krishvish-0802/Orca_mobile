@@ -158,6 +158,19 @@ void native_set_paint_palette(JNIEnv* env, jclass, jlong viewport_handle, jfloat
     v->set_paint_palette(std::move(palette));
 }
 
+// Colours of the filaments, filament 1 first: r, g, b, a each. Empty for one filament.
+void native_set_filament_colours(JNIEnv* env, jclass, jlong viewport_handle, jfloatArray rgba)
+{
+    auto* v = from_handle<Viewport>(viewport_handle);
+    if (v == nullptr)
+        return;
+    const std::vector<float> values = to_float_vector(env, rgba);
+    std::vector<std::array<float, 4>> colours;
+    for (std::size_t i = 0; i + 3 < values.size(); i += 4)
+        colours.push_back({values[i], values[i + 1], values[i + 2], values[i + 3]});
+    v->set_filament_colours(std::move(colours));
+}
+
 const JNINativeMethod kMethods[] = {
     {"nativePaintBegin", "(JJII)J", reinterpret_cast<void*>(native_paint_begin)},
     {"nativePaintAt", "(JJFFZIIFFF)Z", reinterpret_cast<void*>(native_paint_at)},
@@ -165,6 +178,7 @@ const JNINativeMethod kMethods[] = {
     {"nativePaintCommit", "(J)Z", reinterpret_cast<void*>(native_paint_commit)},
     {"nativePaintEnd", "(JJ)V", reinterpret_cast<void*>(native_paint_end)},
     {"nativeSetPaintPalette", "(J[F)V", reinterpret_cast<void*>(native_set_paint_palette)},
+    {"nativeSetFilamentColours", "(J[F)V", reinterpret_cast<void*>(native_set_filament_colours)},
 };
 
 } // namespace

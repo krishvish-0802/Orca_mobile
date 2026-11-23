@@ -149,6 +149,9 @@ void check_free(const ModelObject& object, double min_z, double max_z, const Sli
 std::vector<std::string> setting_keys(SettingScope scope)
 {
     std::vector<std::string> keys = Slic3r::PrintRegionConfig().keys();
+    // The filament an object, part or height range prints with (the desktop's
+    // filament column); the engine spreads it over the per-feature filaments.
+    keys.insert(keys.begin(), "extruder");
     if (scope == SettingScope::Object) {
         const auto object_keys = Slic3r::PrintObjectConfig().keys();
         keys.insert(keys.end(), object_keys.begin(), object_keys.end());
@@ -194,7 +197,7 @@ ObjectMesh Project::object_mesh(std::size_t object_index) const
                     const Slic3r::Vec3f& p = its.vertices[face[k]];
                     mesh.positions.insert(mesh.positions.end(), {p.x(), p.y(), p.z()});
                 }
-            ObjectMesh::Piece piece{v, to_kind(volume.type()), triangles, its.indices.size(), {}};
+            ObjectMesh::Piece piece{v, to_kind(volume.type()), triangles, its.indices.size(), {}, volume.extruder_id()};
             const Slic3r::Transform3d& matrix = volume.get_matrix();
             for (int i = 0; i < 16; ++i)
                 piece.transform[i] = matrix.matrix().data()[i];

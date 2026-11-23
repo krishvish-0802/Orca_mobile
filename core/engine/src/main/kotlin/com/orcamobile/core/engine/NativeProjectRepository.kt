@@ -32,6 +32,11 @@ class NativeProjectRepository @Inject constructor(
         Unit
     }
 
+    override suspend fun filamentsChanged(id: ProjectId, removed: Int?, count: Int) = withContext(dispatchers.io) {
+        registry.handleOf(id)?.let { NativeEngine.nativeProjectFilaments(it, removed ?: -1, count) }
+        Unit
+    }
+
     override fun release(id: ProjectId) {
         registry.remove(id)?.let(NativeEngine::nativeProjectRelease)
     }

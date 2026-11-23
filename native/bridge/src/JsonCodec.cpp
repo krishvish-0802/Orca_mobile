@@ -144,6 +144,7 @@ std::optional<PresetSelection> preset_selection_from_json(const std::string& pay
         selection.printer = j.at("printer").get<std::string>();
         selection.process = j.at("process").get<std::string>();
         selection.filaments = j.at("filaments").get<std::vector<std::string>>();
+        selection.filament_colours = j.value("filamentColours", std::vector<std::string>{});
         return selection;
     } catch (const nlohmann::json::exception& e) {
         throw std::runtime_error(std::string("Malformed preset selection: ") + e.what());

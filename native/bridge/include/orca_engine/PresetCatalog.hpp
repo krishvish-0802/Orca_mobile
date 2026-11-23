@@ -15,6 +15,8 @@ struct PresetSelection {
     std::string printer;
     std::string process;
     std::vector<std::string> filaments;  // one per extruder/filament slot
+    // "#RRGGBB" per slot over the preset's own colour; empty (or shorter) keeps it.
+    std::vector<std::string> filament_colours;
 };
 
 // Presets that suit one printer, with the defaults its profile recommends.

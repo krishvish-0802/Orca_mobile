@@ -93,6 +93,7 @@ struct ObjectMesh {
         std::size_t first_triangle = 0;
         std::size_t triangle_count = 0;
         std::array<double, 16> transform{};
+        int filament = 1;           // the filament it prints with, 1-based (its own or its object's)
     };
     std::vector<float> positions;   // x, y, z per vertex, three vertices per triangle
     std::vector<Piece> pieces;
@@ -243,6 +244,13 @@ public:
     std::size_t add_layer_range(std::size_t object, double min_z, double max_z, const std::string& layer_height);
     void set_layer_range(std::size_t object, std::size_t range, double min_z, double max_z);
     void remove_layer_range(std::size_t object, std::size_t range);
+
+    // Filaments: filament `filament` (0-based) was taken away and `count` are
+    // left; objects, parts, height ranges and painting on it fall back to the
+    // first, and later filaments move down. limit_filaments() drops any filament
+    // number beyond `count` (a printer with fewer filaments).
+    void remove_filament(std::size_t filament, std::size_t count);
+    void limit_filaments(std::size_t count);
 
     // --- Plates (the desktop's PartPlateList) ---
     // Every plate shares the bed's coordinates; the plate view shows the current

@@ -1,6 +1,11 @@
 package com.orcamobile.feature.prepare
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -78,6 +83,29 @@ internal fun ObjectPanel(
                 }
             }
             val details = list.details
+            // Several filaments: which one the object, and the part picked, print with.
+            val filaments = state.choices.slots.size
+            if (details != null && filaments > 1) {
+                val colours = state.choices.slotColoursOrDefault()
+                FilamentChoice(
+                    label = stringResource(R.string.prepare_object_filament),
+                    selected = details.settings[EXTRUDER_KEY]?.toIntOrNull()?.takeIf { it in 1..filaments } ?: 1,
+                    colours = colours,
+                    enabled = enabled && !list.busy,
+                    allowDefault = false,
+                ) { onListIntent(ObjectListIntent.SetFilament(null, it)) }
+                val volumeIndex = list.selectedVolume
+                val volume = list.volume
+                if (volumeIndex != null && volume != null && volume.kind == VolumeKind.PART && details.volumes.size > 1) {
+                    FilamentChoice(
+                        label = volume.name,
+                        selected = volume.settings[EXTRUDER_KEY]?.toIntOrNull()?.takeIf { it in 1..filaments },
+                        colours = colours,
+                        enabled = enabled && !list.busy,
+                        allowDefault = true,
+                    ) { onListIntent(ObjectListIntent.SetFilament(volumeIndex, it)) }
+                }
+            }
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 ObjectTab.entries.forEachIndexed { index, entry ->
                     SegmentedButton(
@@ -232,4 +260,56 @@ private fun RowScope.AxisField(axis: Axis, value: Double, unit: String, enabled:
         enabled = enabled,
         modifier = Modifier.weight(1f),
     )
+}
+
+private const val EXTRUDER_KEY = "extruder"
+
+/**
+ * The filament something prints with, as the desktop object list's filament
+ * column: a swatch per filament; with [allowDefault], "As the object" (null).
+ */
+@Composable
+private fun FilamentChoice(
+    label: String,
+    selected: Int?,
+    colours: List<androidx.compose.ui.graphics.Color>,
+    enabled: Boolean,
+    allowDefault: Boolean,
+    onSelect: (Int?) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            maxLines = 1,
+            modifier = Modifier.widthIn(max = 96.dp),
+        )
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (allowDefault) {
+                FilterChip(
+                    selected = selected == null,
+                    onClick = { onSelect(null) },
+                    enabled = enabled,
+                    label = { Text(stringResource(R.string.prepare_object_filament_default)) },
+                )
+            }
+            colours.forEachIndexed { i, colour ->
+                val number = i + 1
+                Box(
+                    Modifier
+                        .border(
+                            if (selected == number) 3.dp else 0.dp,
+                            if (selected == number) MaterialTheme.colorScheme.primary else androidx.compose.ui.graphics.Color.Transparent,
+                            androidx.compose.foundation.shape.CircleShape,
+                        )
+                        .padding(3.dp)
+                        .clickable(enabled = enabled && selected != number) { onSelect(number) },
+                ) { FilamentSwatch(colour, number, size = 30) }
+            }
+        }
+    }
 }

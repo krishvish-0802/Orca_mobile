@@ -411,4 +411,13 @@
     <string name="prepare_notice_moved_to_plate">Moved to plate %1$d.</string>
     <string name="prepare_slice_all">Slice all</string>
     <string name="prepare_slice_plate_of">Plate %1$d of %2$d · %3$d%% · %4$s</string>
+    <!-- Filaments -->
+    <string name="prepare_filament_number">Filament %1$d</string>
+    <string name="prepare_filament_add">Filament</string>
+    <string name="prepare_filament_colour">Colour</string>
+    <string name="prepare_filament_preset_colour">Preset\'s colour</string>
+    <string name="prepare_filament_remove">Remove</string>
+    <string name="prepare_filament_remove_hint">Objects, parts and painting on a removed filament print with filament 1; later filaments move up.</string>
+    <string name="prepare_object_filament">Filament</string>
+    <string name="prepare_object_filament_default">As the object</string>
 </resources>

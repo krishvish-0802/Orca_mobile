@@ -90,6 +90,12 @@ class ObjectListViewModel @Inject constructor(
                 ObjectEdit.SetSetting(SettingTarget(range = intent.range), "layer_height", intent.layerHeight.toString())
             }
             is ObjectListIntent.RemoveRange -> edit(changesShape = false) { ObjectEdit.RemoveRange(intent.range) }
+            // Not the shape, but the plate redraws the part in its filament's colour.
+            is ObjectListIntent.SetFilament -> edit(changesShape = true) {
+                val target = intent.volume?.let { SettingTarget(volume = it) } ?: SettingTarget.OBJECT
+                intent.filament?.let { ObjectEdit.SetSetting(target, EXTRUDER, it.toString()) }
+                    ?: ObjectEdit.ResetSetting(target, EXTRUDER)
+            }
             ObjectListIntent.DismissError -> _state.update { it.copy(error = null) }
             ObjectListIntent.Refresh -> refresh()
             ObjectListIntent.EnablePaintedFuzzySkin -> edit(changesShape = false) {
@@ -214,6 +220,7 @@ class ObjectListViewModel @Inject constructor(
         private const val SHAPE_FRACTION = 0.1
         private const val DEFAULT_LAYER_HEIGHT = "0.2"
         private const val FUZZY_SKIN = "fuzzy_skin"
+        private const val EXTRUDER = "extruder"
         private const val FUZZY_SKIN_DISABLED = "disabled_fuzzy"
 
         /** The kinds a volume may be changed to: what it is, a part, or anything but a part. */

@@ -42,6 +42,7 @@ struct MeshPiece {
     std::size_t first_triangle = 0;
     std::size_t triangle_count = 0;
     std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    int filament = 0;                // 1-based filament it prints with; 0 when not known
 };
 
 // An object's triangles: x, y, z per vertex, three vertices per triangle.
@@ -136,6 +137,9 @@ public:
     void set_bed(Bed bed);
     // Replaces the instances on the plate (and drops a selection that no longer exists).
     void set_parts(std::vector<Part> parts);
+    // RGBA per filament, filament 1 first: model parts take their filament's
+    // colour, as in the desktop. Empty draws them in the plain model colour.
+    void set_filament_colours(std::vector<std::array<float, 4>> colours);
     void clear_parts();
     // Moves an instance already on the plate.
     void set_part_transform(const PartRef& ref, const std::array<float, 16>& transform);

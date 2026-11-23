@@ -123,6 +123,8 @@ fun PlateViewport(
      */
     paint: PaintBrush? = null,
     paintPalette: List<Color> = emptyList(),
+    /** With several filaments, each filament's colour (filament 1 first): parts show in theirs. */
+    filamentColours: List<Color> = emptyList(),
     /** Grows to erase everything painted of the brush's kind. */
     clearPaintRequest: Int = 0,
     onPainted: () -> Unit = {},
@@ -188,6 +190,9 @@ fun PlateViewport(
     val currentPaint by rememberUpdatedState(paint)
     val currentOnPainted by rememberUpdatedState(onPainted)
     val painting = paint != null && project != null && preview == null && selection != null
+    val filamentArray = remember(filamentColours) {
+        filamentColours.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
+    }
     val paletteArray = remember(paintPalette) {
         paintPalette.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
     }
@@ -258,6 +263,7 @@ fun PlateViewport(
             factory = { surface },
             update = { view ->
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
+                view.setFilamentColours(filamentArray)
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
