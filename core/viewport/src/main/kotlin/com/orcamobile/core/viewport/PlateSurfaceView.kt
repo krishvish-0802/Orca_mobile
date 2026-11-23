@@ -179,12 +179,20 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
      * Shows the project with native handle [project], or clears the plate for 0.
      * A new [revision] redraws it after the engine moved its objects.
      */
-    fun setProject(project: Long, revision: Int = 0) {
-        if (project == projectHandle && revision == projectRevision) return
+    fun setProject(project: Long, revision: Int = 0, frameKey: Int = 0) {
+        if (project == projectHandle && revision == projectRevision && frameKey == this.frameKey) return
+        // Another project or plate: the camera frames what it shows; an edit keeps it.
+        val frame = project != projectHandle || frameKey != this.frameKey
         projectHandle = project
         projectRevision = revision
-        if (handle != 0L) showProjectOnGlThread(project)
+        this.frameKey = frameKey
+        if (handle != 0L) {
+            if (frame) NativeViewport.nativeFrameNextParts(handle)
+            showProjectOnGlThread(project)
+        }
     }
+
+    private var frameKey = 0
 
     /** Model parts in their filament's colour: r, g, b, a per filament, filament 1 first; empty for the plain colour. */
     fun setFilamentColours(rgba: FloatArray) {
@@ -272,7 +280,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private var highlightedVolume: Int? = null
     private var painting = 0L
-    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val modifier: Int?)
+    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val modifier: Int?, val revision: Int)
 
     private var paintTarget: PaintTarget? = null
 
@@ -281,10 +289,10 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
      * coloured by [palette] (r, g, b, a per state); null stops painting. For a
      * painted modifier, [modifier] is the one shaped (null: a new one).
      */
-    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, modifier: Int? = null) {
+    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, modifier: Int? = null, revision: Int = 0) {
         val h = handle
         val target = if (objectIndex != null && kind != null && projectHandle != 0L) {
-            PaintTarget(projectHandle, objectIndex, kind, modifier.takeIf { kind == PaintKind.PAINTED_MODIFIER })
+            PaintTarget(projectHandle, objectIndex, kind, modifier.takeIf { kind == PaintKind.PAINTED_MODIFIER }, revision)
         } else {
             null
         }

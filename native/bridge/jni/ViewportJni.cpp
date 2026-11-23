@@ -454,6 +454,12 @@ void native_fit(JNIEnv*, jclass, jlong handle)
         v->fit();
 }
 
+void native_frame_next_parts(JNIEnv*, jclass, jlong handle)
+{
+    if (auto* v = viewport(handle))
+        v->frame_next_parts();
+}
+
 // Whether the screen point is on the text (volume `volume` of the instance), or
 // within a few mm of it: where a drag moves it.
 jboolean native_emboss_hits(JNIEnv*, jclass, jlong handle, jint object, jint instance, jint volume, jfloat x, jfloat y)
@@ -602,6 +608,7 @@ const JNINativeMethod kMethods[] = {
     {"nativePan", "(JFF)V", reinterpret_cast<void*>(native_pan)},
     {"nativeZoom", "(JFFF)V", reinterpret_cast<void*>(native_zoom)},
     {"nativeFit", "(J)V", reinterpret_cast<void*>(native_fit)},
+    {"nativeFrameNextParts", "(J)V", reinterpret_cast<void*>(native_frame_next_parts)},
     {"nativeShowWipeTower", "(J[F)V", reinterpret_cast<void*>(native_show_wipe_tower)},
     {"nativeEmbossHits", "(JIIIFF)Z", reinterpret_cast<void*>(native_emboss_hits)},
     {"nativeEmbossDrag", "(JJIIIFF)Z", reinterpret_cast<void*>(native_emboss_drag)},

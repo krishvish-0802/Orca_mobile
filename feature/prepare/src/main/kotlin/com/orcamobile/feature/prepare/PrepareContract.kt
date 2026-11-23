@@ -86,10 +86,17 @@ data class PrepareUiState(
     /** The project's undo history has a step back, or forward. */
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
+    /** Grows with each undo or redo, so the tools open on the plate read the project again. */
+    val historyRevision: Int = 0,
 ) {
-    /** Undo and redo while nothing else holds the plate. */
+    /**
+     * Undo and redo: on the plate, while painting and in the Text tool (which
+     * read the project again after a step); not in the other tools, mid-slice
+     * or in the preview.
+     */
     val historyUsable: Boolean
-        get() = plateEditable && meshTool == null
+        get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
+            (meshTool == null || meshTool == MeshTool.EMBOSS)
 
 
     /** Another plate may be shown: not while a tool, a slice or painting holds this one. */

@@ -117,6 +117,8 @@ fun PlateViewport(
     onPlateEdited: () -> Unit = {},
     /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
     projectRevision: Int = 0,
+    /** Changes when the plate shows something else (another plate): the camera frames it then, and only then. */
+    frameKey: Int = 0,
     /** The engine is changing the plate: taps and drags only move the camera. */
     locked: Boolean = false,
     layOnFace: Boolean = false,
@@ -142,6 +144,8 @@ fun PlateViewport(
     filamentColours: List<Color> = emptyList(),
     /** Grows to erase everything painted of the brush's kind. */
     clearPaintRequest: Int = 0,
+    /** Grows when the model's paint changed under the brush (undo): painting starts again from it. */
+    paintRevision: Int = 0,
     onPainted: () -> Unit = {},
     /** Painting a new painted modifier: the first stroke made it, volume [Int] of the object. */
     onPaintedModifier: (Int) -> Unit = {},
@@ -317,12 +321,12 @@ fun PlateViewport(
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
                 view.setFilamentColours(filamentArray)
                 view.setWipeTower(towerArray)
-                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
+                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision, frameKey)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
                 view.setGroup(group.takeIf { editable && selection != null }.orEmpty())
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
-                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.modifier)
+                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.modifier, paintRevision)
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -367,6 +371,12 @@ fun PlateViewport(
                             onPan = { delta -> surface.pan(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
                             onEdited = { currentOnTextMoved() },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
                         )
                     },
             )
@@ -414,6 +424,12 @@ fun PlateViewport(
                             },
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
                             onStrokeEnd = {
                                 if (surface.commitPaint()) currentOnPainted()
                                 val brush = currentPaint
@@ -645,14 +661,25 @@ private suspend fun PointerInputScope.paintGestures(
     onOrbit: (Offset) -> Unit,
     onZoom: (Float, Offset) -> Unit,
     onStrokeEnd: () -> Unit,
+    /** A quick tap of two or more fingers: how many. */
+    onFingerTap: (Int) -> Unit = {},
 ) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        var painted = onPaint(down.position, true)
+        // The first dab waits for the finger to move or lift, so the first finger
+        // of a two-finger gesture paints nothing.
+        var started = false
+        var painted = false
         var camera = false
+        var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
             if (pressed.size >= 2) camera = true
             if (camera) {
                 if (pressed.size >= 2) {
@@ -664,12 +691,20 @@ private suspend fun PointerInputScope.paintGestures(
             } else {
                 val change = pressed.firstOrNull()
                 if (change != null && change.positionChange() != Offset.Zero) {
+                    if (!started) {
+                        painted = onPaint(down.position, true)
+                        started = true
+                    }
                     painted = onPaint(change.position, false) || painted
                 }
             }
             event.changes.forEach { it.consume() }
         } while (event.changes.any { it.pressed })
+        // A single tap paints a dab where it landed.
+        if (!camera && !started) painted = onPaint(down.position, true)
         if (painted) onStrokeEnd()
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (camera && fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
     }
 }
 

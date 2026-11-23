@@ -553,12 +553,16 @@ class PrepareViewModel @Inject constructor(
             projects.history(project.id, action).onSuccess { history ->
                 showHistory(history)
                 if (history.changed) {
+                    val painting = start.paint != null
                     _state.update {
                         it.copy(
                             project = it.project?.copy(objects = history.objects),
-                            selection = null,
+                            // Painting keeps its object (the paint is read again); otherwise nothing is selected.
+                            selection = it.selection.takeIf { painting }?.takeIf { ref -> history.objects.holds(ref) },
+                            paint = it.paint.takeIf { _ -> it.selection?.let { ref -> history.objects.holds(ref) } == true },
                             group = emptyList(),
                             plateRevision = it.plateRevision + 1,
+                            historyRevision = it.historyRevision + 1,
                         )
                     }
                     plateTools.plates(project.id).onSuccess(::showPlates)

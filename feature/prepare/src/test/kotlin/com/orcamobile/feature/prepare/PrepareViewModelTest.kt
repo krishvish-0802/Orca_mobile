@@ -848,4 +848,22 @@ class PrepareViewModelTest {
         assertFalse(vm.state.value.canRedo)
         assertNull(vm.state.value.plateTask)
     }
+
+    @Test
+    fun `undo works in the Text tool and tells it the project changed`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.OpenMeshTool(MeshTool.EMBOSS))
+        assertTrue(vm.state.value.historyUsable)
+        val revision = vm.state.value.historyRevision
+
+        vm.onIntent(PrepareIntent.Undo)
+        assertTrue(vm.state.value.canRedo)
+        assertEquals(revision + 1, vm.state.value.historyRevision)
+        assertEquals(MeshTool.EMBOSS, vm.state.value.meshTool)
+
+        vm.onIntent(PrepareIntent.OpenMeshTool(MeshTool.MEASURE))
+        assertFalse(vm.state.value.historyUsable)
+    }
 }

@@ -161,6 +161,10 @@ fun PrepareRoute(
     LaunchedEffect(earsTool) {
         earsTool.events.collect { viewModel.onIntent(PrepareIntent.ObjectSettingsChanged) }
     }
+    // An undo or redo while the Text tool is open: the text it edits is read again.
+    LaunchedEffect(embossTool, state.historyRevision) {
+        if (state.historyRevision > 0) embossTool.onIntent(EmbossIntent.ProjectChanged)
+    }
     LaunchedEffect(embossTool) {
         embossTool.events.collect { event ->
             when (event) {
@@ -312,6 +316,7 @@ fun PrepareScreen(
                     onThreeFingerTap = { onIntent(PrepareIntent.Redo) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
+                    frameKey = state.currentPlate,
                     locked = state.plateTask != null || state.meshTool == MeshTool.SIMPLIFY,
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
@@ -321,6 +326,7 @@ fun PrepareScreen(
                     paintPalette = state.paint?.let { paletteFor(it.kind, state.choices.slotColoursOrDefault()) }.orEmpty(),
                     filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
+                    paintRevision = state.historyRevision,
                     onPainted = { onIntent(PrepareIntent.Painted) },
                     onPaintedModifier = { volume ->
                         onIntent(PrepareIntent.PaintedModifierMade(volume))
@@ -384,7 +390,7 @@ fun PrepareScreen(
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                     )
                 }
-                if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
+                if (state.project != null && preview == null && (state.meshTool == null || state.meshTool == MeshTool.EMBOSS)) {
                     Row(
                         Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 8.dp),
                         horizontalArrangement = Arrangement.spacedBy(4.dp),

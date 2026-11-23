@@ -137,6 +137,9 @@ public:
     void set_bed(Bed bed);
     // Replaces the instances on the plate (and drops a selection that no longer exists).
     void set_parts(std::vector<Part> parts);
+    // The next set_parts() frames the camera on them (another plate shown);
+    // otherwise only the first parts shown are framed.
+    void frame_next_parts();
     // RGBA per filament, filament 1 first: model parts take their filament's
     // colour, as in the desktop. Empty draws them in the plain model colour.
     void set_filament_colours(std::vector<std::array<float, 4>> colours);

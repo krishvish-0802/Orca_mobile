@@ -182,6 +182,8 @@ struct Viewport::Impl {
     std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     bool framed = false;
+    // The next parts shown are framed (another plate); otherwise edits keep the camera.
+    bool frame_next_parts = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
     std::vector<std::array<float, 4>> filament_colours;
@@ -786,11 +788,22 @@ void Viewport::set_parts(std::vector<Part> parts)
     }
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     Impl& d = *m_impl;
+    // Framed when the plate shows something for the first time or another plate;
+    // an edit (a moved object, a new text, a cut) keeps the camera where it is.
+    const bool frame = d.parts.empty() || d.frame_next_parts || !d.framed;
     d.parts = std::move(states);
+    d.frame_next_parts = false;
     if (d.selection && std::none_of(d.parts.begin(), d.parts.end(),
                                     [&](const PartState& s) { return s.part.ref == *d.selection; }))
         d.selection.reset();
-    d.frame_scene_locked();
+    if (frame)
+        d.frame_scene_locked();
+}
+
+void Viewport::frame_next_parts()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->frame_next_parts = true;
 }
 
 void Viewport::clear_parts()

@@ -136,6 +136,12 @@ sealed interface EmbossIntent {
 
     /** The Size handle scaled the text being edited by [factor]. */
     data class Resize(val factor: Double) : EmbossIntent
+
+    /**
+     * The project changed under the tool (undo or redo): the text being edited
+     * is read again, or let go when it is no longer there.
+     */
+    data object ProjectChanged : EmbossIntent
 }
 
 sealed interface EmbossEvent {
@@ -192,6 +198,7 @@ class EmbossViewModel @Inject constructor(
                 _state.update { it.copy(editing = null, missingFont = null) }
             }
             EmbossIntent.Delete -> delete()
+            EmbossIntent.ProjectChanged -> reread()
             EmbossIntent.Moved -> moved()
             is EmbossIntent.Resize -> change {
                 when (mode) {
@@ -297,6 +304,22 @@ class EmbossViewModel @Inject constructor(
                         }
                     }
                 }
+            }
+        }
+    }
+
+    private fun reread() {
+        updateJob?.cancel()
+        val s = _state.value
+        val project = s.project ?: return
+        val target = s.editing ?: return
+        viewModelScope.launch {
+            val found = tools.embossed(project, target.instance.objectIndex, target.volume).getOrNull()
+            if (_state.value.editing != target) return@launch
+            if (found == null) {
+                _state.update { it.copy(editing = null, missingFont = null) }
+            } else {
+                load(target, found)
             }
         }
     }

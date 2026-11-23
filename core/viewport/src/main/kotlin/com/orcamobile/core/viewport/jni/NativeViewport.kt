@@ -190,4 +190,7 @@ internal object NativeViewport {
     @JvmStatic external fun nativeZoom(handle: Long, factor: Float, focusX: Float, focusY: Float)
 
     @JvmStatic external fun nativeFit(handle: Long)
+
+    /** The next parts shown are framed (another plate); edits otherwise keep the camera. */
+    @JvmStatic external fun nativeFrameNextParts(handle: Long)
 }
