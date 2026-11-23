@@ -2,6 +2,7 @@ package com.orcamobile.core.domain.usecase
 
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.project.PlateEditor
+import com.orcamobile.core.model.AlignMode
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateAction
@@ -31,6 +32,14 @@ class PlateToolsUseCase @Inject constructor(
 
     suspend fun plates(project: ProjectId, action: PlateAction = PlateAction.Get): Result<Plates> =
         editor.plates(project, action)
+
+    suspend fun align(
+        project: ProjectId,
+        presets: PresetSelection?,
+        instances: List<InstanceRef>,
+        mode: AlignMode,
+        toPlate: Boolean,
+    ): Result<PlateUpdate> = editor.align(project, instances, mode, toPlate, configs.configFor(presets))
 
     /** The current plate's prime tower as the slice will place it, or null when it prints none. */
     suspend fun wipeTower(project: ProjectId, presets: PresetSelection?): Result<WipeTower?> =

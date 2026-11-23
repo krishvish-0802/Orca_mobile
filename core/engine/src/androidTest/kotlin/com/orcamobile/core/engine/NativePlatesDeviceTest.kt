@@ -167,6 +167,39 @@ class NativePlatesDeviceTest {
         assertTrue("the last plate stays", last.contains("error"))
     }
 
+    private fun x(instance: Int): Double =
+        EngineJson.transformUpdate(NativeEngine.nativeInstanceTransform(handle, 0, instance, "")).getOrThrow().transform.position.x
+
+    private fun align(mode: com.orcamobile.core.model.AlignMode, toPlate: Boolean, vararg instances: Int) =
+        EngineJson.plateUpdate(
+            NativeEngine.nativePlateAlign(
+                handle, instances.joinToString(",", "[", "]") { "[0,$it]" }, mode.nativeValue, toPlate, "", keys, values,
+            ),
+        ).getOrThrow()
+
+    @Test
+    fun alignLinesUpAndSpacesObjects() {
+        load(box("cube", 20f, 20f, 20f))
+        EngineJson.plateUpdate(NativeEngine.nativePlateAddCopies(handle, 0, 0, 2, "", keys, values, options)).getOrThrow()
+        EngineJson.plateUpdate(NativeEngine.nativePlateArrange(handle, "", keys, values, options)).getOrThrow()
+
+        align(com.orcamobile.core.model.AlignMode.LEFT, false, 0, 1, 2)
+        assertEquals(x(0), x(1), 0.01)
+        assertEquals(x(0), x(2), 0.01)
+
+        // Spread along X between where two of them stand: the middle one halfway.
+        NativeEngine.nativeInstanceTransform(handle, 0, 1, """{"position":[60,40]}""")
+        NativeEngine.nativeInstanceTransform(handle, 0, 2, """{"position":[160,40]}""")
+        NativeEngine.nativeInstanceTransform(handle, 0, 0, """{"position":[70,120]}""")
+        val spread = align(com.orcamobile.core.model.AlignMode.DISTRIBUTE_X, false, 0, 1, 2)
+        assertEquals(1, spread.placed)
+        assertEquals(110.0, x(0), 0.01)
+
+        // One object to the plate's middle (a 220 mm bed).
+        align(com.orcamobile.core.model.AlignMode.CENTER_X, true, 2)
+        assertEquals(110.0, x(2), 0.01)
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }

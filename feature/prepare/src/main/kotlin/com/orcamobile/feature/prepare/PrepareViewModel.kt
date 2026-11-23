@@ -131,8 +131,23 @@ class PrepareViewModel @Inject constructor(
                     return
                 }
                 // Painting belongs to one object: choosing another (or none) ends it.
-                _state.update { it.copy(selection = intent.instance, paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex }) }
+                _state.update {
+                    it.copy(
+                        selection = intent.instance,
+                        group = emptyList(),
+                        paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex },
+                    )
+                }
                 loadTransform()
+            }
+            is PrepareIntent.ToggleSelected -> toggleSelected(intent.instance)
+            is PrepareIntent.Align -> {
+                val refs = _state.value.selected
+                if (refs.isNotEmpty()) {
+                    runPlateTool(PlateTask.ALIGN) { project, presets ->
+                        plateTools.align(project, presets, refs, intent.mode, intent.toPlate)
+                    }
+                }
             }
             PrepareIntent.PlateEdited -> {
                 dropStaleResult()
@@ -145,7 +160,7 @@ class PrepareViewModel @Inject constructor(
                 if (!it.plateEditable || it.selection == null) {
                     it
                 } else {
-                    it.copy(paint = PaintBrush(kind = intent.kind, modifier = intent.modifier), layingOnFace = false)
+                    it.copy(paint = PaintBrush(kind = intent.kind, modifier = intent.modifier), layingOnFace = false, group = emptyList())
                 }
             }
             is PrepareIntent.PaintedModifierMade -> _state.update {
@@ -179,8 +194,17 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.SetArrangeOptions -> _state.update { it.copy(arrangeOptions = intent.options) }
             PrepareIntent.Orient -> {
-                val only = _state.value.selection
-                runPlateTool(PlateTask.ORIENT) { project, presets -> plateTools.orient(project, presets, only) }
+                val selected = _state.value.selected
+                runPlateTool(PlateTask.ORIENT) { project, presets ->
+                    if (selected.isEmpty()) {
+                        plateTools.orient(project, presets, null)
+                    } else {
+                        // Each selected object in turn; the last result shows the plate.
+                        selected.fold(Result.success(PlateUpdate(emptyList()))) { last, ref ->
+                            last.fold({ plateTools.orient(project, presets, ref) }, { Result.failure(it) })
+                        }
+                    }
+                }
             }
             is PrepareIntent.AddCopies -> _state.value.selection?.let { source ->
                 val task = if (intent.count == null) PlateTask.FILL_BED else PlateTask.COPY
@@ -188,8 +212,14 @@ class PrepareViewModel @Inject constructor(
                     plateTools.addCopies(project, presets, source, intent.count, _state.value.arrangeOptions)
                 }
             }
-            PrepareIntent.DeleteSelected -> _state.value.selection?.let { selected ->
-                runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ -> plateTools.remove(project, selected) }
+            PrepareIntent.DeleteSelected -> _state.value.selected.takeIf { it.isNotEmpty() }?.let { selected ->
+                // Last first, so the numbers of the ones still to go do not shift.
+                val order = selected.sortedWith(compareByDescending<InstanceRef> { it.objectIndex }.thenByDescending { it.instanceIndex })
+                runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ ->
+                    order.fold(Result.success(PlateUpdate(emptyList()))) { last, ref ->
+                        last.fold({ plateTools.remove(project, ref) }, { Result.failure(it) })
+                    }
+                }
             }
             PrepareIntent.DismissPlateNotice -> _state.update { it.copy(plateNotice = null) }
             PrepareIntent.SplitToObjects -> _state.value.selection?.let { selected ->
@@ -199,7 +229,7 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.OpenMeshTool -> _state.update {
                 if ((it.selection != null || intent.tool == MeshTool.MEASURE || intent.tool == MeshTool.EMBOSS) && it.plateEditable) {
-                    it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null)
+                    it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null, group = emptyList())
                 } else {
                     it
                 }
@@ -341,6 +371,7 @@ class PrepareViewModel @Inject constructor(
                         plateTask = null,
                         project = it.project?.copy(objects = update.objects),
                         selection = it.selection.takeIf { keepSelection }?.takeIf { ref -> update.objects.holds(ref) },
+                        group = it.group.takeIf { keepSelection }.orEmpty().filter { ref -> update.objects.holds(ref) },
                         plateRevision = it.plateRevision + 1,
                         plateNotice = notice(task, update),
                     )
@@ -542,6 +573,9 @@ class PrepareViewModel @Inject constructor(
                 selection = it.selection?.takeIf { ref ->
                     !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
                 },
+                group = it.group.filter { ref ->
+                    !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
+                },
                 plateRevision = if (redraw) it.plateRevision + 1 else it.plateRevision,
             )
         }
@@ -603,15 +637,37 @@ class PrepareViewModel @Inject constructor(
 
     private fun moveSelectionToPlate(target: Int?) {
         val start = _state.value
-        val selection = start.selection ?: return
-        if (!start.plateEditable) return
+        val selected = start.selected
+        if (selected.isEmpty() || !start.plateEditable) return
         val from = start.currentPlate
         val to = target ?: start.plates.size
         if (to == from) return
         changePlates(stale = setOf(from, to), notice = PlateNotice.MovedToPlate(to)) { project ->
             if (target == null) plateTools.plates(project, PlateAction.Add).getOrThrow()
-            plateTools.plates(project, PlateAction.Move(selection, to)).getOrThrow()
+            var plates: Plates? = null
+            for (ref in selected) plates = plateTools.plates(project, PlateAction.Move(ref, to)).getOrThrow()
+            requireNotNull(plates)
         }
+    }
+
+    /**
+     * A long press: the object joins the selection (becoming it when there is
+     * none), or leaves it; the next selected one takes over as the main one.
+     */
+    private fun toggleSelected(instance: InstanceRef) {
+        val s = _state.value
+        if (!s.plateEditable || s.meshTool != null) return
+        val plate = s.project?.objects?.getOrNull(instance.objectIndex)?.plateOf(instance.instanceIndex)
+        if (plate != null && plate != s.currentPlate) return
+        _state.update {
+            when {
+                it.selection == null -> it.copy(selection = instance, group = emptyList())
+                it.selection == instance -> it.copy(selection = it.group.firstOrNull(), group = it.group.drop(1))
+                instance in it.group -> it.copy(group = it.group - instance)
+                else -> it.copy(group = it.group + instance)
+            }
+        }
+        loadTransform()
     }
 
     /** The slice shown becomes [plate]'s own, if it kept one; its preview is read again. */

@@ -1,5 +1,6 @@
 package com.orcamobile.core.domain.project
 
+import com.orcamobile.core.model.AlignMode
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateAction
@@ -60,4 +61,16 @@ interface PlateEditor {
 
     /** The current plate's prime tower, or null when it prints none. */
     suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = Result.success(null)
+
+    /**
+     * Lines up [instances]: with the outermost of them, or with the plate's
+     * edges or middle when [toPlate]. [PlateUpdate.placed] is how many moved.
+     */
+    suspend fun align(
+        project: ProjectId,
+        instances: List<InstanceRef>,
+        mode: AlignMode,
+        toPlate: Boolean,
+        config: PlateConfig,
+    ): Result<PlateUpdate>
 }

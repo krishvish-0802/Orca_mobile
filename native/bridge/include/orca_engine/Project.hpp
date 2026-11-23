@@ -176,6 +176,9 @@ public:
     void translate(const InstanceRef& ref, double dx, double dy);
     // Turns an instance about the vertical axis through the center of its bounding box.
     void rotate_z(const InstanceRef& ref, double radians);
+    // Turns several instances together about the vertical axis through the
+    // middle of all of them, as the desktop turns a selection of objects.
+    void rotate_group_z(const std::vector<InstanceRef>& refs, double radians);
     // Handles on the plate: turn about a world axis (0 X, 1 Y, 2 Z) through the
     // center of the bounding box, or grow by `factor` along one of the
     // instance's axes (-1: all three). Both leave it on the bed.

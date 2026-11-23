@@ -146,6 +146,24 @@ jstring native_plate_wipe_tower(JNIEnv* env, jclass, jlong handle, jstring prese
     }
 }
 
+// Lines up instances: `refs_json` is [[object, instance], ..]; `mode` an AlignMode.
+jstring native_plate_align(JNIEnv* env, jclass, jlong handle, jstring refs_json, jint mode, jboolean to_plate, jstring presets,
+                           jobjectArray keys, jobjectArray values)
+{
+    try {
+        const PlateConfig config = plate_config(env, presets, keys, values);
+        std::vector<orca::engine::InstanceRef> refs;
+        for (const auto& pair : nlohmann::json::parse(to_std_string(env, refs_json)))
+            refs.push_back({pair.at(0).get<std::size_t>(), pair.at(1).get<std::size_t>()});
+        const auto align_mode = static_cast<orca::engine::AlignMode>(mode);
+        return plate_call(env, handle, [&](Project& project) {
+            return orca::engine::align(project, refs, align_mode, to_plate == JNI_TRUE, config, catalog());
+        });
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 std::string plates_json(const Project& project)
 {
     nlohmann::json plates = nlohmann::json::array();
@@ -200,6 +218,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeProjectRemove", "(JII)" STR, reinterpret_cast<void*>(native_project_remove)},
     {"nativePlateSplit", "(JI)" STR, reinterpret_cast<void*>(native_plate_split)},
     {"nativePlates", "(J" STR ")" STR, reinterpret_cast<void*>(native_plates)},
+    {"nativePlateAlign", "(J" STR "IZ" STR "[" STR "[" STR ")" STR, reinterpret_cast<void*>(native_plate_align)},
     {"nativePlateWipeTower", "(J" STR "[" STR "[" STR ")" STR, reinterpret_cast<void*>(native_plate_wipe_tower)},
 };
 #undef STR

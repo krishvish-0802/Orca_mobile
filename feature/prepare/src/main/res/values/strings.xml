@@ -438,4 +438,25 @@
     <string name="prepare_paint_modifier_depth_hint">How far the modifier reaches into the part from the paint; 0 reaches across the part.</string>
     <string name="prepare_paint_hint_modifier">Paint where other settings should apply (more walls, other infill, another speed), then set them with Settings.</string>
     <string name="prepare_parts_paint_modifier">Paint its area</string>
+    <string name="prepare_tool_align">Align</string>
+    <string name="prepare_tool_aligning">Aligning…</string>
+    <plurals name="prepare_align_title">
+        <item quantity="one">Align %d object</item>
+        <item quantity="other">Align %d objects</item>
+    </plurals>
+    <string name="prepare_align_to_plate">To the plate</string>
+    <string name="prepare_align_left">Left</string>
+    <string name="prepare_align_center_x">Centre</string>
+    <string name="prepare_align_right">Right</string>
+    <string name="prepare_align_front">Front</string>
+    <string name="prepare_align_center_y">Middle</string>
+    <string name="prepare_align_back">Back</string>
+    <string name="prepare_align_distribute_x">Space evenly ↔</string>
+    <string name="prepare_align_distribute_y">Space evenly ↕</string>
+    <string name="prepare_align_hint">Left, centre and right line the objects up with the outermost of them, or with the plate\'s edge or middle. Space evenly keeps the outer two and spreads the rest between them.</string>
+    <string name="prepare_align_hint_few">Long-press more objects to select them together; with three or more they can be spaced evenly.</string>
+    <plurals name="prepare_group_hint">
+        <item quantity="one">%d object selected · long-press another to add it</item>
+        <item quantity="other">%d objects selected · drag to move them, twist to turn them, long-press one to add or remove it</item>
+    </plurals>
 </resources>

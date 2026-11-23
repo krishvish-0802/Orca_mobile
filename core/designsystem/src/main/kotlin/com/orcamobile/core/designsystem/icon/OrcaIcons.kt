@@ -190,6 +190,32 @@ object OrcaIcons {
         }
     }
 
+    /** Align: blocks of different widths against a line on their left. */
+    val Align: ImageVector by lazy {
+        icon("Align") {
+            moveTo(2f, 2f)
+            horizontalLineTo(4f)
+            verticalLineTo(22f)
+            horizontalLineTo(2f)
+            close()
+            moveTo(6f, 4f)
+            horizontalLineTo(20f)
+            verticalLineTo(9f)
+            horizontalLineTo(6f)
+            close()
+            moveTo(6f, 11f)
+            horizontalLineTo(14f)
+            verticalLineTo(16f)
+            horizontalLineTo(6f)
+            close()
+            moveTo(6f, 18f)
+            horizontalLineTo(17f)
+            verticalLineTo(21f)
+            horizontalLineTo(6f)
+            close()
+        }
+    }
+
     /** Move to plate: an arrow over a plate. */
     val ToPlate: ImageVector by lazy {
         icon("ToPlate") {

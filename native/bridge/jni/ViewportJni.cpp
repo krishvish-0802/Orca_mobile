@@ -150,6 +150,23 @@ void native_set_selection(JNIEnv*, jclass, jlong handle, jint object, jint insta
         v->set_selection(object < 0 ? std::nullopt : std::optional<PartRef>(PartRef{object, instance}));
 }
 
+// The instances selected with the selection: object, instance pairs.
+void native_set_group(JNIEnv* env, jclass, jlong handle, jintArray pairs)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return;
+    std::vector<PartRef> group;
+    if (pairs != nullptr) {
+        const jsize n = env->GetArrayLength(pairs);
+        std::vector<jint> values(static_cast<std::size_t>(n));
+        env->GetIntArrayRegion(pairs, 0, n, values.data());
+        for (jsize i = 0; i + 1 < n; i += 2)
+            group.push_back({values[std::size_t(i)], values[std::size_t(i) + 1]});
+    }
+    v->set_group(std::move(group));
+}
+
 // Slides the selected instance by the bed distance between two screen points.
 jboolean native_move_selection(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x0, jfloat y0, jfloat x1,
                                jfloat y1)
@@ -164,9 +181,14 @@ jboolean native_move_selection(JNIEnv*, jclass, jlong handle, jlong project_hand
     if (!selection || !from || !to)
         return JNI_FALSE;
     try {
-        const orca::engine::InstanceRef ref = to_instance(*selection);
-        project->translate(ref, (*to)[0] - (*from)[0], (*to)[1] - (*from)[1]);
-        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        // The selection and the instances selected with it move together.
+        std::vector<PartRef> moved = v->group();
+        moved.insert(moved.begin(), *selection);
+        for (const PartRef& part : moved) {
+            const orca::engine::InstanceRef ref = to_instance(part);
+            project->translate(ref, (*to)[0] - (*from)[0], (*to)[1] - (*from)[1]);
+            v->set_part_transform(part, to_float_matrix(project->placement(ref)));
+        }
         return JNI_TRUE;
     } catch (const std::exception&) {
         return JNI_FALSE;
@@ -184,9 +206,22 @@ jboolean native_rotate_selection(JNIEnv*, jclass, jlong handle, jlong project_ha
     if (!selection)
         return JNI_FALSE;
     try {
-        const orca::engine::InstanceRef ref = to_instance(*selection);
-        project->rotate_z(ref, radians);
-        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        const std::vector<PartRef> group = v->group();
+        if (group.empty()) {
+            const orca::engine::InstanceRef ref = to_instance(*selection);
+            project->rotate_z(ref, radians);
+            v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+            return JNI_TRUE;
+        }
+        // A multi-selection turns as one, about its middle.
+        std::vector<PartRef> turned = group;
+        turned.insert(turned.begin(), *selection);
+        std::vector<orca::engine::InstanceRef> refs;
+        for (const PartRef& part : turned)
+            refs.push_back(to_instance(part));
+        project->rotate_group_z(refs, radians);
+        for (std::size_t i = 0; i < turned.size(); ++i)
+            v->set_part_transform(turned[i], to_float_matrix(project->placement(refs[i])));
         return JNI_TRUE;
     } catch (const std::exception&) {
         return JNI_FALSE;
@@ -546,6 +581,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeClearMesh", "(J)V", reinterpret_cast<void*>(native_clear_mesh)},
     {"nativePick", "(JFF)J", reinterpret_cast<void*>(native_pick)},
     {"nativeSetSelection", "(JII)V", reinterpret_cast<void*>(native_set_selection)},
+    {"nativeSetGroup", "(J[I)V", reinterpret_cast<void*>(native_set_group)},
     {"nativeMoveSelection", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_selection)},
     {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
     {"nativeLayOnFace", "(JJFF)J", reinterpret_cast<void*>(native_lay_on_face)},

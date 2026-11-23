@@ -228,6 +228,14 @@ class PrepareViewModelTest {
         override suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig) =
             answer("orient $instance", config)
 
+        override suspend fun align(
+            project: ProjectId,
+            instances: List<InstanceRef>,
+            mode: com.orcamobile.core.model.AlignMode,
+            toPlate: Boolean,
+            config: PlateConfig,
+        ) = answer("align $mode toPlate=$toPlate ${instances.size}", config)
+
         override suspend fun addCopies(
             project: ProjectId,
             instance: InstanceRef,
@@ -767,5 +775,38 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.StopPainting)
         vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER, modifier = 3))
         assertEquals(3, vm.state.value.paint?.modifier)
+    }
+
+    @Test
+    fun `a long press adds objects to the selection, and tools take them all`() {
+        val two = ModelObjectInfo("benchy", 3, 225_000, listOf(60.0, 31.0, 48.0))
+        plateEditor.next = PlateUpdate(listOf(two))
+        val vm = viewModel(FakeProjects(Result.success(project.copy(objects = listOf(two)))), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 1)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 2)))
+        assertEquals(InstanceRef(0, 0), vm.state.value.selection)
+        assertEquals(listOf(InstanceRef(0, 1), InstanceRef(0, 2)), vm.state.value.group)
+
+        vm.onIntent(PrepareIntent.Align(com.orcamobile.core.model.AlignMode.LEFT, toPlate = false))
+        assertEquals("align LEFT toPlate=false 3", plateEditor.calls.last())
+        assertEquals(2, vm.state.value.group.size)
+
+        // Taking the main one out: the next takes over.
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        assertEquals(InstanceRef(0, 1), vm.state.value.selection)
+        assertEquals(listOf(InstanceRef(0, 2)), vm.state.value.group)
+
+        // Delete goes from the last instance to the first.
+        vm.onIntent(PrepareIntent.DeleteSelected)
+        assertEquals(listOf("remove InstanceRef(objectIndex=0, instanceIndex=2)", "remove InstanceRef(objectIndex=0, instanceIndex=1)"), plateEditor.calls.takeLast(2))
+        assertNull(vm.state.value.selection)
+        assertEquals(emptyList(), vm.state.value.group)
+
+        // A plain tap selects one again.
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 1)))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 2)))
+        assertEquals(emptyList(), vm.state.value.group)
     }
 }

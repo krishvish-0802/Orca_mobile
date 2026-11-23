@@ -4,6 +4,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "orca_engine/PresetCatalog.hpp"
 #include "orca_engine/Project.hpp"
@@ -41,6 +42,18 @@ struct WipeTowerPlacement {
 // when the plate prints none (one filament, or by-object printing).
 std::optional<WipeTowerPlacement> wipe_tower(Project& project, const PlateConfig& config, PresetCatalog* catalog);
 
+// The desktop's Alignment tool (GLGizmoAlignment::AlignType), on objects on the bed.
+enum class AlignMode : int {
+    CenterX = 0,
+    CenterY = 1,
+    MaxY = 3,         // the back edges
+    MinY = 4,         // the front edges
+    MaxX = 5,         // the right edges
+    MinX = 6,         // the left edges
+    DistributeX = 9,  // centres evenly from the leftmost to the rightmost
+    DistributeY = 10,
+};
+
 struct PlateChange {
     std::size_t placed = 0;          // instances arranged on the bed, or copies added to it
     std::size_t not_placed = 0;      // instances or asked-for copies that did not fit (beside the bed);
@@ -73,5 +86,13 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
                        const PlateConfig& config, const ArrangeOptions& options, PresetCatalog* catalog);
 
 constexpr std::size_t kMaxFillCopies = 200;
+
+// Lines up the instances `refs`, as the desktop's Alignment tool: their left
+// (right, front, back) edges with the outermost of them, or their centres with
+// the middle of them; distributing spaces their centres evenly (three or more).
+// With `to_plate` they line up with the plate's edges or middle instead (one is
+// enough). Returns how many moved in `placed`.
+PlateChange align(Project& project, const std::vector<InstanceRef>& refs, AlignMode mode, bool to_plate,
+                  const PlateConfig& config, PresetCatalog* catalog);
 
 } // namespace orca::engine

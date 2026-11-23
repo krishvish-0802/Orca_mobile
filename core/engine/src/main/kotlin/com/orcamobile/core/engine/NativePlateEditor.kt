@@ -3,6 +3,7 @@ package com.orcamobile.core.engine
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.engine.jni.NativeEngine
+import com.orcamobile.core.model.AlignMode
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateAction
@@ -83,6 +84,17 @@ class NativePlateEditor @Inject constructor(
             EngineJson.plateUpdate(NativeEngine.nativeProjectRemove(handle, instance.objectIndex, instance.instanceIndex))
                 .getOrThrow()
         }
+    }
+
+    override suspend fun align(
+        project: ProjectId,
+        instances: List<InstanceRef>,
+        mode: AlignMode,
+        toPlate: Boolean,
+        config: PlateConfig,
+    ) = call(project, config) { handle, presets, keys, values ->
+        val refs = instances.joinToString(",", "[", "]") { "[${it.objectIndex},${it.instanceIndex}]" }
+        NativeEngine.nativePlateAlign(handle, refs, mode.nativeValue, toPlate, presets, keys, values)
     }
 
     override suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = withContext(dispatchers.io) {

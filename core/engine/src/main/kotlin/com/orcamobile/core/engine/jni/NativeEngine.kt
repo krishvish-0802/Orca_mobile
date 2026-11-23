@@ -78,6 +78,11 @@ internal object NativeEngine {
      */
     @JvmStatic external fun nativePlates(handle: Long, actionJson: String): String
 
+    /** Lines up instances (`refsJson`: [[object, instance], ..]) by an AlignMode; `{"placed","objects"}` or `{"error"}`. */
+    @JvmStatic external fun nativePlateAlign(
+        handle: Long, refsJson: String, mode: Int, toPlate: Boolean, presetsJson: String, keys: Array<String>, values: Array<String>,
+    ): String
+
     /** The current plate's prime tower: `{"x","y","width","depth","height","brim","rotation","overlaps"}`, `{}` for none, or `{"error"}`. */
     @JvmStatic external fun nativePlateWipeTower(handle: Long, presetsJson: String, keys: Array<String>, values: Array<String>): String
 

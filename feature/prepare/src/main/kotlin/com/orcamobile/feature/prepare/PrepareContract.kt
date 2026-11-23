@@ -39,6 +39,8 @@ data class PrepareUiState(
     val showingPreview: Boolean = false,
     /** The object instance being edited on the plate. */
     val selection: InstanceRef? = null,
+    /** Other instances selected with [selection] (long press): they move, turn, align and delete with it. */
+    val group: List<InstanceRef> = emptyList(),
     /** How many settings the user changed from the presets (see the settings screen). */
     val changedSettings: Int = 0,
     /** The app-wide preset choice, changed from the chips under the plate. */
@@ -104,6 +106,10 @@ data class PrepareUiState(
     val paintKinds: List<PaintKind>
         get() = PaintKind.entries.filter { it != PaintKind.COLOR || (presets?.filaments?.size ?: 1) > 1 }
 
+    /** Every selected instance, the main one first. */
+    val selected: List<InstanceRef>
+        get() = listOfNotNull(selection) + group
+
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?
         get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
@@ -119,6 +125,7 @@ enum class PlateTask {
     FILL_BED,
     DELETE,
     SPLIT,
+    ALIGN,
 
     /** Adding, removing, switching or changing a plate. */
     PLATES,
@@ -225,6 +232,12 @@ sealed interface PrepareIntent {
     data object Slice : PrepareIntent
 
     data class Select(val instance: InstanceRef?) : PrepareIntent
+
+    /** Adds [instance] to the selection, or takes it out (a long press). */
+    data class ToggleSelected(val instance: InstanceRef) : PrepareIntent
+
+    /** Lines up the selected objects, or puts them on the plate's edge or middle with [toPlate]. */
+    data class Align(val mode: com.orcamobile.core.model.AlignMode, val toPlate: Boolean) : PrepareIntent
 
     data class SelectVendor(val vendor: String) : PrepareIntent
 

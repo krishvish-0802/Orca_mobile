@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -303,6 +304,8 @@ fun PrepareScreen(
                     coloring = preview?.coloring ?: ToolpathColoring.FeatureType,
                     selection = state.selection,
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
+                    group = state.group,
+                    onSelectionToggle = { onIntent(PrepareIntent.ToggleSelected(it)) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
                     locked = state.plateTask != null || state.meshTool == MeshTool.SIMPLIFY,
@@ -370,7 +373,7 @@ fun PrepareScreen(
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
-                if (preview == null && state.selection != null && state.plateEditable && state.meshTool == null) {
+                if (preview == null && state.selection != null && state.group.isEmpty() && state.plateEditable && state.meshTool == null) {
                     HandleModePicker(
                         mode = state.handleMode,
                         onMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
@@ -397,7 +400,11 @@ fun PrepareScreen(
                 val selectedName = state.selectedObjectName
                 if (preview == null && selectedName != null && state.plateTask == null && state.plateNotice == null) {
                     Text(
-                        stringResource(R.string.prepare_selection_hint, selectedName),
+                        if (state.group.isEmpty()) {
+                            stringResource(R.string.prepare_selection_hint, selectedName)
+                        } else {
+                            pluralStringResource(R.plurals.prepare_group_hint, state.selected.size, state.selected.size)
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .align(Alignment.TopStart)

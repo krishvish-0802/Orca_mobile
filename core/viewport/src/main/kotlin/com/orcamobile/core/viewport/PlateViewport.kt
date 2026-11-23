@@ -104,6 +104,13 @@ fun PlateViewport(
     coloring: ToolpathColoring = ToolpathColoring.FeatureType,
     selection: InstanceRef? = null,
     onSelectionChange: (InstanceRef?) -> Unit = {},
+    /**
+     * Other instances selected with [selection]: drawn selected, and a drag or a
+     * twist moves them with it. A long press on an object adds it to the
+     * selection or takes it out ([onSelectionToggle]).
+     */
+    group: List<InstanceRef> = emptyList(),
+    onSelectionToggle: (InstanceRef) -> Unit = {},
     onPlateEdited: () -> Unit = {},
     /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
     projectRevision: Int = 0,
@@ -203,6 +210,8 @@ fun PlateViewport(
     val editable = project != null && preview == null && !locked
     val currentEditable by rememberUpdatedState(editable)
     val currentSelection by rememberUpdatedState(selection)
+    val currentGroup by rememberUpdatedState(group)
+    val currentOnSelectionToggle by rememberUpdatedState(onSelectionToggle)
     val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)
     val currentOnPlateEdited by rememberUpdatedState(onPlateEdited)
     val currentLayOnFace by rememberUpdatedState(layOnFace)
@@ -306,6 +315,7 @@ fun PlateViewport(
                 view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
+                view.setGroup(group.takeIf { editable && selection != null }.orEmpty())
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
                 view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.modifier)
             },
@@ -416,6 +426,9 @@ fun PlateViewport(
                     .pointerInput(surface) {
                         detectTapGestures(
                             onDoubleTap = { surface.fit() },
+                            onLongPress = { position ->
+                                if (currentEditable && !currentLayOnFace) surface.pick(position.x, position.y)?.let(currentOnSelectionToggle)
+                            },
                             onTap = { position ->
                                 when {
                                     !currentEditable -> Unit
@@ -455,7 +468,7 @@ fun PlateViewport(
                                     !currentEditable || selected == null -> false
                                     volume != null -> surface.pickVolume(position.x, position.y)
                                         .let { it?.instance == selected && it.volume == volume }
-                                    else -> surface.pick(position.x, position.y) == selected
+                                    else -> surface.pick(position.x, position.y).let { it == selected || it in currentGroup }
                                 }
                             },
                             onDrag = { from, to ->
@@ -501,7 +514,8 @@ fun PlateViewport(
                 }
             }
         }
-        if (editable && selection != null && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
+        // The handles work on one object; a multi-selection moves and turns by touch.
+        if (editable && selection != null && group.isEmpty() && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),

@@ -149,6 +149,10 @@ public:
     // volumes), or none.
     void set_highlighted_volume(std::optional<int> volume);
     std::optional<PartRef> selection() const;
+    // Other instances selected with the selection (a multi-selection): drawn
+    // selected, and moved and turned with it.
+    void set_group(std::vector<PartRef> group);
+    std::vector<PartRef> group() const;
 
     // The instance under a screen point, nearest first; none if the point hits no part.
     std::optional<PartRef> pick(float x_px, float y_px) const;

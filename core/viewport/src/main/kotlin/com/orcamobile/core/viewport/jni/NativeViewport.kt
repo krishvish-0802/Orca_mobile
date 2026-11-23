@@ -157,6 +157,9 @@ internal object NativeViewport {
     /** Highlights an instance; a negative [objectIndex] clears the selection. */
     @JvmStatic external fun nativeSetSelection(handle: Long, objectIndex: Int, instanceIndex: Int)
 
+    /** Instances selected with the selection, as object, instance pairs: drawn selected, moved and turned with it. */
+    @JvmStatic external fun nativeSetGroup(handle: Long, pairs: IntArray)
+
     /** Slides the selected instance of [projectHandle] by the bed distance between two screen points. */
     @JvmStatic external fun nativeMoveSelection(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
 

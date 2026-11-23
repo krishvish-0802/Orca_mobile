@@ -179,6 +179,7 @@ struct Viewport::Impl {
     bool has_bed = false;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     bool framed = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
@@ -422,6 +423,7 @@ void Viewport::draw()
     Camera camera;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
     std::vector<std::array<float, 4>> paint_palette;
@@ -469,6 +471,7 @@ void Viewport::draw()
         camera = d.camera;
         parts = d.parts;
         selection = d.selection;
+        group = d.group;
         highlighted_volume = d.highlighted_volume;
         paint_overlays = d.paint_overlays;
         paint_palette = d.paint_palette;
@@ -544,7 +547,8 @@ void Viewport::draw()
             auto batch = d.part_batches.find(state.part.mesh.get());
             if (batch == d.part_batches.end())
                 continue;
-            const bool selected = selection && *selection == state.part.ref;
+            const bool selected = (selection && *selection == state.part.ref) ||
+                                  std::find(group.begin(), group.end(), state.part.ref) != group.end();
             for (const PieceState& piece_state : state.pieces) {
                 const MeshPiece& piece = piece_state.piece;
                 if ((piece.kind != VolumeKind::ModelPart) != see_through)
@@ -794,6 +798,7 @@ void Viewport::clear_parts()
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->parts.clear();
     m_impl->selection.reset();
+    m_impl->group.clear();
 }
 
 void Viewport::set_part_transform(const PartRef& ref, const std::array<float, 16>& transform)
@@ -841,6 +846,18 @@ std::optional<PartRef> Viewport::selection() const
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     return m_impl->selection;
+}
+
+void Viewport::set_group(std::vector<PartRef> group)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->group = std::move(group);
+}
+
+std::vector<PartRef> Viewport::group() const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->group;
 }
 
 std::optional<PartRef> Viewport::pick(float x_px, float y_px) const

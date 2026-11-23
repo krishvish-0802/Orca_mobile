@@ -51,7 +51,7 @@ private const val NOTICE_MILLIS = 4_000L
 /** The most copies the copies sheet offers at once. */
 private const val MAX_COPIES = 50
 
-private enum class PlateSheet { ARRANGE_OPTIONS, COPIES, TO_PLATE }
+private enum class PlateSheet { ARRANGE_OPTIONS, COPIES, TO_PLATE, ALIGN }
 
 /**
  * The plate tools along the bottom of the plate: arrange (and its settings),
@@ -112,6 +112,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 ToolButton(OrcaIcons.Copies, stringResource(R.string.prepare_tool_copies), enabled) {
                     sheet = PlateSheet.COPIES
                 }
+                ToolButton(OrcaIcons.Align, stringResource(R.string.prepare_tool_align), enabled) {
+                    sheet = PlateSheet.ALIGN
+                }
                 ToolButton(OrcaIcons.ToPlate, stringResource(R.string.prepare_tool_to_plate), enabled) {
                     sheet = PlateSheet.TO_PLATE
                 }
@@ -142,6 +145,11 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 sheet = null
                 onIntent(PrepareIntent.AddCopies(count))
             },
+            onDismiss = { sheet = null },
+        )
+        PlateSheet.ALIGN -> AlignSheet(
+            count = state.selected.size,
+            onAlign = { mode, toPlate -> onIntent(PrepareIntent.Align(mode, toPlate)) },
             onDismiss = { sheet = null },
         )
         PlateSheet.TO_PLATE -> MoveToPlateSheet(
@@ -215,6 +223,7 @@ private fun PlateTask.runningLabel(): Int = when (this) {
     PlateTask.DELETE -> R.string.prepare_tool_deleting
     PlateTask.SPLIT -> R.string.prepare_tool_splitting
     PlateTask.ARRANGE_ALL -> R.string.prepare_tool_arranging_all
+    PlateTask.ALIGN -> R.string.prepare_tool_aligning
     PlateTask.PLATES -> R.string.prepare_tool_plates
 }
 
@@ -348,4 +357,64 @@ private fun CopiesSheet(objectName: String, onAdd: (Int?) -> Unit, onDismiss: ()
             )
         }
     }
+}
+
+/**
+ * The desktop's Alignment tool for the selected objects: their left, centre or
+ * right (front, middle, back) lined up with the outermost of them, or with the
+ * plate's edges or middle; or spread evenly (three or more).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AlignSheet(count: Int, onAlign: (com.orcamobile.core.model.AlignMode, Boolean) -> Unit, onDismiss: () -> Unit) {
+    // One object can only line up with the plate.
+    var toPlate by rememberSaveable { mutableStateOf(count < 2) }
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(
+            Modifier.padding(horizontal = 24.dp).navigationBarsPadding().padding(bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(pluralStringResource(R.plurals.prepare_align_title, count, count), style = MaterialTheme.typography.titleLarge)
+            SwitchRow(stringResource(R.string.prepare_align_to_plate), toPlate || count < 2) { if (count >= 2) toPlate = it }
+            val modes = com.orcamobile.core.model.AlignMode.entries
+            for (row in listOf(modes.subList(0, 3), modes.subList(3, 6))) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    for (mode in row) {
+                        TonalPillButton(
+                            stringResource(alignLabel(mode)),
+                            onClick = { onAlign(mode, toPlate || count < 2) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (mode in listOf(com.orcamobile.core.model.AlignMode.DISTRIBUTE_X, com.orcamobile.core.model.AlignMode.DISTRIBUTE_Y)) {
+                    TonalPillButton(
+                        stringResource(alignLabel(mode)),
+                        onClick = { onAlign(mode, false) },
+                        enabled = count >= 3,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Text(
+                stringResource(if (count >= 3) R.string.prepare_align_hint else R.string.prepare_align_hint_few),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            PrimaryPillButton(stringResource(R.string.prepare_plate_done), onClick = onDismiss, modifier = Modifier.fillMaxWidth())
+        }
+    }
+}
+
+private fun alignLabel(mode: com.orcamobile.core.model.AlignMode): Int = when (mode) {
+    com.orcamobile.core.model.AlignMode.LEFT -> R.string.prepare_align_left
+    com.orcamobile.core.model.AlignMode.CENTER_X -> R.string.prepare_align_center_x
+    com.orcamobile.core.model.AlignMode.RIGHT -> R.string.prepare_align_right
+    com.orcamobile.core.model.AlignMode.FRONT -> R.string.prepare_align_front
+    com.orcamobile.core.model.AlignMode.CENTER_Y -> R.string.prepare_align_center_y
+    com.orcamobile.core.model.AlignMode.BACK -> R.string.prepare_align_back
+    com.orcamobile.core.model.AlignMode.DISTRIBUTE_X -> R.string.prepare_align_distribute_x
+    com.orcamobile.core.model.AlignMode.DISTRIBUTE_Y -> R.string.prepare_align_distribute_y
 }

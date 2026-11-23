@@ -58,6 +58,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
             if (previewHandle != 0L) applyPreview()
             selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
+            if (group.isNotEmpty()) NativeViewport.nativeSetGroup(handle, groupPairs())
             cutJson?.let { json -> if (projectHandle != 0L) NativeViewport.nativeCutShow(handle, projectHandle, json, cutShowsFace) }
         }
         super.onAttachedToWindow()
@@ -387,6 +388,17 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         selection = ref
         gesture { NativeViewport.nativeSetSelection(it, ref?.objectIndex ?: -1, ref?.instanceIndex ?: 0) }
     }
+
+    private var group: List<InstanceRef> = emptyList()
+
+    /** Other instances selected with the selection (a multi-selection). */
+    fun setGroup(refs: List<InstanceRef>) {
+        if (refs == group) return
+        group = refs
+        gesture { NativeViewport.nativeSetGroup(it, groupPairs()) }
+    }
+
+    private fun groupPairs(): IntArray = group.flatMap { listOf(it.objectIndex, it.instanceIndex) }.toIntArray()
 
     /** Drags the selected instance with a finger moving between two screen points. */
     fun moveSelection(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
