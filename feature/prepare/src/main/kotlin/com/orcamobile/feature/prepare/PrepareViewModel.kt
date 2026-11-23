@@ -432,7 +432,7 @@ class PrepareViewModel @Inject constructor(
         PlateTask.ARRANGE_ALL -> PlateNotice.ArrangedAll(
             update.objects.flatMap { o -> (0 until o.instances).map(o::plateOf) }.distinct().size,
         ).takeIf { update.notPlaced == 0 } ?: PlateNotice.NotPlaced(update.notPlaced)
-        PlateTask.ORIENT, PlateTask.DELETE, PlateTask.PLATES -> null
+        PlateTask.ORIENT, PlateTask.DELETE, PlateTask.PLATES, PlateTask.ALIGN -> null
     }
 
     private fun List<ModelObjectInfo>.holds(ref: InstanceRef): Boolean =
