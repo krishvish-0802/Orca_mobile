@@ -4,6 +4,8 @@
 // (Project.cpp: loading and placement; ProjectObjects.cpp: volumes, settings
 // and height ranges).
 #include <cmath>
+#include <map>
+#include <vector>
 #include <mutex>
 #include <stdexcept>
 #include <string>
@@ -17,6 +19,30 @@ struct Project::Impl {
     mutable std::mutex mutex;
     std::string source_path;
     Slic3r::Model model;
+
+    // Plates: every instance is on one, by its ObjectID. One seen for the first
+    // time is on the current plate (it was made there: a copy, a cut piece).
+    struct Plate {
+        std::string name;
+        std::map<std::string, std::string> settings;
+    };
+    std::vector<Plate> plates{Plate{}};
+    std::size_t current_plate = 0;
+    mutable std::map<std::size_t, std::size_t> plate_by_instance;
+
+    std::size_t plate_of(const Slic3r::ModelInstance& instance) const
+    {
+        auto [it, added] = plate_by_instance.try_emplace(instance.id().id, current_plate);
+        if (it->second >= plates.size())
+            it->second = current_plate;
+        return it->second;
+    }
+
+    void check_plate(std::size_t plate) const
+    {
+        if (plate >= plates.size())
+            throw std::out_of_range("No such plate");
+    }
 
     Slic3r::ModelInstance& instance(const InstanceRef& ref) const
     {

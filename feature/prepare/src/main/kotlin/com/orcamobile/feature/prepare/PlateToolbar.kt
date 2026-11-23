@@ -51,7 +51,7 @@ private const val NOTICE_MILLIS = 4_000L
 /** The most copies the copies sheet offers at once. */
 private const val MAX_COPIES = 50
 
-private enum class PlateSheet { ARRANGE_OPTIONS, COPIES }
+private enum class PlateSheet { ARRANGE_OPTIONS, COPIES, TO_PLATE }
 
 /**
  * The plate tools along the bottom of the plate: arrange (and its settings),
@@ -112,6 +112,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 ToolButton(OrcaIcons.Copies, stringResource(R.string.prepare_tool_copies), enabled) {
                     sheet = PlateSheet.COPIES
                 }
+                ToolButton(OrcaIcons.ToPlate, stringResource(R.string.prepare_tool_to_plate), enabled) {
+                    sheet = PlateSheet.TO_PLATE
+                }
                 ToolButton(Icons.Filled.Delete, stringResource(R.string.prepare_tool_delete), enabled) {
                     onIntent(PrepareIntent.DeleteSelected)
                 }
@@ -127,6 +130,10 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 sheet = null
                 onIntent(PrepareIntent.Arrange)
             },
+            onArrangeAll = {
+                sheet = null
+                onIntent(PrepareIntent.ArrangeAllPlates)
+            },
             onDismiss = { sheet = null },
         )
         PlateSheet.COPIES -> CopiesSheet(
@@ -134,6 +141,14 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
             onAdd = { count ->
                 sheet = null
                 onIntent(PrepareIntent.AddCopies(count))
+            },
+            onDismiss = { sheet = null },
+        )
+        PlateSheet.TO_PLATE -> MoveToPlateSheet(
+            state = state,
+            onMove = { plate ->
+                sheet = null
+                onIntent(PrepareIntent.MoveToPlate(plate))
             },
             onDismiss = { sheet = null },
         )
@@ -199,6 +214,8 @@ private fun PlateTask.runningLabel(): Int = when (this) {
     PlateTask.FILL_BED -> R.string.prepare_tool_filling
     PlateTask.DELETE -> R.string.prepare_tool_deleting
     PlateTask.SPLIT -> R.string.prepare_tool_splitting
+    PlateTask.ARRANGE_ALL -> R.string.prepare_tool_arranging_all
+    PlateTask.PLATES -> R.string.prepare_tool_plates
 }
 
 @Composable
@@ -212,6 +229,8 @@ private fun noticeText(notice: PlateNotice): String = when (notice) {
     PlateNotice.BedFull -> stringResource(R.string.prepare_notice_bed_full)
     is PlateNotice.Split -> pluralStringResource(R.plurals.prepare_notice_split, notice.count, notice.count)
     is PlateNotice.Cut -> pluralStringResource(R.plurals.prepare_notice_cut, notice.count, notice.count)
+    is PlateNotice.ArrangedAll -> pluralStringResource(R.plurals.prepare_notice_arranged_all, notice.plates, notice.plates)
+    is PlateNotice.MovedToPlate -> stringResource(R.string.prepare_notice_moved_to_plate, notice.plate + 1)
     is PlateNotice.Failed -> stringResource(R.string.prepare_notice_failed, notice.message)
 }
 
@@ -221,6 +240,7 @@ private fun ArrangeOptionsSheet(
     options: ArrangeOptions,
     onChange: (ArrangeOptions) -> Unit,
     onArrange: () -> Unit,
+    onArrangeAll: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -262,6 +282,17 @@ private fun ArrangeOptionsSheet(
                 )
                 PrimaryPillButton(stringResource(R.string.prepare_tool_arrange), onClick = onArrange, modifier = Modifier.weight(1f))
             }
+            TonalPillButton(
+                stringResource(R.string.prepare_arrange_all),
+                onClick = onArrangeAll,
+                icon = OrcaIcons.Arrange,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Text(
+                stringResource(R.string.prepare_arrange_all_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

@@ -55,6 +55,13 @@ class SliceProjectUseCaseTest {
     }
 
     @Test
+    fun `a plate of several is named in the G-code`() = runTest {
+        val engine = RecordingEngine()
+        SliceProjectUseCase(engine, workspace, PlateConfigResolver(FakePrintSettings()))(project, null, plate = 2).toList()
+        assertEquals("/out/3DBenchy_plate3.gcode", engine.lastRequest?.outputGcodePath)
+    }
+
+    @Test
     fun `without presets the generic bed overrides apply`() = runTest {
         val engine = RecordingEngine()
         SliceProjectUseCase(engine, workspace, PlateConfigResolver(FakePrintSettings()))(project, null).toList()

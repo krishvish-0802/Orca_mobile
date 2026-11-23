@@ -80,6 +80,7 @@ std::string to_json(const std::vector<ObjectSummary>& objects)
             {"instances", object.instance_count},
             {"triangles", object.triangle_count},
             {"size", {object.size[0], object.size[1], object.size[2]}},
+            {"plates", object.instance_plates},
         });
     return nlohmann::json{{"objects", list}}.dump();
 }

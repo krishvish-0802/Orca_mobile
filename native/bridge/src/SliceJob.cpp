@@ -174,9 +174,18 @@ SliceOutcome run_slice(const SliceRequest& request, ProgressSink& progress, Canc
 SliceOutcome run_slice(const Project& project, const SliceRequest& request, ProgressSink& progress,
                        CancelToken& cancel, PresetCatalog* catalog)
 {
-    // Slice a copy: the project stays editable while (and after) it slices.
-    Slic3r::Model model = project.model_copy();
-    return slice_model(model, false, request, progress, cancel, catalog);
+    // Slice a copy of the current plate: the project stays editable while (and
+    // after) it slices. The plate's own settings come over the request's.
+    Slic3r::Model model = project.plate_model_copy();
+    if (model.objects.empty()) {
+        SliceOutcome outcome;
+        outcome.error = "This plate is empty: put an object on it first.";
+        return outcome;
+    }
+    SliceRequest plate_request = request;
+    for (const auto& [key, value] : project.plate_settings())
+        plate_request.config_overrides[key] = value;
+    return slice_model(model, false, plate_request, progress, cancel, catalog);
 }
 
 } // namespace orca::engine

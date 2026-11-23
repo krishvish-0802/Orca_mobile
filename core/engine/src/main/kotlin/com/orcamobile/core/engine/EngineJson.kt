@@ -17,7 +17,10 @@ import com.orcamobile.core.model.ObjectUpdate
 import com.orcamobile.core.model.OptionChoice
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.OptionType
+import com.orcamobile.core.model.PlateAction
+import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
@@ -28,6 +31,7 @@ import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.VolumeInfo
 import com.orcamobile.core.model.VolumeKind
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -191,11 +195,33 @@ internal object EngineJson {
 
     private fun List<Double>.axes() = Axes(getOrElse(0) { 0.0 }, getOrElse(1) { 0.0 }, getOrElse(2) { 0.0 })
 
-    fun encode(options: ArrangeOptions): String =
+    fun encode(options: ArrangeOptions, allPlates: Boolean = false): String =
         json.encodeToString(
             ArrangeOptionsDto.serializer(),
-            ArrangeOptionsDto(options.spacingMm, options.allowRotation, options.alignToYAxis),
+            ArrangeOptionsDto(options.spacingMm, options.allowRotation, options.alignToYAxis, allPlates),
         )
+
+    fun encode(action: PlateAction): String = json.encodeToString(
+        PlateActionDto.serializer(),
+        when (action) {
+            PlateAction.Get -> PlateActionDto("get")
+            is PlateAction.Select -> PlateActionDto("select", plate = action.plate)
+            PlateAction.Add -> PlateActionDto("add")
+            is PlateAction.Remove -> PlateActionDto("remove", plate = action.plate)
+            is PlateAction.Rename -> PlateActionDto("rename", plate = action.plate, name = action.name)
+            is PlateAction.SetSetting -> PlateActionDto("set", plate = action.plate, key = action.key, value = action.value)
+            is PlateAction.ResetSetting -> PlateActionDto("reset", plate = action.plate, key = action.key)
+            is PlateAction.Move -> PlateActionDto(
+                "move", plate = action.plate, objectIndex = action.instance.objectIndex,
+                instanceIndex = action.instance.instanceIndex,
+            )
+        },
+    )
+
+    fun plates(payload: String): Result<Plates> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(PlatesDto.serializer(), element)
+        Plates(dto.current, dto.plates.map { PlateInfo(it.name, it.settings, it.instances) }, dto.objects.map { it.toModel() })
+    }
 
     fun configOptions(payload: String): Result<List<ConfigOption>> = decodeOrError(payload) { element ->
         json.decodeFromJsonElement(OptionsDto.serializer(), element).options.map { it.toModel() }
@@ -255,8 +281,9 @@ internal object EngineJson {
         val instances: Int,
         val triangles: Long,
         val size: List<Double>,
+        val plates: List<Int> = emptyList(),
     ) {
-        fun toModel() = ModelObjectInfo(name, instances, triangles, size)
+        fun toModel() = ModelObjectInfo(name, instances, triangles, size, plates)
     }
 
     @Serializable
@@ -309,7 +336,29 @@ internal object EngineJson {
     private data class PlateUpdateDto(val objects: List<ObjectDto>, val placed: Int = 0, val notPlaced: Int = 0)
 
     @Serializable
-    private data class ArrangeOptionsDto(val spacingMm: Double, val allowRotation: Boolean, val alignToYAxis: Boolean)
+    private data class ArrangeOptionsDto(
+        val spacingMm: Double,
+        val allowRotation: Boolean,
+        val alignToYAxis: Boolean,
+        val allPlates: Boolean = false,
+    )
+
+    @Serializable
+    private data class PlateActionDto(
+        val action: String,
+        val plate: Int? = null,
+        val name: String? = null,
+        val key: String? = null,
+        val value: String? = null,
+        @SerialName("object") val objectIndex: Int? = null,
+        @SerialName("instance") val instanceIndex: Int? = null,
+    )
+
+    @Serializable
+    private data class PlateDto(val name: String = "", val settings: Map<String, String> = emptyMap(), val instances: Int = 0)
+
+    @Serializable
+    private data class PlatesDto(val current: Int, val plates: List<PlateDto>, val objects: List<ObjectDto>)
 
     @Serializable
     private data class LoadedProjectDto(val handle: String, val objects: List<ObjectDto>)

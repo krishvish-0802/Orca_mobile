@@ -201,4 +201,27 @@ class EngineJsonTest {
             EngineJson.encodeObjectEdit(com.orcamobile.core.model.ObjectEdit.Rename(null, "Body")),
         )
     }
+
+    @Test
+    fun `plate actions and plates go both ways`() {
+        assertEquals("""{"action":"get"}""", EngineJson.encode(com.orcamobile.core.model.PlateAction.Get))
+        assertEquals(
+            """{"action":"move","plate":1,"object":0,"instance":2}""",
+            EngineJson.encode(com.orcamobile.core.model.PlateAction.Move(com.orcamobile.core.model.InstanceRef(0, 2), 1)),
+        )
+        assertEquals(
+            """{"action":"set","plate":0,"key":"spiral_mode","value":"1"}""",
+            EngineJson.encode(com.orcamobile.core.model.PlateAction.SetSetting(0, "spiral_mode", "1")),
+        )
+        val plates = EngineJson.plates(
+            """{"objects":[{"name":"cube","instances":2,"triangles":12,"size":[20,20,20],"plates":[0,1]}],""" +
+                """"current":1,"plates":[{"name":"","settings":{},"instances":1},{"name":"Spares","settings":{"spiral_mode":"1"},"instances":1}]}""",
+        ).getOrThrow()
+        assertEquals(1, plates.current)
+        assertEquals("Spares", plates.plates[1].label(1))
+        assertEquals("Plate 1", plates.plates[0].label(0))
+        assertEquals(1, plates.objects.single().plateOf(1))
+        assertEquals("""{"spacingMm":0.0,"allowRotation":false,"alignToYAxis":false,"allPlates":true}""",
+            EngineJson.encode(com.orcamobile.core.model.ArrangeOptions(), allPlates = true))
+    }
 }

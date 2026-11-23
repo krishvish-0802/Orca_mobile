@@ -17,6 +17,8 @@ import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
+import com.orcamobile.core.model.PlateAction
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
@@ -60,6 +62,9 @@ class PrepareViewModel @Inject constructor(
     private var previewJob: Job? = null
     private var transformJob: Job? = null
 
+    /** Each plate's last slice, while it still matches the plate; the current plate's is [PrepareUiState.slice]. */
+    private val plateResults = mutableMapOf<Int, SliceUiState.Done>()
+
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
         viewModelScope.launch {
@@ -81,11 +86,34 @@ class PrepareViewModel @Inject constructor(
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
+            PrepareIntent.SliceAll -> sliceAllPlates()
+            is PrepareIntent.SelectPlate -> selectPlate(intent.plate)
+            PrepareIntent.AddPlate -> changePlates { project ->
+                val added = plateTools.plates(project, PlateAction.Add).getOrThrow()
+                plateTools.plates(project, PlateAction.Select(added.plates.lastIndex)).getOrThrow()
+            }
+            is PrepareIntent.RemovePlate -> removePlate(intent.plate)
+            is PrepareIntent.RenamePlate -> changePlates { plateTools.plates(it, PlateAction.Rename(intent.plate, intent.name.trim())).getOrThrow() }
+            is PrepareIntent.SetPlateSetting -> {
+                val action = intent.value?.let { PlateAction.SetSetting(intent.plate, intent.key, it) }
+                    ?: PlateAction.ResetSetting(intent.plate, intent.key)
+                changePlates(stale = setOf(intent.plate)) { plateTools.plates(it, action).getOrThrow() }
+            }
+            is PrepareIntent.MoveToPlate -> moveSelectionToPlate(intent.plate)
+            PrepareIntent.ArrangeAllPlates -> runPlateTool(PlateTask.ARRANGE_ALL, keepSelection = false) { project, presets ->
+                plateTools.arrangeAllPlates(project, presets, _state.value.arrangeOptions)
+            }
             is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
             is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
             is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
             is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
             is PrepareIntent.Select -> {
+                // An object of another plate (picked from the list): show its plate first.
+                val plate = intent.instance?.let { ref -> _state.value.project?.objects?.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) }
+                if (plate != null && plate != _state.value.currentPlate) {
+                    selectPlate(plate, thenSelect = intent.instance)
+                    return
+                }
                 // Painting belongs to one object: choosing another (or none) ends it.
                 _state.update { it.copy(selection = intent.instance, paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex }) }
                 loadTransform()
@@ -205,6 +233,8 @@ class PrepareViewModel @Inject constructor(
                 val (x, y) = bed.center
                 projects.centerOn(project.id, x, y)
                 _state.update { it.copy(loading = false, project = project) }
+                // A desktop 3MF brings its plates.
+                plateTools.plates(project.id).onSuccess(::showPlates)
             },
             { error -> _state.update { it.copy(loading = false, error = error.message ?: "Could not open the model") } },
         )
@@ -236,7 +266,7 @@ class PrepareViewModel @Inject constructor(
             projects.centerOn(project.id, x, y)
             _state.update { it.copy(plateRevision = it.plateRevision + 1) }
         }
-        if (project != null) dropStaleResult()
+        if (project != null) dropAllResults()
     }
 
     // --- slicing ------------------------------------------------------------
@@ -258,6 +288,10 @@ class PrepareViewModel @Inject constructor(
         viewModelScope.launch {
             val result = tool(project.id, start.presets)
             result.onSuccess { update ->
+                if (task == PlateTask.ARRANGE_ALL) {
+                    plateTools.plates(project.id).onSuccess(::showPlates)
+                    dropAllResults()
+                }
                 _state.update {
                     it.copy(
                         plateTask = null,
@@ -320,7 +354,10 @@ class PrepareViewModel @Inject constructor(
         PlateTask.COPY -> PlateNotice.CopiesAdded(update.placed, update.notPlaced)
         PlateTask.FILL_BED -> if (update.placed > 0) PlateNotice.CopiesAdded(update.placed, 0) else PlateNotice.BedFull
         PlateTask.SPLIT -> PlateNotice.Split(update.placed)
-        PlateTask.ORIENT, PlateTask.DELETE -> null
+        PlateTask.ARRANGE_ALL -> PlateNotice.ArrangedAll(
+            update.objects.flatMap { o -> (0 until o.instances).map(o::plateOf) }.distinct().size,
+        ).takeIf { update.notPlaced == 0 } ?: PlateNotice.NotPlaced(update.notPlaced)
+        PlateTask.ORIENT, PlateTask.DELETE, PlateTask.PLATES -> null
     }
 
     private fun List<ModelObjectInfo>.holds(ref: InstanceRef): Boolean =
@@ -329,6 +366,8 @@ class PrepareViewModel @Inject constructor(
     private fun startSlice() {
         val project = _state.value.project ?: return
         if (sliceJob?.isActive == true) return
+        val plate = _state.value.currentPlate
+        val named = plate.takeIf { _state.value.plates.size > 1 }
         releasePreview()
         _state.update {
             it.copy(
@@ -339,12 +378,173 @@ class PrepareViewModel @Inject constructor(
             )
         }
         sliceJob = viewModelScope.launch {
-            sliceProject(project, _state.value.presets).collect { event ->
+            sliceProject(project, _state.value.presets, named).collect { event ->
                 val slice = event.toUiState()
                 _state.update { it.copy(slice = slice) }
-                if (slice is SliceUiState.Done) loadPreview(slice.gcodePath)
+                if (slice is SliceUiState.Done) {
+                    keepResult(plate, slice)
+                    loadPreview(slice.gcodePath)
+                }
             }
         }
+    }
+
+    /**
+     * Slices every plate with something on it, one after another, showing each
+     * on the plate as it goes; stops at the first that fails or is canceled.
+     * Ends on the last plate sliced, with its preview.
+     */
+    private fun sliceAllPlates() {
+        val start = _state.value
+        val project = start.project ?: return
+        if (sliceJob?.isActive == true || !start.canSwitchPlate) return
+        val targets = start.platesToSlice
+        if (targets.isEmpty()) return
+        releasePreview()
+        _state.update {
+            it.copy(
+                slice = SliceUiState.Running(0, "Preparing"),
+                printHost = it.printHost.copy(status = PrintHostStatus.Idle),
+                preview = PreviewUiState.None,
+                showingPreview = false,
+                selection = null,
+                slicingAll = 1 to targets.size,
+            )
+        }
+        loadTransform()
+        sliceJob = viewModelScope.launch {
+            var last: SliceUiState = SliceUiState.Idle
+            try {
+                for ((n, plate) in targets.withIndex()) {
+                    if (plate != _state.value.currentPlate) {
+                        val selected = plateTools.plates(project.id, PlateAction.Select(plate))
+                        val plates = selected.getOrNull()
+                        if (plates == null) {
+                            last = SliceUiState.Failed(selected.exceptionOrNull()?.message ?: "Could not show plate ${plate + 1}")
+                            break
+                        }
+                        showPlates(plates)
+                    }
+                    _state.update { it.copy(slicingAll = n + 1 to targets.size) }
+                    sliceProject(project, _state.value.presets, plate).collect { event ->
+                        last = event.toUiState()
+                        _state.update { it.copy(slice = last) }
+                    }
+                    val done = last as? SliceUiState.Done ?: break
+                    keepResult(plate, done)
+                }
+            } finally {
+                // Canceled: cancelSlice() already said so.
+                val end = last
+                _state.update { it.copy(slicingAll = null, slice = if (end is SliceUiState.Running || end is SliceUiState.Idle) it.slice else end) }
+            }
+            (last as? SliceUiState.Done)?.let { loadPreview(it.gcodePath) }
+        }
+    }
+
+    // --- plates -------------------------------------------------------------
+
+    private fun keepResult(plate: Int, done: SliceUiState.Done) {
+        plateResults[plate] = done
+        _state.update { it.copy(slicedPlates = plateResults.keys.toSet()) }
+    }
+
+    /** Takes the engine's plates: the strip, the objects' plates, and the plate shown. */
+    private fun showPlates(plates: Plates) {
+        _state.update {
+            val switched = plates.current != it.currentPlate
+            it.copy(
+                plates = plates.plates,
+                currentPlate = plates.current,
+                project = it.project?.copy(objects = plates.objects),
+                selection = it.selection?.takeIf { ref ->
+                    !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
+                },
+                plateRevision = it.plateRevision + 1,
+            )
+        }
+    }
+
+    /**
+     * Runs a change to the plates in the engine, then shows them. Results of
+     * the plates in [stale] are dropped; switching plates brings back the new
+     * plate's own result, if it has one.
+     */
+    private fun changePlates(
+        stale: Set<Int> = emptySet(),
+        thenSelect: InstanceRef? = null,
+        shiftResults: ((Int) -> Int?)? = null,
+        notice: PlateNotice? = null,
+        change: suspend (ProjectId) -> Plates,
+    ) {
+        val start = _state.value
+        val project = start.project ?: return
+        if (!start.canSwitchPlate) return
+        _state.update { it.copy(plateTask = PlateTask.PLATES, plateNotice = null) }
+        viewModelScope.launch {
+            runCatching { change(project.id) }.onSuccess { plates ->
+                val before = _state.value.currentPlate
+                stale.forEach { plateResults.remove(it) }
+                shiftResults?.let { shift ->
+                    val kept = plateResults.mapNotNull { (k, v) -> shift(k)?.let { it to v } }.toMap()
+                    plateResults.clear()
+                    plateResults.putAll(kept)
+                }
+                if (before in stale || shiftResults != null || plates.current != before) showResultOf(plates.current)
+                showPlates(plates)
+                _state.update {
+                    it.copy(
+                        plateTask = null,
+                        selection = thenSelect ?: it.selection,
+                        slicedPlates = plateResults.keys.toSet(),
+                        plateNotice = notice,
+                    )
+                }
+                loadTransform()
+            }.onFailure { error ->
+                _state.update { it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
+            }
+        }
+    }
+
+    private fun selectPlate(plate: Int, thenSelect: InstanceRef? = null) {
+        if (plate == _state.value.currentPlate && thenSelect == null) return
+        changePlates(thenSelect = thenSelect) { plateTools.plates(it, PlateAction.Select(plate)).getOrThrow() }
+    }
+
+    private fun removePlate(plate: Int) {
+        if (_state.value.plates.size <= 1) return
+        changePlates(stale = setOf(plate), shiftResults = { k -> if (k < plate) k else if (k > plate) k - 1 else null }) {
+            plateTools.plates(it, PlateAction.Remove(plate)).getOrThrow()
+        }
+    }
+
+    private fun moveSelectionToPlate(target: Int?) {
+        val start = _state.value
+        val selection = start.selection ?: return
+        if (!start.plateEditable) return
+        val from = start.currentPlate
+        val to = target ?: start.plates.size
+        if (to == from) return
+        changePlates(stale = setOf(from, to), notice = PlateNotice.MovedToPlate(to)) { project ->
+            if (target == null) plateTools.plates(project, PlateAction.Add).getOrThrow()
+            plateTools.plates(project, PlateAction.Move(selection, to)).getOrThrow()
+        }
+    }
+
+    /** The slice shown becomes [plate]'s own, if it kept one; its preview is read again. */
+    private fun showResultOf(plate: Int) {
+        releasePreview()
+        val done = plateResults[plate]
+        _state.update {
+            it.copy(
+                slice = done ?: SliceUiState.Idle,
+                preview = PreviewUiState.None,
+                showingPreview = false,
+                printHost = it.printHost.copy(status = PrintHostStatus.Idle),
+            )
+        }
+        done?.let { loadPreview(it.gcodePath) }
     }
 
     /** Counts the settings changes; a change after slicing makes the result stale, as moving an object does. */
@@ -355,13 +555,25 @@ class PrepareViewModel @Inject constructor(
             if (edits.appliesTo(selection)) edits.values else emptyMap()
         }.distinctUntilChanged().collect { changes ->
             _state.update { it.copy(changedSettings = changes.size) }
-            if (previous != null) dropStaleResult()
+            if (previous != null) dropAllResults()
             previous = changes
         }
     }
 
+    /** Every plate's result: the presets or the settings changed. */
+    private fun dropAllResults() {
+        if (sliceJob?.isActive == true) return
+        plateResults.clear()
+        _state.update { it.copy(slicedPlates = emptySet()) }
+        dropStaleResult()
+    }
+
+    /** The current plate changed: its result no longer matches it. */
     private fun dropStaleResult() {
         if (sliceJob?.isActive == true) return   // the running slice took its snapshot already
+        if (plateResults.remove(_state.value.currentPlate) != null) {
+            _state.update { it.copy(slicedPlates = plateResults.keys.toSet()) }
+        }
         val slice = _state.value.slice
         if (slice is SliceUiState.Idle || slice is SliceUiState.Running) return
         releasePreview()

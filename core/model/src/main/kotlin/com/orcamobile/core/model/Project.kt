@@ -14,7 +14,11 @@ data class ModelObjectInfo(
     val triangles: Long,
     /** Size of the first instance, x/y/z in mm. */
     val sizeMm: List<Double>,
-)
+    /** The plate each instance is on, by instance; empty when the engine did not say (all on the first). */
+    val plates: List<Int> = emptyList(),
+) {
+    fun plateOf(instance: Int): Int = plates.getOrElse(instance) { 0 }
+}
 
 data class ProjectSummary(
     val id: ProjectId,

@@ -30,11 +30,17 @@ struct PlateChange {
                                      // always 0 when filling
 };
 
-// Packs every instance on the bed, as the desktop's Arrange (ArrangeJob) does.
+// Packs every instance on the current plate, as the desktop's Arrange (ArrangeJob) does.
 // What does not fit goes beside the bed, one bed's width further for each bed
 // the packer would have needed; nothing moves when nothing fits.
 PlateChange arrange(Project& project, const PlateConfig& config, const ArrangeOptions& options,
                     PresetCatalog* catalog);
+
+// Arrange on every plate (the desktop's Arrange all plates): `all_plates` packs
+// every instance, plate after plate, adding plates for what does not fit.
+// Without it, as arrange().
+PlateChange arrange_plates(Project& project, const PlateConfig& config, const ArrangeOptions& options,
+                           PresetCatalog* catalog, bool all_plates);
 
 // Turns instances so they print with the least support, as the desktop's
 // Auto orient (OrientJob, "minimize support area") does: `only` one instance,

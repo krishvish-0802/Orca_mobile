@@ -22,6 +22,7 @@ add_library(orca_engine_core STATIC
     src/PlateTools.cpp
     src/ProjectImpl.hpp
     src/ProjectObjects.cpp
+    src/ProjectPlates.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
     src/Project.cpp

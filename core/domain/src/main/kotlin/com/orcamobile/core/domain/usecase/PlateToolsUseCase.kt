@@ -4,7 +4,9 @@ import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
@@ -12,7 +14,7 @@ import com.orcamobile.core.model.TransformUpdate
 import javax.inject.Inject
 
 /**
- * Arrange, orient, copies, fill bed and delete for the plate, with the config
+ * Arrange, orient, copies, fill bed and delete for the current plate, and the plates themselves, with the config
  * the plate will be sliced with (presets plus the user's settings changes).
  */
 class PlateToolsUseCase @Inject constructor(
@@ -21,6 +23,13 @@ class PlateToolsUseCase @Inject constructor(
 ) {
     suspend fun arrange(project: ProjectId, presets: PresetSelection?, options: ArrangeOptions): Result<PlateUpdate> =
         editor.arrange(project, configs.configFor(presets), options)
+
+    /** Arrange all plates: what does not fit on one plate goes on the next, new plates as needed. */
+    suspend fun arrangeAllPlates(project: ProjectId, presets: PresetSelection?, options: ArrangeOptions): Result<PlateUpdate> =
+        editor.arrange(project, configs.configFor(presets), options, allPlates = true)
+
+    suspend fun plates(project: ProjectId, action: PlateAction = PlateAction.Get): Result<Plates> =
+        editor.plates(project, action)
 
     suspend fun orient(project: ProjectId, presets: PresetSelection?, instance: InstanceRef?): Result<PlateUpdate> =
         editor.orient(project, instance, configs.configFor(presets))

@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace Slic3r { class Model; }
+namespace Slic3r { class Model; class ModelInstance; }
 
 namespace orca::engine {
 
@@ -19,6 +19,7 @@ struct ObjectSummary {
     std::size_t instance_count = 0;
     std::size_t triangle_count = 0;
     std::array<double, 3> size{};     // mm, of the first instance
+    std::vector<std::size_t> instance_plates;   // the plate each instance is on
 };
 
 // What a volume of an object is, as OrcaSlicer's ModelVolumeType. The values
@@ -102,6 +103,33 @@ struct InstanceRef {
     std::size_t object = 0;
     std::size_t instance = 0;
     bool operator==(const InstanceRef& other) const { return object == other.object && instance == other.instance; }
+};
+
+// A build plate, as the desktop's PartPlate: the instances on it are sliced
+// together; its settings (plate type, print sequence, spiral vase) override
+// the slice's for it.
+struct PlateSummary {
+    std::string name;
+    std::map<std::string, std::string> settings;
+    std::size_t instance_count = 0;
+};
+
+// The keys a plate's settings take (PartPlate's own config).
+std::vector<std::string> plate_setting_keys();
+
+// Which plate each instance is on, for the bridge's plate tools. An instance
+// not seen before (a new copy, a cut piece) is on the current plate.
+class PlateMembership {
+public:
+    virtual ~PlateMembership() = default;
+    virtual std::size_t current() const = 0;
+    virtual std::size_t count() const = 0;
+    virtual std::size_t plate_of(const Slic3r::ModelInstance& instance) = 0;
+    virtual void assign(const Slic3r::ModelInstance& instance, std::size_t plate) = 0;
+    // Adds an empty plate; returns its index.
+    virtual std::size_t add_plate() = 0;
+    // The current plate's settings.
+    virtual std::map<std::string, std::string> settings() const = 0;
 };
 
 // An instance's placement: column-major 4x4, object coordinates to bed (mm).
@@ -216,6 +244,34 @@ public:
     void set_layer_range(std::size_t object, std::size_t range, double min_z, double max_z);
     void remove_layer_range(std::size_t object, std::size_t range);
 
+    // --- Plates (the desktop's PartPlateList) ---
+    // Every plate shares the bed's coordinates; the plate view shows the current
+    // one, and plate tools and slicing work on it. Throw std::out_of_range for a
+    // bad index and std::invalid_argument for a change that is refused.
+    std::vector<PlateSummary> plates() const;
+    std::size_t current_plate() const;
+    void select_plate(std::size_t plate);
+    // Adds an empty plate at the end; returns its index.
+    std::size_t add_plate();
+    // Takes a plate off with everything on it, as the desktop's Delete plate.
+    // The last plate cannot go.
+    void remove_plate(std::size_t plate);
+    void rename_plate(std::size_t plate, const std::string& name);
+    void set_plate_setting(std::size_t plate, const std::string& key, const std::string& value);
+    void reset_plate_setting(std::size_t plate, const std::string& key);
+    std::size_t plate_of(const InstanceRef& ref) const;
+    // Puts an instance on another plate, where it lies.
+    void move_to_plate(const InstanceRef& ref, std::size_t plate);
+    // The instances on the current plate.
+    std::vector<InstanceRef> plate_instances() const;
+    // The current plate's settings.
+    std::map<std::string, std::string> plate_settings() const;
+    // A snapshot of the current plate's objects only (with only the instances on
+    // it), for slicing it.
+    Slic3r::Model plate_model_copy() const;
+    // Runs `change` on the model and its plates under the project's lock.
+    void edit_plates(const std::function<void(Slic3r::Model&, PlateMembership&)>& change);
+
     // A snapshot of the model, for the slicing pipeline inside the bridge.
     Slic3r::Model model_copy() const;
     // Runs `change` on the model under the project's lock, for the bridge's plate
@@ -224,9 +280,11 @@ public:
     // Runs `look` on the model under the project's lock, without changing it.
     void inspect(const std::function<void(const Slic3r::Model&)>& look) const;
 
+    // The state behind it, defined in the bridge's sources only.
+    struct Impl;
+
 private:
     Project();
-    struct Impl;
     std::unique_ptr<Impl> m_impl;
 };
 

@@ -1,11 +1,13 @@
 // Arrange, auto-orient and fill bed, following the desktop jobs that drive the
 // same libslic3r code (src/slic3r/GUI/Jobs/ArrangeJob.cpp, OrientJob.cpp,
-// FillBedJob.cpp) minus what needs the GUI: plates beyond the first,
-// locked plates, the wipe tower and Bambu calibration regions.
+// FillBedJob.cpp) minus what needs the GUI: locked plates, the wipe tower and
+// Bambu calibration regions. They work on the current plate; Arrange all
+// packs every plate, as the desktop's.
 #include "orca_engine/PlateTools.hpp"
 
 #include <algorithm>
 #include <cmath>
+#include <map>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -31,9 +33,13 @@ using Slic3r::arrangement::ArrangeParams;
 using Slic3r::arrangement::ArrangePolygon;
 using Slic3r::arrangement::ArrangePolygons;
 
-DynamicPrintConfig resolve(const PlateConfig& config, PresetCatalog* catalog)
+// The slice's config with the current plate's own settings over it.
+DynamicPrintConfig resolve(const Project& project, const PlateConfig& config, PresetCatalog* catalog)
 {
-    return ConfigBuilder::resolve(config.presets, config.overrides, catalog);
+    std::map<std::string, std::string> overrides = config.overrides;
+    for (const auto& [key, value] : project.plate_settings())
+        overrides[key] = value;
+    return ConfigBuilder::resolve(config.presets, overrides, catalog);
 }
 
 double float_option(const DynamicPrintConfig& config, const char* key, double fallback = 0)
@@ -198,14 +204,22 @@ void check(const Slic3r::Model& model, const InstanceRef& ref)
 PlateChange arrange(Project& project, const PlateConfig& plate_config, const ArrangeOptions& options,
                     PresetCatalog* catalog)
 {
-    const DynamicPrintConfig config = resolve(plate_config, catalog);
+    return arrange_plates(project, plate_config, options, catalog, false);
+}
+
+PlateChange arrange_plates(Project& project, const PlateConfig& plate_config, const ArrangeOptions& options,
+                           PresetCatalog* catalog, bool all_plates)
+{
+    const DynamicPrintConfig config = resolve(project, plate_config, catalog);
     PlateChange change;
-    project.edit([&](Slic3r::Model& model) {
+    project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         ArrangeParams params = make_params(config, options);
         std::vector<Slic3r::ModelInstance*> instances;
         ArrangePolygons selected, fixed;
         for (Slic3r::ModelObject* object : model.objects)
             for (Slic3r::ModelInstance* instance : object->instances) {
+                if (!all_plates && plates.plate_of(*instance) != plates.current())
+                    continue;
                 ArrangePolygon item = Slic3r::get_instance_arrange_poly(instance, config);
                 item.bed_idx = 0;
                 item.itemid = int(selected.size());
@@ -231,9 +245,19 @@ PlateChange arrange(Project& project, const PlateConfig& plate_config, const Arr
         }
         const coord_t stride = bed_stride(bed);
         for (std::size_t i = 0; i < selected.size(); ++i) {
-            const ArrangePolygon& item = selected[i];
+            ArrangePolygon item = selected[i];
             if (item.bed_idx < 0) {          // unpackable: stays where it was
                 ++change.not_placed;
+                continue;
+            }
+            if (all_plates) {
+                // As the desktop's Arrange all: each bed the packer needed is a plate.
+                while (plates.count() <= std::size_t(item.bed_idx))
+                    plates.add_plate();
+                plates.assign(*instances[i], std::size_t(item.bed_idx));
+                item.bed_idx = 0;   // on that plate's own bed
+                place(*instances[i], item, stride);
+                ++change.placed;
                 continue;
             }
             place(*instances[i], item, stride);
@@ -246,8 +270,8 @@ PlateChange arrange(Project& project, const PlateConfig& plate_config, const Arr
 void orient(Project& project, const std::optional<InstanceRef>& only, const PlateConfig& plate_config,
             PresetCatalog* catalog)
 {
-    const DynamicPrintConfig config = resolve(plate_config, catalog);
-    project.edit([&](Slic3r::Model& model) {
+    const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+    project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         Slic3r::orientation::OrientMeshs selected;
         if (only) {
             check(model, *only);
@@ -255,7 +279,8 @@ void orient(Project& project, const std::optional<InstanceRef>& only, const Plat
         } else {
             for (Slic3r::ModelObject* object : model.objects)
                 for (Slic3r::ModelInstance* instance : object->instances)
-                    selected.push_back(orient_mesh(instance, config));
+                    if (plates.plate_of(*instance) == plates.current())
+                        selected.push_back(orient_mesh(instance, config));
         }
         Slic3r::orientation::OrientParams params;
         minimal_support_params(params);
@@ -271,18 +296,20 @@ void orient(Project& project, const std::optional<InstanceRef>& only, const Plat
 PlateChange add_copies(Project& project, const InstanceRef& source, std::optional<std::size_t> count,
                        const PlateConfig& plate_config, const ArrangeOptions& options, PresetCatalog* catalog)
 {
-    const DynamicPrintConfig config = resolve(plate_config, catalog);
+    const DynamicPrintConfig config = resolve(project, plate_config, catalog);
     PlateChange change;
-    project.edit([&](Slic3r::Model& model) {
+    project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         check(model, source);
         Slic3r::ModelObject* object = model.objects[source.object];
         Slic3r::ModelInstance* original = object->instances[source.instance];
         ArrangeParams params = make_params(config, options);
 
-        // Everything on the plate stays put.
+        // Everything on the plate stays put; the other plates do not matter here.
         ArrangePolygons fixed;
         for (Slic3r::ModelObject* o : model.objects)
             for (Slic3r::ModelInstance* instance : o->instances) {
+                if (plates.plate_of(*instance) != plates.current())
+                    continue;
                 ArrangePolygon item = Slic3r::get_instance_arrange_poly(instance, config);
                 item.bed_idx = 0;
                 fixed.push_back(std::move(item));
@@ -333,6 +360,7 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
             if (copy.bed_idx < 0 || (!count && !on_bed))
                 continue;
             Slic3r::ModelInstance* added = object->add_instance(*original);
+            plates.assign(*added, plates.current());
             place(*added, copy, stride);
         }
         if (!count)

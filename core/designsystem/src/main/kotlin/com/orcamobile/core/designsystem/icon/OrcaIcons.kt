@@ -190,6 +190,25 @@ object OrcaIcons {
         }
     }
 
+    /** Move to plate: an arrow over a plate. */
+    val ToPlate: ImageVector by lazy {
+        icon("ToPlate") {
+            moveTo(2f, 19f)
+            horizontalLineTo(22f)
+            verticalLineTo(22f)
+            horizontalLineTo(2f)
+            close()
+            moveTo(3f, 8f)
+            horizontalLineTo(13f)
+            verticalLineTo(4f)
+            lineTo(20f, 10f)
+            lineTo(13f, 16f)
+            verticalLineTo(12f)
+            horizontalLineTo(3f)
+            close()
+        }
+    }
+
     private fun icon(name: String, build: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
             .path(fill = SolidColor(Color.Black), pathBuilder = build)

@@ -92,7 +92,8 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
     }
     std::map<std::size_t, std::shared_ptr<const PartMesh>> meshes;
     std::vector<Part> parts;
-    for (const orca::engine::InstanceRef& ref : project->instances()) {
+    // The current plate only.
+    for (const orca::engine::InstanceRef& ref : project->plate_instances()) {
         auto& mesh = meshes[ref.object];
         if (!mesh) {
             orca::engine::ObjectMesh object = project->object_mesh(ref.object);

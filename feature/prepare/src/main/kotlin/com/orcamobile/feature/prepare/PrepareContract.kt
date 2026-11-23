@@ -8,6 +8,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
+import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.viewport.HandleMode
@@ -67,7 +68,27 @@ data class PrepareUiState(
     /** Simplify's settings, kept between uses, and what the preview would leave. */
     val simplify: SimplifySettings = SimplifySettings(),
     val simplifyCounts: SimplifyCounts? = null,
+    /** The project's plates; the plate shows, edits and slices [currentPlate]. */
+    val plates: List<PlateInfo> = listOf(PlateInfo()),
+    val currentPlate: Int = 0,
+    /** Plates with a slice that still matches them: switching to one shows its result again. */
+    val slicedPlates: Set<Int> = emptySet(),
+    /** Slicing every plate: which one of how many is being sliced (1-based), null otherwise. */
+    val slicingAll: Pair<Int, Int>? = null,
 ) {
+    /** Another plate may be shown: not while a tool, a slice or painting holds this one. */
+    val canSwitchPlate: Boolean
+        get() = project != null && !loading && plateTask == null && slice !is SliceUiState.Running &&
+            paint == null && meshTool == null
+
+    /** Instances on [plate], from the objects' own plate list. */
+    fun instancesOn(plate: Int): Int =
+        project?.objects?.sumOf { o -> (0 until o.instances).count { o.plateOf(it) == plate } } ?: 0
+
+    /** Plates with something on them, which "Slice all" slices. */
+    val platesToSlice: List<Int>
+        get() = plates.indices.filter { instancesOn(it) > 0 }
+
     /** Plate tools may change the plate: not while one runs, nor while slicing (the slice would be stale). */
     val plateEditable: Boolean
         get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
@@ -82,7 +103,20 @@ data class PrepareUiState(
         get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
 }
 
-enum class PlateTask { ARRANGE, ORIENT, COPY, FILL_BED, DELETE, SPLIT }
+enum class PlateTask {
+    ARRANGE,
+
+    /** Arrange all plates, adding plates for what does not fit. */
+    ARRANGE_ALL,
+    ORIENT,
+    COPY,
+    FILL_BED,
+    DELETE,
+    SPLIT,
+
+    /** Adding, removing, switching or changing a plate. */
+    PLATES,
+}
 
 /** The desktop's mesh tools, each with a view model of its own. */
 enum class MeshTool {
@@ -115,6 +149,12 @@ sealed interface PlateNotice {
 
     /** Fill bed found no room for another copy. */
     data object BedFull : PlateNotice
+
+    /** Arrange all plates used [plates] plates. */
+    data class ArrangedAll(val plates: Int) : PlateNotice
+
+    /** The selected object went to another plate, [plate] (0-based). */
+    data class MovedToPlate(val plate: Int) : PlateNotice
 
     data class Failed(val message: String) : PlateNotice
 }
@@ -208,6 +248,29 @@ sealed interface PrepareIntent {
     data object SplitToObjects : PrepareIntent
 
     data object DismissPlateNotice : PrepareIntent
+
+    /** Shows, edits and slices [plate]; its last slice comes back if it still matches. */
+    data class SelectPlate(val plate: Int) : PrepareIntent
+
+    /** Adds an empty plate and shows it. */
+    data object AddPlate : PrepareIntent
+
+    /** Removes [plate] and everything on it. */
+    data class RemovePlate(val plate: Int) : PrepareIntent
+
+    data class RenamePlate(val plate: Int, val name: String) : PrepareIntent
+
+    /** Sets a plate's own setting ([com.orcamobile.core.model.PlateSettingKeys]), or follows the presets again when [value] is null. */
+    data class SetPlateSetting(val plate: Int, val key: String, val value: String?) : PrepareIntent
+
+    /** Puts the selected object on [plate], or on a new plate when null. */
+    data class MoveToPlate(val plate: Int?) : PrepareIntent
+
+    /** Packs every plate's objects, plate after plate, adding plates as needed. */
+    data object ArrangeAllPlates : PrepareIntent
+
+    /** Slices every plate with something on it, one after another. */
+    data object SliceAll : PrepareIntent
 
     /** Opens a mesh tool on the selected object. */
     data class OpenMeshTool(val tool: MeshTool) : PrepareIntent

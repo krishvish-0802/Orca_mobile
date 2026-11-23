@@ -69,6 +69,12 @@ internal object NativeEngine {
     /** Splits an object into one object per piece: `{"placed": how many, "objects":[..]}` or `{"error": ...}`. */
     @JvmStatic external fun nativePlateSplit(handle: Long, objectIndex: Int): String
 
+    /**
+     * Reads or changes the plates: `actionJson` is EngineJson.encode(PlateAction).
+     * Returns `{"current", "plates":[{"name","settings","instances"}], "objects":[..]}` or `{"error": ...}`.
+     */
+    @JvmStatic external fun nativePlates(handle: Long, actionJson: String): String
+
     // Mesh tools (native/bridge/jni/MeshJni.cpp); requests are MeshToolsJson.encode.
 
     /** The cut's checks: `{"canCut","reason","problems",..}` or `{"error": ...}`. */

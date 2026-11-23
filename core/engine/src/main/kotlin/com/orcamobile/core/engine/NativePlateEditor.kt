@@ -5,8 +5,10 @@ import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
@@ -22,10 +24,17 @@ class NativePlateEditor @Inject constructor(
     private val dispatchers: CoroutineDispatchers,
 ) : PlateEditor {
 
-    override suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions) =
+    override suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions, allPlates: Boolean) =
         call(project, config) { handle, presets, keys, values ->
-            NativeEngine.nativePlateArrange(handle, presets, keys, values, EngineJson.encode(options))
+            NativeEngine.nativePlateArrange(handle, presets, keys, values, EngineJson.encode(options, allPlates))
         }
+
+    override suspend fun plates(project: ProjectId, action: PlateAction): Result<Plates> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
+            EngineJson.plates(NativeEngine.nativePlates(handle, EngineJson.encode(action))).getOrThrow()
+        }
+    }
 
     override suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig) =
         call(project, config) { handle, presets, keys, values ->

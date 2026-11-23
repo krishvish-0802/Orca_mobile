@@ -392,6 +392,9 @@ fun PrepareScreen(
                     )
                 }
             }
+            if (state.project != null) {
+                PlateStrip(state, onIntent, Modifier.fillMaxWidth().padding(vertical = 4.dp))
+            }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -623,7 +626,15 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
             SliceUiState.Idle -> Unit
             is SliceUiState.Running -> {
                 LinearProgressIndicator(progress = { slice.percent.coerceIn(0, 100) / 100f }, modifier = Modifier.fillMaxWidth())
-                Text("${slice.percent}% · ${slice.message}", style = MaterialTheme.typography.bodySmall)
+                val all = state.slicingAll
+                Text(
+                    if (all == null) {
+                        "${slice.percent}% · ${slice.message}"
+                    } else {
+                        stringResource(R.string.prepare_slice_plate_of, all.first, all.second, slice.percent, slice.message)
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
             is SliceUiState.Done -> SliceStatisticsView(slice.statistics)
             SliceUiState.Canceled -> Text(stringResource(R.string.prepare_slice_canceled))
@@ -638,10 +649,18 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
                     modifier = Modifier.weight(1f),
                 )
             }
+            if (!running && state.plates.size > 1) {
+                TonalPillButton(
+                    text = stringResource(R.string.prepare_slice_all),
+                    onClick = { onIntent(PrepareIntent.SliceAll) },
+                    enabled = state.platesToSlice.isNotEmpty() && state.canSwitchPlate,
+                    modifier = Modifier.weight(1f),
+                )
+            }
             PrimaryPillButton(
                 text = stringResource(R.string.prepare_slice_action),
                 onClick = { onIntent(PrepareIntent.Slice) },
-                enabled = state.project != null && !running,
+                enabled = state.project != null && !running && state.instancesOn(state.currentPlate) > 0,
                 modifier = Modifier.weight(1f),
             )
         }

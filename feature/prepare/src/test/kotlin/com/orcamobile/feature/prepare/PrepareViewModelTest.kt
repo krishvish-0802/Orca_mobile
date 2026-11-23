@@ -29,7 +29,11 @@ import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
+import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateConfig
+import com.orcamobile.core.model.PlateInfo
+import com.orcamobile.core.model.PlateSettingKeys
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
@@ -104,9 +108,11 @@ class PrepareViewModelTest {
 
     private class RecordingEngine : SlicingEngine {
         var lastRequest: SliceRequest? = null
+        val requests = mutableListOf<SliceRequest>()
         override fun status(): EngineStatus = EngineStatus.Unavailable("fake")
         override fun slice(request: SliceRequest): Flow<SliceEvent> {
             lastRequest = request
+            requests += request
             return flowOf(SliceEvent.Finished(SliceResult.Succeeded(request.outputGcodePath, SliceStatistics(60.0, 1.0, 1.0, 240, 1))))
         }
     }
@@ -184,8 +190,40 @@ class PrepareViewModelTest {
             return failure?.let { Result.failure(it) } ?: Result.success(next)
         }
 
-        override suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions) =
-            answer("arrange spacing=${options.spacingMm} rotate=${options.allowRotation}", config)
+        override suspend fun arrange(project: ProjectId, config: PlateConfig, options: ArrangeOptions, allPlates: Boolean) =
+            answer(if (allPlates) "arrange all" else "arrange spacing=${options.spacingMm} rotate=${options.allowRotation}", config)
+
+        val plateList = mutableListOf(PlateInfo())
+        var current = 0
+        val plateCalls = mutableListOf<PlateAction>()
+
+        override suspend fun plates(project: ProjectId, action: PlateAction): Result<Plates> {
+            plateCalls += action
+            when (action) {
+                PlateAction.Get -> Unit
+                is PlateAction.Select -> current = action.plate
+                PlateAction.Add -> plateList += PlateInfo()
+                is PlateAction.Remove -> {
+                    plateList.removeAt(action.plate)
+                    if (current >= action.plate && current > 0) current--
+                }
+                is PlateAction.Rename -> plateList[action.plate] = plateList[action.plate].copy(name = action.name)
+                is PlateAction.SetSetting -> plateList[action.plate] =
+                    plateList[action.plate].let { it.copy(settings = it.settings + (action.key to action.value)) }
+                is PlateAction.ResetSetting -> plateList[action.plate] =
+                    plateList[action.plate].let { it.copy(settings = it.settings - action.key) }
+                is PlateAction.Move -> next = next.copy(
+                    objects = next.objects.mapIndexed { i, o ->
+                        if (i != action.instance.objectIndex) {
+                            o
+                        } else {
+                            o.copy(plates = List(o.instances) { k -> if (k == action.instance.instanceIndex) action.plate else o.plateOf(k) })
+                        }
+                    },
+                )
+            }
+            return Result.success(Plates(current, plateList.toList(), next.objects))
+        }
 
         override suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig) =
             answer("orient $instance", config)
@@ -591,5 +629,129 @@ class PrepareViewModelTest {
         assertEquals(PlateNotice.Split(2), vm.state.value.plateNotice)
         assertNull(vm.state.value.selection)
         assertEquals(2, vm.state.value.project?.objects?.size)
+    }
+
+    // --- plates -------------------------------------------------------------
+
+    /** A benchy with one instance on each of two plates. */
+    private fun twoPlates(): ProjectSummary {
+        val benchy = ModelObjectInfo("benchy", 2, 225_000, listOf(60.0, 31.0, 48.0), plates = listOf(0, 1))
+        plateEditor.next = PlateUpdate(listOf(benchy))
+        plateEditor.plateList += PlateInfo()
+        return project.copy(objects = listOf(benchy))
+    }
+
+    @Test
+    fun `the project's plates are read on opening`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        assertEquals(PlateAction.Get, plateEditor.plateCalls.single())
+        assertEquals(2, vm.state.value.plates.size)
+        assertEquals(1, vm.state.value.instancesOn(1))
+        assertEquals(listOf(0, 1), vm.state.value.platesToSlice)
+    }
+
+    @Test
+    fun `each plate keeps its own slice while it matches the plate`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Slice)
+        assertEquals(setOf(0), vm.state.value.slicedPlates)
+
+        vm.onIntent(PrepareIntent.AddPlate)
+        assertEquals(1, vm.state.value.currentPlate)
+        assertEquals(SliceUiState.Idle, vm.state.value.slice)
+        assertEquals(PreviewUiState.None, vm.state.value.preview)
+
+        vm.onIntent(PrepareIntent.SelectPlate(0))
+        assertEquals("/gcode/benchy.gcode", assertIs<SliceUiState.Done>(vm.state.value.slice).gcodePath)
+        assertEquals(listOf("/gcode/benchy.gcode", "/gcode/benchy.gcode"), previews.loaded)
+
+        vm.onIntent(PrepareIntent.PlateEdited)
+        assertEquals(emptySet(), vm.state.value.slicedPlates)
+    }
+
+    @Test
+    fun `with several plates the G-code is named after the plate`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SelectPlate(1))
+        vm.onIntent(PrepareIntent.Slice)
+        assertEquals("/gcode/benchy_plate2.gcode", engine.lastRequest?.outputGcodePath)
+    }
+
+    @Test
+    fun `slice all slices every plate in turn and ends on the last`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SliceAll)
+
+        assertEquals(listOf("/gcode/benchy_plate1.gcode", "/gcode/benchy_plate2.gcode"), engine.requests.map { it.outputGcodePath })
+        val state = vm.state.value
+        assertEquals(setOf(0, 1), state.slicedPlates)
+        assertEquals(1, state.currentPlate)
+        assertNull(state.slicingAll)
+        assertEquals("/gcode/benchy_plate2.gcode", assertIs<SliceUiState.Done>(state.slice).gcodePath)
+        assertIs<PreviewUiState.Ready>(state.preview)
+    }
+
+    @Test
+    fun `a plate's own setting makes only that plate's slice stale`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SliceAll)
+
+        vm.onIntent(PrepareIntent.SetPlateSetting(0, PlateSettingKeys.BED_TYPE, "Textured PEI Plate"))
+        assertEquals("Textured PEI Plate", vm.state.value.plates[0].settings[PlateSettingKeys.BED_TYPE])
+        assertEquals(setOf(1), vm.state.value.slicedPlates)
+        assertIs<SliceUiState.Done>(vm.state.value.slice)
+
+        vm.onIntent(PrepareIntent.SetPlateSetting(1, PlateSettingKeys.SPIRAL_VASE, "1"))
+        assertEquals(emptySet(), vm.state.value.slicedPlates)
+        assertEquals(SliceUiState.Idle, vm.state.value.slice)
+
+        vm.onIntent(PrepareIntent.SetPlateSetting(1, PlateSettingKeys.SPIRAL_VASE, null))
+        assertEquals(PlateAction.ResetSetting(1, PlateSettingKeys.SPIRAL_VASE), plateEditor.plateCalls.last())
+    }
+
+    @Test
+    fun `selecting an object of another plate shows that plate`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        val revision = vm.state.value.plateRevision
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 1)))
+        assertEquals(1, vm.state.value.currentPlate)
+        assertEquals(InstanceRef(0, 1), vm.state.value.selection)
+        assertTrue(vm.state.value.plateRevision > revision)
+    }
+
+    @Test
+    fun `the selection can go to a new plate`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.MoveToPlate(null))
+
+        assertEquals(listOf(PlateAction.Add, PlateAction.Move(InstanceRef(0, 0), 1)), plateEditor.plateCalls.drop(1))
+        assertEquals(0, vm.state.value.currentPlate)
+        assertNull(vm.state.value.selection)
+        assertEquals(1, vm.state.value.instancesOn(1))
+        assertEquals(PlateNotice.MovedToPlate(1), vm.state.value.plateNotice)
+    }
+
+    @Test
+    fun `removing a plate keeps the later plates' slices`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SliceAll)
+        vm.onIntent(PrepareIntent.RemovePlate(0))
+        assertEquals(1, vm.state.value.plates.size)
+        assertEquals(0, vm.state.value.currentPlate)
+        assertEquals(setOf(0), vm.state.value.slicedPlates)
+        assertEquals("/gcode/benchy_plate2.gcode", assertIs<SliceUiState.Done>(vm.state.value.slice).gcodePath)
+    }
+
+    @Test
+    fun `arrange all plates reads the plates back and drops every slice`() {
+        val vm = viewModel(FakeProjects(Result.success(twoPlates())), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.SliceAll)
+        vm.onIntent(PrepareIntent.ShowPreview(false))   // the plate tools work on the model
+        vm.onIntent(PrepareIntent.ArrangeAllPlates)
+        assertEquals("arrange all", plateEditor.calls.single())
+        assertEquals(PlateAction.Get, plateEditor.plateCalls.last())
+        assertEquals(emptySet(), vm.state.value.slicedPlates)
+        assertEquals(PlateNotice.ArrangedAll(2), vm.state.value.plateNotice)
     }
 }

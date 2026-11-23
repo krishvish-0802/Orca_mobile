@@ -370,4 +370,45 @@
     <string name="prepare_start_plate_textured">Textured Build Plate (Side A)</string>
     <string name="prepare_start_plate_smooth">Smooth Build Plate (Side B)</string>
     <string name="prepare_selection_hint">%1$s selected · drag it to move, twist two fingers to turn it</string>
+    <!-- Plates -->
+    <string name="prepare_plate_add">Add plate</string>
+    <string name="prepare_plate_settings">Plate settings</string>
+    <string name="prepare_plate_sliced">Sliced</string>
+    <string name="prepare_plate_chip">%1$s · %2$d</string>
+    <string name="prepare_plate_settings_title">%1$s settings</string>
+    <string name="prepare_plate_name">Name</string>
+    <string name="prepare_plate_name_hint">Plate %1$d</string>
+    <string name="prepare_plate_bed_type">Bed type</string>
+    <string name="prepare_plate_print_sequence">Print sequence</string>
+    <string name="prepare_plate_by_layer">By layer</string>
+    <string name="prepare_plate_by_object">By object</string>
+    <string name="prepare_plate_spiral">Spiral vase</string>
+    <string name="prepare_plate_on">On</string>
+    <string name="prepare_plate_off">Off</string>
+    <string name="prepare_plate_same_as_global">Same as settings</string>
+    <string name="prepare_plate_settings_hint">These settings apply to this plate only, over the presets and your settings changes.</string>
+    <string name="prepare_plate_remove">Delete plate</string>
+    <string name="prepare_plate_remove_title">Delete %1$s?</string>
+    <plurals name="prepare_plate_remove_text">
+        <item quantity="one">The %d object instance on it goes too.</item>
+        <item quantity="other">The %d object instances on it go too.</item>
+    </plurals>
+    <string name="prepare_plate_remove_confirm">Delete</string>
+    <string name="prepare_plate_cancel">Cancel</string>
+    <string name="prepare_plate_done">Done</string>
+    <string name="prepare_arrange_all">Arrange all plates</string>
+    <string name="prepare_arrange_all_hint">Packs every plate\'s objects; what does not fit goes on the next plate, with new plates as needed.</string>
+    <string name="prepare_tool_arranging_all">Arranging all plates…</string>
+    <string name="prepare_tool_plates">Updating plates…</string>
+    <string name="prepare_tool_to_plate">To plate</string>
+    <string name="prepare_to_plate_title">Move %1$s to</string>
+    <string name="prepare_to_plate_new">New plate</string>
+    <string name="prepare_to_plate_current">%1$s (here)</string>
+    <plurals name="prepare_notice_arranged_all">
+        <item quantity="one">Everything fits on %d plate.</item>
+        <item quantity="other">Arranged over %d plates.</item>
+    </plurals>
+    <string name="prepare_notice_moved_to_plate">Moved to plate %1$d.</string>
+    <string name="prepare_slice_all">Slice all</string>
+    <string name="prepare_slice_plate_of">Plate %1$d of %2$d · %3$d%% · %4$s</string>
 </resources>

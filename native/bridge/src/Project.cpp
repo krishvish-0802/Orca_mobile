@@ -2,9 +2,12 @@
 #include "ProjectImpl.hpp"
 
 #include <cmath>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 
+#include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/Format/bbs_3mf.hpp"
 #include "libslic3r/Geometry.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/TriangleMesh.hpp"
@@ -36,13 +39,107 @@ void center_origin(Slic3r::ModelObject& object)
 Project::Project() : m_impl(std::make_unique<Impl>()) {}
 Project::~Project() = default;
 
+namespace {
+
+// PartPlate.hpp's compute_colum_count: plates are laid out in a near-square grid.
+int column_count(int count)
+{
+    const float value = std::sqrt(float(count));
+    const float rounded = std::round(value);
+    return int(value > rounded ? rounded + 1 : rounded);
+}
+
+// A desktop project's plates (bbs_3mf's plate data): the desktop lays plates
+// out side by side (PartPlateList::compute_origin), each a bed and a fifth
+// apart, and an instance is on the plate whose area holds it. Here every plate
+// shares the bed: each instance moves back from its plate onto the bed.
+void take_plates(Project::Impl& impl, const Slic3r::PlateDataPtrs& plate_data, const Slic3r::DynamicPrintConfig& config)
+{
+    if (plate_data.size() <= 1)
+        return;
+    const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area");
+    if (area == nullptr || area->values.size() < 3)
+        return;
+    Slic3r::BoundingBoxf bed;
+    for (const Slic3r::Vec2d& p : area->values)
+        bed.merge(p);
+    // PartPlateList keeps whole-mm plate sizes, less the bed axes' tip (Bed3D::Axes::DefaultTipRadius).
+    const int width = int(bed.size().x() - 1.25);
+    const int depth = int(bed.size().y() - 1.25);
+    if (width <= 0 || depth <= 0)
+        return;
+    const int count = int(plate_data.size());
+    const int columns = column_count(count);
+    impl.plates.assign(std::size_t(count), Project::Impl::Plate{});
+    for (int i = 0; i < count; ++i) {
+        impl.plates[i].name = plate_data[i]->plate_name;
+        for (const std::string& key : plate_setting_keys())
+            if (plate_data[i]->config.has(key))
+                impl.plates[i].settings[key] = plate_data[i]->config.opt_serialize(key);
+    }
+    const auto origin_of = [&](int i) {
+        return Slic3r::Vec2d(double(i % columns) * width * 1.2, -double(i / columns) * depth * 1.2);
+    };
+    // The plates' own lists of (object, instance), as the desktop loads them; where
+    // an instance is in none, the plate whose area holds it.
+    std::map<std::pair<int, int>, int> listed;
+    for (int i = 0; i < count; ++i)
+        for (const auto& [object, instance] : plate_data[i]->objects_and_instances)
+            listed.emplace(std::make_pair(object, instance), i);
+    for (std::size_t o = 0; o < impl.model.objects.size(); ++o) {
+        Slic3r::ModelObject* object = impl.model.objects[o];
+        for (std::size_t n = 0; n < object->instances.size(); ++n) {
+            Slic3r::ModelInstance* instance = object->instances[n];
+            int plate = 0;
+            if (auto it = listed.find({int(o), int(n)}); it != listed.end()) {
+                plate = it->second;
+            } else {
+                const Slic3r::Vec3d center = object->instance_bounding_box(*instance).center();
+                for (int i = 0; i < count; ++i) {
+                    const Slic3r::Vec2d at = origin_of(i);
+                    if (center.x() >= at.x() + bed.min.x() && center.x() <= at.x() + bed.min.x() + width &&
+                        center.y() >= at.y() + bed.min.y() && center.y() <= at.y() + bed.min.y() + depth) {
+                        plate = i;
+                        break;
+                    }
+                }
+            }
+            const Slic3r::Vec2d origin = origin_of(plate);
+            instance->set_offset(instance->get_offset() - Slic3r::Vec3d(origin.x(), origin.y(), 0));
+            impl.plate_by_instance[instance->id().id] = std::size_t(plate);
+        }
+    }
+}
+
+} // namespace
+
 std::unique_ptr<Project> Project::load(const std::string& path)
 {
     using Slic3r::LoadStrategy;
     std::unique_ptr<Project> project(new Project());
     project->m_impl->source_path = path;
-    project->m_impl->model = Slic3r::Model::read_from_file(
-        path, nullptr, nullptr, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel);
+    const bool is_3mf = path.size() > 4 && (path.compare(path.size() - 4, 4, ".3mf") == 0 || path.compare(path.size() - 4, 4, ".3MF") == 0);
+    bool loaded = false;
+    if (is_3mf) {
+        // A desktop project: with its config and plates, when they read.
+        try {
+            Slic3r::DynamicPrintConfig config;
+            Slic3r::ConfigSubstitutionContext substitutions(Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent);
+            Slic3r::PlateDataPtrs plate_data;
+            project->m_impl->model = Slic3r::Model::read_from_file(
+                path, &config, &substitutions, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel | LoadStrategy::LoadConfig,
+                &plate_data);
+            take_plates(*project->m_impl, plate_data, config);
+            Slic3r::release_PlateData_list(plate_data);
+            loaded = true;
+        } catch (const std::exception&) {
+            project->m_impl->plates.assign(1, Impl::Plate{});
+            project->m_impl->plate_by_instance.clear();
+        }
+    }
+    if (!loaded)
+        project->m_impl->model = Slic3r::Model::read_from_file(
+            path, nullptr, nullptr, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel);
     if (project->m_impl->model.objects.empty())
         throw std::runtime_error("The file contains no printable objects: " + path);
     for (Slic3r::ModelObject* object : project->m_impl->model.objects) {
@@ -98,6 +195,8 @@ std::vector<ObjectSummary> Project::objects() const
             const Slic3r::Vec3d size = object->instance_bounding_box(0).size();
             summary.size = {size.x(), size.y(), size.z()};
         }
+        for (const Slic3r::ModelInstance* instance : object->instances)
+            summary.instance_plates.push_back(m_impl->plate_of(*instance));
         result.push_back(std::move(summary));
     }
     return result;
@@ -106,7 +205,23 @@ std::vector<ObjectSummary> Project::objects() const
 void Project::center_on(double x, double y)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    m_impl->model.center_instances_around_point(Slic3r::Vec2d(x, y));
+    // Each plate's objects together, as Model::center_instances_around_point does for one.
+    for (std::size_t plate = 0; plate < m_impl->plates.size(); ++plate) {
+        Slic3r::BoundingBoxf3 box;
+        for (const Slic3r::ModelObject* object : m_impl->model.objects)
+            for (const Slic3r::ModelInstance* instance : object->instances)
+                if (m_impl->plate_of(*instance) == plate)
+                    box.merge(object->instance_bounding_box(*instance));
+        if (!box.defined)
+            continue;
+        const Slic3r::Vec3d shift(x - box.center().x(), y - box.center().y(), 0);
+        for (Slic3r::ModelObject* object : m_impl->model.objects) {
+            for (Slic3r::ModelInstance* instance : object->instances)
+                if (m_impl->plate_of(*instance) == plate)
+                    instance->set_offset(instance->get_offset() + shift);
+            object->invalidate_bounding_box();
+        }
+    }
 }
 
 std::vector<float> Project::object_triangles(std::size_t object_index) const
