@@ -70,7 +70,7 @@ std::optional<WipeTowerPlacement> place_wipe_tower(const Project& project, const
             const Slic3r::ConfigOption* brim_type = option_of(object, config, "brim_type");
             const Slic3r::ConfigOption* brim_width = option_of(object, config, "brim_width");
             const double brim = brim_type && brim_width && brim_type->getInt() != int(Slic3r::btNoBrim) ? brim_width->getFloat() : 0.;
-            Slic3r::append(obstacles, Slic3r::offset(hull, float(Slic3r::scaled(brim + Slic3r::WIPE_TOWER_MARGIN))));
+            Slic3r::append(obstacles, Slic3r::offset(hull, float(Slic3r::scaled(brim + WIPE_TOWER_MARGIN))));
         }
     });
     if (layer_height == std::numeric_limits<double>::max())
@@ -115,11 +115,11 @@ std::optional<WipeTowerPlacement> place_wipe_tower(const Project& project, const
         bed = Slic3r::BoundingBoxf(Slic3r::Vec2d(0, 0), Slic3r::Vec2d(220, 220));
     double x = float_of(config, "wipe_tower_x", 0, 15.) ;
     double y = float_of(config, "wipe_tower_y", 0, 220.);
-    const double margin = Slic3r::WIPE_TOWER_MARGIN + brim;
+    const double margin = WIPE_TOWER_MARGIN + brim;
     const double lo_x = bed.min.x() + margin, lo_y = bed.min.y() + margin;
     const double hi_x = std::max(lo_x, bed.max.x() - tower.width - margin);
     const double hi_y = std::max(lo_y, bed.max.y() - tower.depth - margin);
-    const double comfort = Slic3r::WIPE_TOWER_AUTO_MARGIN + brim;
+    const double comfort = WIPE_TOWER_AUTO_MARGIN + brim;
     double lo_cx = bed.min.x() + comfort, hi_cx = bed.max.x() - tower.width - comfort;
     if (lo_cx > hi_cx) { lo_cx = lo_x; hi_cx = hi_x; }
     double lo_cy = bed.min.y() + comfort, hi_cy = bed.max.y() - tower.depth - comfort;
