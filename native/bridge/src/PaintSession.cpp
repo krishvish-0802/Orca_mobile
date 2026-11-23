@@ -24,6 +24,7 @@ Slic3r::FacetsAnnotation& facets_of(Slic3r::ModelVolume& volume, PaintKind kind)
     case PaintKind::Seam: return volume.seam_facets;
     case PaintKind::FuzzySkin: return volume.fuzzy_skin_facets;
     case PaintKind::Color: return volume.mmu_segmentation_facets;
+    case PaintKind::PaintedModifier: return volume.painted_modifier_facets;
     }
     throw std::invalid_argument("No such paint");
 }
@@ -36,6 +37,7 @@ EnforcerBlockerType max_state(PaintKind kind)
     case PaintKind::Seam: return EnforcerBlockerType::BLOCKER;
     case PaintKind::FuzzySkin: return EnforcerBlockerType::FUZZY_SKIN;
     case PaintKind::Color: return EnforcerBlockerType::ExtruderMax;
+    case PaintKind::PaintedModifier: return EnforcerBlockerType::ENFORCER;
     }
     return EnforcerBlockerType::NONE;
 }
@@ -56,6 +58,9 @@ struct PaintSession::Impl {
         std::unique_ptr<TriangleSelector> selector;
     };
     std::vector<Part> parts;
+    // PaintedModifier: the modifier shaped, and the part it is painted on.
+    std::optional<std::size_t> target;
+    std::optional<std::size_t> host;
 
     Part* find(std::size_t volume)
     {
@@ -70,13 +75,21 @@ struct PaintSession::Impl {
     Impl(Project& p, std::size_t o, PaintKind k) : project(p), object(o), kind(k) {}
 };
 
-PaintSession::PaintSession(Project& project, std::size_t object, PaintKind kind)
+PaintSession::PaintSession(Project& project, std::size_t object, PaintKind kind, std::optional<std::size_t> target)
     : m_impl(std::make_unique<Impl>(project, object, kind))
 {
     project.edit([&](Slic3r::Model& model) {
         if (object >= model.objects.size())
             throw std::out_of_range("No such object on the plate");
-        const Slic3r::ModelObject& o = *model.objects[object];
+        Slic3r::ModelObject& o = *model.objects[object];
+        const Slic3r::ModelVolume* modifier = nullptr;
+        if (kind == PaintKind::PaintedModifier && target) {
+            if (*target >= o.volumes.size() || !o.volumes[*target]->is_painted_modifier())
+                throw std::invalid_argument("This part is not a painted modifier");
+            o.sync_painted_modifiers();
+            modifier = o.volumes[*target];
+            m_impl->target = target;
+        }
         for (std::size_t v = 0; v < o.volumes.size(); ++v) {
             Slic3r::ModelVolume& volume = *o.volumes[v];
             if (!volume.is_model_part())
@@ -85,7 +98,15 @@ PaintSession::PaintSession(Project& project, std::size_t object, PaintKind kind)
             part.volume = v;
             part.mesh = volume.get_mesh_shared_ptr();
             part.selector = std::make_unique<TriangleSelector>(*part.mesh);
-            part.selector->deserialize(facets_of(volume, kind).get_data(), false, max_state(kind));
+            if (kind != PaintKind::PaintedModifier) {
+                part.selector->deserialize(facets_of(volume, kind).get_data(), false, max_state(kind));
+            } else if (modifier != nullptr) {
+                // GLGizmoPaintedModifier: only the modifier's own part takes strokes, its paint loaded.
+                if (modifier->painted_modifier_host != volume.id())
+                    continue;
+                part.selector->deserialize(modifier->painted_modifier_facets.get_data(), false, max_state(kind));
+                m_impl->host = v;
+            }
             m_impl->parts.push_back(std::move(part));
         }
     });
@@ -104,6 +125,8 @@ std::vector<std::size_t> PaintSession::paintable_volumes() const
         volumes.push_back(part.volume);
     return volumes;
 }
+
+std::optional<std::size_t> PaintSession::target() const { return m_impl->target; }
 
 bool PaintSession::paint(const PaintStroke& stroke)
 {
@@ -181,6 +204,42 @@ bool PaintSession::commit()
     bool changed = false;
     m_impl->project.edit([&](Slic3r::Model& model) {
         Slic3r::ModelObject& object = *model.objects.at(m_impl->object);
+        if (m_impl->kind == PaintKind::PaintedModifier) {
+            if (m_impl->target) {
+                // The strokes shape the modifier, through its part's paint.
+                if (*m_impl->target >= object.volumes.size() || !m_impl->host)
+                    return;
+                Slic3r::ModelVolume& modifier = *object.volumes[*m_impl->target];
+                if (const Impl::Part* part = m_impl->find(*m_impl->host))
+                    changed = modifier.painted_modifier_facets.set(*part->selector);
+                return;
+            }
+            // ObjectList::add_painted_modifier: the first stroke makes one on the part it painted.
+            for (Impl::Part& part : m_impl->parts) {
+                if (!part.selector->has_facets(EnforcerBlockerType::ENFORCER) || part.volume >= object.volumes.size())
+                    continue;
+                const Slic3r::ModelVolume& host = *object.volumes[part.volume];
+                if (host.get_mesh_shared_ptr() != part.mesh)
+                    continue;
+                int count = 1;
+                for (const Slic3r::ModelVolume* v : object.volumes)
+                    count += v->is_painted_modifier();
+                Slic3r::ModelVolume* modifier = object.add_painted_modifier(host);
+                modifier->name = "Painted modifier " + std::to_string(count);
+                modifier->painted_modifier_facets.set(*part.selector);
+                m_impl->target = object.volumes.size() - 1;
+                m_impl->host = part.volume;
+                // From now on only that part takes strokes.
+                std::vector<Impl::Part> kept;
+                for (Impl::Part& p : m_impl->parts)
+                    if (p.volume == part.volume)
+                        kept.push_back(std::move(p));
+                m_impl->parts = std::move(kept);
+                changed = true;
+                return;
+            }
+            return;
+        }
         for (const Impl::Part& part : m_impl->parts) {
             if (part.volume >= object.volumes.size())
                 continue;

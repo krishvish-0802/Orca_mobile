@@ -145,8 +145,12 @@ class PrepareViewModel @Inject constructor(
                 if (!it.plateEditable || it.selection == null) {
                     it
                 } else {
-                    it.copy(paint = PaintBrush(kind = intent.kind), layingOnFace = false)
+                    it.copy(paint = PaintBrush(kind = intent.kind, modifier = intent.modifier), layingOnFace = false)
                 }
+            }
+            is PrepareIntent.PaintedModifierMade -> _state.update {
+                val brush = it.paint
+                if (brush?.kind == com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER) it.copy(paint = brush.copy(modifier = intent.volume)) else it
             }
             is PrepareIntent.SetBrush -> _state.update { if (it.paint == null) it else it.copy(paint = intent.brush) }
             PrepareIntent.ClearPaint -> _state.update { if (it.paint == null) it else it.copy(paintClearRequest = it.paintClearRequest + 1) }

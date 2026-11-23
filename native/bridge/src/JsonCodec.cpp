@@ -186,6 +186,7 @@ std::string to_json(const ObjectDetails& details, const std::vector<InstanceTran
             {"triangles", volume.triangle_count},
             {"settings", volume.settings},
             {"embossed", volume.embossed},
+            {"paintedDepth", volume.painted_depth},
         };
         if (i < volume_transforms.size())
             entry["transform"] = transform_json(volume_transforms[i]);

@@ -155,6 +155,9 @@ void Project::edit(const std::function<void(Slic3r::Model&)>& change)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     change(m_impl->model);
+    // A part's mesh or place changed: its painted modifiers follow (the desktop syncs them too).
+    for (Slic3r::ModelObject* object : m_impl->model.objects)
+        object->sync_painted_modifiers();
 }
 
 void Project::inspect(const std::function<void(const Slic3r::Model&)>& look) const

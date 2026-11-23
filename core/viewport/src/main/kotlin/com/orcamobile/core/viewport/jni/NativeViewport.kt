@@ -100,7 +100,10 @@ internal object NativeViewport {
     // Painting (native/bridge/jni/PaintJni.cpp).
 
     /** Opens a paint session on an object for a PaintKind and shows its paint; 0 on failure. */
-    @JvmStatic external fun nativePaintBegin(handle: Long, projectHandle: Long, objectIndex: Int, kind: Int): Long
+    @JvmStatic external fun nativePaintBegin(handle: Long, projectHandle: Long, objectIndex: Int, kind: Int, target: Int): Long
+
+    /** The painted modifier a painted-modifier session shapes, or -1 while there is none. */
+    @JvmStatic external fun nativePaintTarget(painting: Long): Int
 
     /** One brush step at a screen point; [strokeStart] begins a new stroke. Whether it painted. */
     @JvmStatic external fun nativePaintAt(

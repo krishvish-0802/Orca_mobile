@@ -192,6 +192,9 @@ Slic3r::Model Project::plate_model_copy() const
         if (object->instances.empty())
             copy.delete_object(o);
     }
+    // Painted modifiers on their parts as they are now.
+    for (Slic3r::ModelObject* object : copy.objects)
+        object->sync_painted_modifiers();
     return copy;
 }
 

@@ -52,6 +52,7 @@ struct VolumeInfo {
     std::size_t triangle_count = 0;
     SettingValues settings;
     bool embossed = false;          // a text or an SVG, which the Emboss tool edits
+    double painted_depth = 0;       // a painted modifier: how far it reaches in, mm (0: across the part)
 };
 
 // A height range of an object with settings of its own (layer height and
@@ -240,6 +241,8 @@ public:
     std::array<double, 3> volume_center(const InstanceRef& via, std::size_t volume) const;
 
     void set_setting(const SettingTarget& target, const std::string& key, const std::string& value);
+    // How far a painted modifier reaches into its part from the paint, mm; 0 across the part.
+    void set_painted_depth(std::size_t object, std::size_t volume, double depth_mm);
     void reset_setting(const SettingTarget& target, const std::string& key);
     // Adds a height range with its own layer height; returns its index.
     std::size_t add_layer_range(std::size_t object, double min_z, double max_z, const std::string& layer_height);

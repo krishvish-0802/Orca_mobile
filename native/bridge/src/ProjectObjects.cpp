@@ -174,7 +174,8 @@ ObjectDetails Project::details(std::size_t object_index) const
     details.settings = values_of(object.config);
     for (const ModelVolume* volume : object.volumes)
         details.volumes.push_back({volume->name, to_kind(volume->type()), volume->mesh().its.indices.size(),
-                                   values_of(volume->config), volume->emboss_shape.has_value() || volume->text_configuration.has_value()});
+                                   values_of(volume->config), volume->emboss_shape.has_value() || volume->text_configuration.has_value(),
+                                   volume->painted_modifier_depth});
     for (const auto& [range, config] : object.layer_config_ranges)
         details.layer_ranges.push_back({range.first, range.second, values_of(config)});
     return details;
@@ -190,6 +191,9 @@ ObjectMesh Project::object_mesh(std::size_t object_index) const
         for (std::size_t v = 0; v < object.volumes.size(); ++v) {
             const ModelVolume& volume = *object.volumes[v];
             if (volume.is_model_part() != (pass == 0))
+                continue;
+            // A painted modifier is its part's mesh again: the paint shows it, not a second shell.
+            if (volume.is_painted_modifier())
                 continue;
             const indexed_triangle_set& its = volume.mesh().its;
             for (const auto& face : its.indices)
@@ -489,6 +493,15 @@ void Project::set_setting(const SettingTarget& target, const std::string& key, c
     Slic3r::ModelConfig& config = config_of(m_impl->object(target.object), target);
     Slic3r::ConfigSubstitutionContext context(Slic3r::ForwardCompatibilitySubstitutionRule::Disable);
     config.set_deserialize(key, value, context);
+}
+
+void Project::set_painted_depth(std::size_t object_index, std::size_t volume_index, double depth_mm)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    ModelVolume& volume = volume_of(m_impl->object(object_index), volume_index);
+    if (!volume.is_painted_modifier())
+        throw std::invalid_argument("This part is not a painted modifier");
+    volume.painted_modifier_depth = float(std::max(0.0, depth_mm));
 }
 
 void Project::reset_setting(const SettingTarget& target, const std::string& key)

@@ -121,7 +121,7 @@ internal object EngineJson {
                 name = o.name,
                 settings = o.settings,
                 volumes = o.volumes.map {
-                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel(), it.embossed)
+                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel(), it.embossed, it.paintedDepth)
                 },
                 layerRanges = o.layerRanges.map { LayerRange(it.min, it.max, it.settings) },
             ),
@@ -164,6 +164,10 @@ internal object EngineJson {
             )
             is ObjectEdit.SetSetting -> "set" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key), "value" to JsonPrimitive(edit.value))
             is ObjectEdit.ResetSetting -> "reset" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key))
+            is ObjectEdit.SetPaintedDepth -> "paintedDepth" to mapOf(
+                "volume" to JsonPrimitive(edit.volume),
+                "depth" to JsonPrimitive(edit.depthMm),
+            )
             is ObjectEdit.AddRange -> "addRange" to mapOf(
                 "min" to JsonPrimitive(edit.minZ),
                 "max" to JsonPrimitive(edit.maxZ),
@@ -324,6 +328,7 @@ internal object EngineJson {
         val settings: Map<String, String> = emptyMap(),
         val transform: TransformDto,
         val embossed: Boolean = false,
+        val paintedDepth: Double = 0.0,
     )
 
     @Serializable

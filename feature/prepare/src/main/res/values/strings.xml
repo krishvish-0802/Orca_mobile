@@ -429,4 +429,13 @@
     <string name="prepare_emboss_editing">Editing: changes apply to this text. Drag it to move it, twist two fingers to turn it, drag Size to scale it. Tap the surface to move it there.</string>
     <string name="prepare_emboss_editing_gestures">Drag the text to move it · twist to turn it · Size handle scales it</string>
     <string name="prepare_emboss_font_missing">This text\'s font (%1$s) is not on this phone: edits use %2$s.</string>
+    <string name="prepare_paint_kind_modifier">Modifier</string>
+    <string name="prepare_paint_modifier_which">Painted modifier</string>
+    <string name="prepare_paint_modifier_new">New</string>
+    <string name="prepare_paint_modifier_new_hint">Paint on a part: the first stroke makes a new painted modifier there. Its settings apply to the painted area.</string>
+    <string name="prepare_paint_modifier_area">Paint area</string>
+    <string name="prepare_paint_modifier_depth">Depth</string>
+    <string name="prepare_paint_modifier_depth_hint">How far the modifier reaches into the part from the paint; 0 reaches across the part.</string>
+    <string name="prepare_paint_hint_modifier">Paint where other settings should apply (more walls, other infill, another speed), then set them with Settings.</string>
+    <string name="prepare_parts_paint_modifier">Paint its area</string>
 </resources>

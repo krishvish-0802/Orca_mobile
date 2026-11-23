@@ -44,6 +44,8 @@ data class VolumeInfo(
     val transform: InstanceTransform,
     /** A text or an SVG, which the Text tool edits. */
     val embossed: Boolean = false,
+    /** A painted modifier: how far it reaches into its part from the paint, mm; 0 across the part. */
+    val paintedDepthMm: Double = 0.0,
 )
 
 /** A height range of an object with settings of its own, as the desktop's height range modifier. */
@@ -108,6 +110,9 @@ sealed interface ObjectEdit {
     data class VolumeTransform(val volume: Int, val position: Axes, val rotationDegrees: Axes, val scale: Axes) : ObjectEdit
 
     data class SetSetting(val target: SettingTarget, val key: String, val value: String) : ObjectEdit
+
+    /** How far painted modifier [volume] reaches into its part, mm; 0 across the part. */
+    data class SetPaintedDepth(val volume: Int, val depthMm: Double) : ObjectEdit
 
     data class ResetSetting(val target: SettingTarget, val key: String) : ObjectEdit
 

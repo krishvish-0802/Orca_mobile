@@ -271,15 +271,22 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private var highlightedVolume: Int? = null
     private var painting = 0L
-    private var paintTarget: Triple<Long, Int, PaintKind>? = null
+    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val modifier: Int?)
+
+    private var paintTarget: PaintTarget? = null
 
     /**
      * Paints [kind] on object [objectIndex] of the shown project from now on,
-     * coloured by [palette] (r, g, b, a per state); null stops painting.
+     * coloured by [palette] (r, g, b, a per state); null stops painting. For a
+     * painted modifier, [modifier] is the one shaped (null: a new one).
      */
-    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray) {
+    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, modifier: Int? = null) {
         val h = handle
-        val target = if (objectIndex != null && kind != null && projectHandle != 0L) Triple(projectHandle, objectIndex, kind) else null
+        val target = if (objectIndex != null && kind != null && projectHandle != 0L) {
+            PaintTarget(projectHandle, objectIndex, kind, modifier.takeIf { kind == PaintKind.PAINTED_MODIFIER })
+        } else {
+            null
+        }
         if (target == paintTarget) {
             if (h != 0L && target != null) NativeViewport.nativeSetPaintPalette(h, palette)
             return
@@ -287,7 +294,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         stopPainting()
         if (h == 0L || target == null) return
         NativeViewport.nativeSetPaintPalette(h, palette)
-        painting = NativeViewport.nativePaintBegin(h, target.first, target.second, target.third.nativeValue)
+        painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, target.modifier ?: -1)
         if (painting != 0L) paintTarget = target
         requestRender()
     }
@@ -311,6 +318,9 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     /** Keeps the paint in the model; whether it changed what will be sliced. */
     fun commitPaint(): Boolean = painting != 0L && NativeViewport.nativePaintCommit(painting)
+
+    /** The painted modifier being shaped, once the first stroke made it. */
+    fun paintedModifier(): Int? = painting.takeIf { it != 0L }?.let { NativeViewport.nativePaintTarget(it) }?.takeIf { it >= 0 }
 
     fun clearPaint() {
         val h = handle

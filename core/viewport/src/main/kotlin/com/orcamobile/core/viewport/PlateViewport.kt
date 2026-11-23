@@ -56,6 +56,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.MeasureOutcome
 import com.orcamobile.core.model.MeasureRequest
 import com.orcamobile.core.model.PaintBrush
+import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.SimplifyCounts
@@ -132,6 +133,8 @@ fun PlateViewport(
     /** Grows to erase everything painted of the brush's kind. */
     clearPaintRequest: Int = 0,
     onPainted: () -> Unit = {},
+    /** Painting a new painted modifier: the first stroke made it, volume [Int] of the object. */
+    onPaintedModifier: (Int) -> Unit = {},
     /**
      * Cutting with this plane, connectors and options: the plate shows the
      * plane, the cut face and the connectors, the object above the plane in
@@ -208,6 +211,7 @@ fun PlateViewport(
     val currentOnVolumeSelectionChange by rememberUpdatedState(onVolumeSelectionChange)
     val currentPaint by rememberUpdatedState(paint)
     val currentOnPainted by rememberUpdatedState(onPainted)
+    val currentOnPaintedModifier by rememberUpdatedState(onPaintedModifier)
     val painting = paint != null && project != null && preview == null && selection != null
     // A drag on the tower moves it here at once; the engine's answer then replaces it.
     var towerDrag by remember { mutableStateOf(Offset.Zero) }
@@ -303,7 +307,7 @@ fun PlateViewport(
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
-                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray)
+                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.modifier)
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -395,7 +399,13 @@ fun PlateViewport(
                             },
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onStrokeEnd = { if (surface.commitPaint()) currentOnPainted() },
+                            onStrokeEnd = {
+                                if (surface.commitPaint()) currentOnPainted()
+                                val brush = currentPaint
+                                if (brush?.kind == PaintKind.PAINTED_MODIFIER && brush.modifier == null) {
+                                    surface.paintedModifier()?.let(currentOnPaintedModifier)
+                                }
+                            },
                         )
                     },
             )

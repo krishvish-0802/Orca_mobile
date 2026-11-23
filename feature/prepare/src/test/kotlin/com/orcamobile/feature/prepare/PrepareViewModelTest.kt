@@ -754,4 +754,18 @@ class PrepareViewModelTest {
         assertEquals(emptySet(), vm.state.value.slicedPlates)
         assertEquals(PlateNotice.ArrangedAll(2), vm.state.value.plateNotice)
     }
+
+    @Test
+    fun `a new painted modifier is painted on once its first stroke made it`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER))
+        assertNull(vm.state.value.paint?.modifier)
+        vm.onIntent(PrepareIntent.PaintedModifierMade(1))
+        assertEquals(1, vm.state.value.paint?.modifier)
+
+        vm.onIntent(PrepareIntent.StopPainting)
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER, modifier = 3))
+        assertEquals(3, vm.state.value.paint?.modifier)
+    }
 }

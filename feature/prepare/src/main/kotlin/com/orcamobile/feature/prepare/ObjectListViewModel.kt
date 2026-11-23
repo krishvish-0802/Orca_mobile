@@ -96,6 +96,9 @@ class ObjectListViewModel @Inject constructor(
                 intent.filament?.let { ObjectEdit.SetSetting(target, EXTRUDER, it.toString()) }
                     ?: ObjectEdit.ResetSetting(target, EXTRUDER)
             }
+            is ObjectListIntent.SetPaintedDepth -> edit(changesShape = false) {
+                ObjectEdit.SetPaintedDepth(intent.volume, intent.depthMm.coerceAtLeast(0.0))
+            }
             ObjectListIntent.DismissError -> _state.update { it.copy(error = null) }
             ObjectListIntent.Refresh -> refresh()
             ObjectListIntent.EnablePaintedFuzzySkin -> edit(changesShape = false) {

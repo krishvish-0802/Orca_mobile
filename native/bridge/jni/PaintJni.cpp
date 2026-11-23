@@ -52,16 +52,19 @@ void show_all(Viewport& v, const PaintSession& session)
         v.set_paint_overlay(static_cast<int>(session.object()), static_cast<int>(volume), overlay_mesh(session, volume));
 }
 
-// A session on `object` for paint `kind` (PaintKind), shown on the viewport; 0 on failure.
-jlong native_paint_begin(JNIEnv*, jclass, jlong viewport_handle, jlong project_handle, jint object, jint kind)
+// A session on `object` for paint `kind` (PaintKind), shown on the viewport; 0 on
+// failure. `target` (or -1): the painted modifier a PaintedModifier session shapes.
+jlong native_paint_begin(JNIEnv*, jclass, jlong viewport_handle, jlong project_handle, jint object, jint kind, jint target)
 {
     auto* v = from_handle<Viewport>(viewport_handle);
     auto* project = from_handle<orca::engine::Project>(project_handle);
-    if (v == nullptr || project == nullptr || object < 0 || kind < 0 || kind > 3)
+    if (v == nullptr || project == nullptr || object < 0 || kind < 0 || kind > 4)
         return 0;
     try {
         auto painting = std::make_unique<Painting>();
-        painting->session = std::make_unique<PaintSession>(*project, std::size_t(object), static_cast<orca::engine::PaintKind>(kind));
+        const std::optional<std::size_t> modifier = target >= 0 ? std::optional<std::size_t>(std::size_t(target)) : std::nullopt;
+        painting->session = std::make_unique<PaintSession>(*project, std::size_t(object),
+                                                           static_cast<orca::engine::PaintKind>(kind), modifier);
         show_all(*v, *painting->session);
         return to_handle(painting.release());
     } catch (const std::exception&) {
@@ -137,6 +140,16 @@ jboolean native_paint_commit(JNIEnv*, jclass, jlong painting_handle)
     }
 }
 
+// The painted modifier a PaintedModifier session shapes, or -1 while there is none.
+jint native_paint_target(JNIEnv*, jclass, jlong painting_handle)
+{
+    auto* painting = from_handle<Painting>(painting_handle);
+    if (painting == nullptr)
+        return -1;
+    const auto target = painting->session->target();
+    return target ? jint(*target) : -1;
+}
+
 // Closes the session and hides the paint.
 void native_paint_end(JNIEnv*, jclass, jlong viewport_handle, jlong painting_handle)
 {
@@ -172,7 +185,8 @@ void native_set_filament_colours(JNIEnv* env, jclass, jlong viewport_handle, jfl
 }
 
 const JNINativeMethod kMethods[] = {
-    {"nativePaintBegin", "(JJII)J", reinterpret_cast<void*>(native_paint_begin)},
+    {"nativePaintBegin", "(JJIII)J", reinterpret_cast<void*>(native_paint_begin)},
+    {"nativePaintTarget", "(J)I", reinterpret_cast<void*>(native_paint_target)},
     {"nativePaintAt", "(JJFFZIIFFF)Z", reinterpret_cast<void*>(native_paint_at)},
     {"nativePaintClear", "(JJ)V", reinterpret_cast<void*>(native_paint_clear)},
     {"nativePaintCommit", "(J)Z", reinterpret_cast<void*>(native_paint_commit)},

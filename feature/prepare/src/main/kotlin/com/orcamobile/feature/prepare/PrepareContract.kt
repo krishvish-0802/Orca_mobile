@@ -316,7 +316,10 @@ sealed interface PrepareIntent {
     data class SetHandleMode(val mode: HandleMode) : PrepareIntent
 
     /** Paints [kind] on the selected object until [StopPainting]. */
-    data class StartPainting(val kind: PaintKind) : PrepareIntent
+    data class StartPainting(val kind: PaintKind, val modifier: Int? = null) : PrepareIntent
+
+    /** The first stroke of a new painted modifier made it: volume [volume] of the selected object, painted from now on. */
+    data class PaintedModifierMade(val volume: Int) : PrepareIntent
 
     data class SetBrush(val brush: PaintBrush) : PrepareIntent
 

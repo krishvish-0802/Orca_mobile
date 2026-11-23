@@ -315,6 +315,10 @@ fun PrepareScreen(
                     filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
                     onPainted = { onIntent(PrepareIntent.Painted) },
+                    onPaintedModifier = { volume ->
+                        onIntent(PrepareIntent.PaintedModifierMade(volume))
+                        onListIntent(ObjectListIntent.Refresh)
+                    },
                     onVolumeSelectionChange = { instance, volume ->
                         onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
                     },
@@ -458,7 +462,7 @@ fun PrepareScreen(
                         onIntent(PrepareIntent.CloseMeshTool)
                     }
                 } else if (preview == null && state.paint != null) {
-                    PaintPanel(state, onIntent, list.fuzzySkinDisabled) {
+                    PaintPanel(state, onIntent, list, onListIntent, { volume -> onOpenObjectSettings(volume, null) }, list.fuzzySkinDisabled) {
                         onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)
                     }
                 } else if (preview == null) {

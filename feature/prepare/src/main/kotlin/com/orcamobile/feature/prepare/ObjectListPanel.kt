@@ -135,6 +135,15 @@ internal fun PartsTab(
         list.volume?.let { volume ->
             val index = list.selectedVolume ?: return@let
             HorizontalDivider()
+            if (volume.kind == VolumeKind.PAINTED_MODIFIER) {
+                PrimaryPillButton(
+                    stringResource(R.string.prepare_parts_paint_modifier),
+                    onClick = { onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER, index)) },
+                    enabled = enabled,
+                    icon = OrcaIcons.Paint,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             if (volume.embossed) {
                 PrimaryPillButton(
                     stringResource(R.string.prepare_parts_edit_text),
@@ -155,6 +164,8 @@ internal fun PartsTab(
                     modifier = Modifier.fillMaxWidth(),
                 )
             }
+            // A painted modifier is shaped by paint and follows its part: no kind or placement of its own.
+            if (volume.kind == VolumeKind.PAINTED_MODIFIER) return@let
             Text(stringResource(R.string.prepare_parts_kind), style = MaterialTheme.typography.labelLarge)
             val lastPart = volume.kind == VolumeKind.PART && details.partCount == 1
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
