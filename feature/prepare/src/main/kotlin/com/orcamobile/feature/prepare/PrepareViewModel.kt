@@ -453,6 +453,8 @@ class PrepareViewModel @Inject constructor(
     private fun showPlates(plates: Plates) {
         _state.update {
             val switched = plates.current != it.currentPlate
+            // Redrawn when it shows something else: another plate, or objects that came or went.
+            val redraw = switched || plates.objects != it.project?.objects
             it.copy(
                 plates = plates.plates,
                 currentPlate = plates.current,
@@ -460,7 +462,7 @@ class PrepareViewModel @Inject constructor(
                 selection = it.selection?.takeIf { ref ->
                     !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
                 },
-                plateRevision = it.plateRevision + 1,
+                plateRevision = if (redraw) it.plateRevision + 1 else it.plateRevision,
             )
         }
     }
