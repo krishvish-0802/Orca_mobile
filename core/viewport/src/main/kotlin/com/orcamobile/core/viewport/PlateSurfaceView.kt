@@ -116,6 +116,25 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         outcome
     }
 
+    /** Shows an object's outline on the bed and its brim ears (`[[x,y,r]]`), [selected] highlighted. */
+    fun showBrimEars(objectIndex: Int, instanceIndex: Int, earsJson: String, selected: Int): Boolean = synchronized(toolLock) {
+        cutJson = null
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return false
+        NativeViewport.nativeBrimEarsShow(h, project, objectIndex, instanceIndex, earsJson, selected)
+        requestRender()
+        true
+    }
+
+    /** A screen point on the bed, snapped to the object's outline within [maxDistance] mm (JSON). */
+    fun brimEarPoint(objectIndex: Int, instanceIndex: Int, x: Float, y: Float, maxDistance: Float): String? = synchronized(toolLock) {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return null
+        NativeViewport.nativeBrimEarPoint(h, project, objectIndex, instanceIndex, x, y, maxDistance)
+    }
+
     /** The part surface under a screen point, as a feature pick (JSON, `{}` on a miss). */
     fun measurePick(x: Float, y: Float): String? {
         val h = handle

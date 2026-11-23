@@ -91,6 +91,13 @@ enum class MeshTool {
 
     /** Measure and assembly; needs no selection. */
     MEASURE,
+
+    /** Variable layer height. */
+    LAYERS,
+    BRIM_EARS,
+
+    /** Text and SVG; without a selection only as new objects. */
+    EMBOSS,
 }
 
 sealed interface PlateNotice {

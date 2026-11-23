@@ -147,6 +147,49 @@ object OrcaIcons {
         }
     }
 
+    /** Variable layer height: bars of different thickness, stacked. */
+    val Layers: ImageVector by lazy {
+        icon("Layers") {
+            var y = 3f
+            for (h in listOf(1.5f, 2.5f, 3.5f, 2.5f, 1.5f)) {
+                moveTo(4f, y)
+                horizontalLineTo(20f)
+                verticalLineTo(y + h)
+                horizontalLineTo(4f)
+                close()
+                y += h + 1f
+            }
+        }
+    }
+
+    /** Brim ears: a square with a disc at each corner. */
+    val BrimEars: ImageVector by lazy {
+        icon("BrimEars") {
+            square(7f, 7f, 10f)
+            for ((cx, cy) in listOf(5f to 5f, 19f to 5f, 5f to 19f, 19f to 19f)) {
+                moveTo(cx - 3f, cy)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = cx + 3f, y1 = cy)
+                arcTo(3f, 3f, 0f, isMoreThanHalf = true, isPositiveArc = true, x1 = cx - 3f, y1 = cy)
+                close()
+            }
+        }
+    }
+
+    /** Text: a capital T. */
+    val Text: ImageVector by lazy {
+        icon("Text") {
+            moveTo(4f, 3f)
+            horizontalLineTo(20f)
+            verticalLineTo(7f)
+            horizontalLineTo(14f)
+            verticalLineTo(21f)
+            horizontalLineTo(10f)
+            verticalLineTo(7f)
+            horizontalLineTo(4f)
+            close()
+        }
+    }
+
     private fun icon(name: String, build: PathBuilder.() -> Unit): ImageVector =
         ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f)
             .path(fill = SolidColor(Color.Black), pathBuilder = build)

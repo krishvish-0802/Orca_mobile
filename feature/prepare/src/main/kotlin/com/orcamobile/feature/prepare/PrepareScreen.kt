@@ -70,6 +70,7 @@ import com.orcamobile.core.model.SimplifyTarget
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
 import com.orcamobile.core.model.VolumeKind
+import com.orcamobile.core.viewport.BrimEarsView
 import com.orcamobile.core.viewport.HandleMode
 import com.orcamobile.core.viewport.PlateViewport
 import java.util.Locale
@@ -85,6 +86,9 @@ fun PrepareRoute(
     objectList: ObjectListViewModel = hiltViewModel(),
     cutTool: CutViewModel = hiltViewModel(),
     measureTool: MeasureViewModel = hiltViewModel(),
+    layerTool: LayerHeightViewModel = hiltViewModel(),
+    earsTool: BrimEarsViewModel = hiltViewModel(),
+    embossTool: EmbossViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
@@ -117,6 +121,50 @@ fun PrepareRoute(
                 is MeasureEvent.PlateChanged -> viewModel.onIntent(PrepareIntent.ObjectChanged(event.objects))
             }
         }
+    }
+    // Variable layer height, brim ears and emboss follow the selection while open.
+    val layers by layerTool.state.collectAsStateWithLifecycle()
+    val ears by earsTool.state.collectAsStateWithLifecycle()
+    val emboss by embossTool.state.collectAsStateWithLifecycle()
+    val layersFor = state.project?.id?.let { p -> state.selection?.takeIf { state.meshTool == MeshTool.LAYERS }?.let { p to it } }
+    LaunchedEffect(layersFor, state.presets) {
+        if (layersFor == null) {
+            if (layerTool.state.value.active) layerTool.onIntent(LayerHeightIntent.Close)
+        } else {
+            layerTool.onIntent(LayerHeightIntent.Open(layersFor.first, layersFor.second.objectIndex, state.presets))
+        }
+    }
+    val earsFor = state.project?.id?.let { p -> state.selection?.takeIf { state.meshTool == MeshTool.BRIM_EARS }?.let { p to it } }
+    LaunchedEffect(earsFor) {
+        if (earsFor == null) {
+            if (earsTool.state.value.active) earsTool.onIntent(BrimEarsIntent.Close)
+        } else {
+            earsTool.onIntent(BrimEarsIntent.Open(earsFor.first, earsFor.second, state.presets))
+        }
+    }
+    val embossIn = state.project?.id?.takeIf { state.meshTool == MeshTool.EMBOSS }
+    LaunchedEffect(embossIn) {
+        if (embossIn == null) {
+            if (embossTool.state.value.active) embossTool.onIntent(EmbossIntent.Close)
+        } else {
+            embossTool.onIntent(EmbossIntent.Open(embossIn))
+        }
+    }
+    LaunchedEffect(layerTool) {
+        layerTool.events.collect { viewModel.onIntent(PrepareIntent.ObjectSettingsChanged) }
+    }
+    LaunchedEffect(earsTool) {
+        earsTool.events.collect { viewModel.onIntent(PrepareIntent.ObjectSettingsChanged) }
+    }
+    LaunchedEffect(embossTool) {
+        embossTool.events.collect { event ->
+            when (event) {
+                is EmbossEvent.PlateChanged -> viewModel.onIntent(PrepareIntent.ObjectChanged(event.objects))
+            }
+        }
+    }
+    val svgPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) embossTool.onIntent(EmbossIntent.PickedSvg(uri.toString(), uri.lastPathSegment?.substringAfterLast('/')))
     }
     LaunchedEffect(cutTool) {
         cutTool.events.collect { event ->
@@ -172,6 +220,15 @@ fun PrepareRoute(
             if (intent == PrepareIntent.PlateEdited) objectList.onIntent(ObjectListIntent.Refresh)
         },
         onListIntent = objectList::onIntent,
+        tools = ObjectToolsUi(
+            layers = layers,
+            onLayers = layerTool::onIntent,
+            ears = ears,
+            onEars = earsTool::onIntent,
+            emboss = emboss,
+            onEmboss = embossTool::onIntent,
+            onPickSvg = { svgPicker.launch(arrayOf("image/svg+xml", "*/*")) },
+        ),
         measure = measure,
         onMeasureIntent = { intent ->
             measureTool.onIntent(intent)
@@ -209,6 +266,7 @@ fun PrepareScreen(
     onCutIntent: (CutIntent) -> Unit = {},
     measure: MeasureUiState = MeasureUiState(),
     onMeasureIntent: (MeasureIntent) -> Unit = {},
+    tools: ObjectToolsUi = ObjectToolsUi(),
     onPickFile: (VolumeKind) -> Unit = {},
     /** The selected object's settings, or one of its parts' ([volume]) or height ranges' ([range]). */
     onOpenObjectSettings: (volume: Int?, range: Int?) -> Unit = { _, _ -> },
@@ -269,20 +327,28 @@ fun PrepareScreen(
                     measure = measure.request.takeIf { state.meshTool == MeshTool.MEASURE },
                     onMeasurePick = { onMeasureIntent(MeasureIntent.Pick(it)) },
                     onMeasured = { onMeasureIntent(MeasureIntent.Measured(it)) },
+                    brimEars = tools.ears.instance?.takeIf { state.meshTool == MeshTool.BRIM_EARS }?.let {
+                        BrimEarsView(it, tools.ears.ears, tools.ears.selected)
+                    },
+                    onBrimEarTap = { tap -> tools.onEars(BrimEarsIntent.Tap(tap.bedX, tap.bedY, tap.x, tap.y)) },
+                    pickingSurface = state.meshTool == MeshTool.EMBOSS,
+                    onSurfaceTap = { pick -> tools.onEmboss(EmbossIntent.PlaceOn(pick)) },
                     modifier = Modifier.fillMaxSize(),
                 )
                 if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
                     PlateToolbar(state, onIntent, Modifier.align(Alignment.BottomCenter).padding(8.dp))
                 }
-                if ((state.paint != null || state.meshTool == MeshTool.CUT || state.meshTool == MeshTool.MEASURE) && preview == null) {
+                val gestureHint = when {
+                    state.paint != null -> R.string.prepare_paint_gestures
+                    state.meshTool == MeshTool.CUT -> R.string.prepare_cut_gestures
+                    state.meshTool == MeshTool.MEASURE -> R.string.prepare_measure_gestures
+                    state.meshTool == MeshTool.BRIM_EARS -> R.string.prepare_ears_gestures
+                    state.meshTool == MeshTool.EMBOSS -> R.string.prepare_emboss_gestures
+                    else -> null
+                }
+                if (gestureHint != null && preview == null) {
                     Text(
-                        stringResource(
-                            when {
-                                state.paint != null -> R.string.prepare_paint_gestures
-                                state.meshTool == MeshTool.CUT -> R.string.prepare_cut_gestures
-                                else -> R.string.prepare_measure_gestures
-                            },
-                        ),
+                        stringResource(gestureHint),
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
@@ -338,6 +404,28 @@ fun PrepareScreen(
                 PresetBar(state, onIntent, onOpenSettings)
                 if (preview == null && state.meshTool == MeshTool.CUT) {
                     CutPanel(cut, state.selectedObjectName.orEmpty(), onCutIntent)
+                } else if (preview == null && state.meshTool == MeshTool.LAYERS) {
+                    LayerHeightPanel(tools.layers, state.selectedObjectName.orEmpty(), tools.onLayers) {
+                        onIntent(PrepareIntent.CloseMeshTool)
+                    }
+                } else if (preview == null && state.meshTool == MeshTool.BRIM_EARS) {
+                    BrimEarsPanel(tools.ears, state.selectedObjectName.orEmpty(), tools.onEars) {
+                        onIntent(PrepareIntent.CloseMeshTool)
+                    }
+                } else if (preview == null && state.meshTool == MeshTool.EMBOSS) {
+                    EmbossPanel(
+                        state = tools.emboss,
+                        canPlaceOnObject = state.project?.objects?.isNotEmpty() == true,
+                        onIntent = tools.onEmboss,
+                        onPickSvg = tools.onPickSvg,
+                        onAddAsObject = {
+                            val outline = state.bed?.outline
+                            val x = outline?.let { (it.minOf { p -> p.first } + it.maxOf { p -> p.first }) / 2 } ?: 110.0
+                            val y = outline?.let { (it.minOf { p -> p.second } + it.maxOf { p -> p.second }) / 2 } ?: 110.0
+                            tools.onEmboss(EmbossIntent.AddAsObject(x, y))
+                        },
+                        onDone = { onIntent(PrepareIntent.CloseMeshTool) },
+                    )
                 } else if (preview == null && state.meshTool == MeshTool.MEASURE) {
                     MeasurePanel(measure, onMeasureIntent)
                 } else if (preview == null && state.meshTool == MeshTool.SIMPLIFY) {
@@ -716,3 +804,14 @@ private fun HandleModePicker(mode: HandleMode, onMode: (HandleMode) -> Unit, mod
         }
     }
 }
+
+/** The object tools' states and how to change them, for [PrepareScreen]. */
+data class ObjectToolsUi(
+    val layers: LayerHeightUiState = LayerHeightUiState(),
+    val onLayers: (LayerHeightIntent) -> Unit = {},
+    val ears: BrimEarsUiState = BrimEarsUiState(),
+    val onEars: (BrimEarsIntent) -> Unit = {},
+    val emboss: EmbossUiState = EmbossUiState(),
+    val onEmboss: (EmbossIntent) -> Unit = {},
+    val onPickSvg: () -> Unit = {},
+)

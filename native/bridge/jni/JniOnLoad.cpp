@@ -34,7 +34,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
         !orca::jni::register_plate_natives(env, engine_class) ||
         !orca::jni::register_object_natives(env, engine_class) ||
         !orca::jni::register_preview_natives(env, engine_class) ||
-        !orca::jni::register_mesh_natives(env, engine_class)) {
+        !orca::jni::register_mesh_natives(env, engine_class) ||
+        !orca::jni::register_tools_natives(env, engine_class)) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Registering engine natives failed");
         return JNI_ERR;
     }
@@ -46,7 +47,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
         env->ExceptionClear();
     } else if (!orca::jni::register_viewport_natives(env, static_cast<jclass>(viewport.get())) ||
                !orca::jni::register_paint_natives(env, static_cast<jclass>(viewport.get())) ||
-               !orca::jni::register_mesh_view_natives(env, static_cast<jclass>(viewport.get()))) {
+               !orca::jni::register_mesh_view_natives(env, static_cast<jclass>(viewport.get())) ||
+               !orca::jni::register_tools_view_natives(env, static_cast<jclass>(viewport.get()))) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Registering viewport natives failed");
         return JNI_ERR;
     }

@@ -41,9 +41,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.orcamobile.core.engine.EngineLibrary
 import com.orcamobile.core.engine.MeshToolsJson
+import com.orcamobile.core.engine.ObjectToolsJson
 import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.BrimEar
 import com.orcamobile.core.model.CutCheck
 import com.orcamobile.core.model.CutPlanePoint
 import com.orcamobile.core.model.CutRequest
@@ -149,6 +151,16 @@ fun PlateViewport(
     measure: MeasureRequest? = null,
     onMeasurePick: (FeaturePick) -> Unit = {},
     onMeasured: (MeasureOutcome) -> Unit = {},
+    /**
+     * Editing brim ears of [BrimEarsView.instance]: its outline on the bed and the
+     * ears are drawn; a tap reports where it lands, snapped to the outline when
+     * near it ([onBrimEarTap]).
+     */
+    brimEars: BrimEarsView? = null,
+    onBrimEarTap: (BrimEarTap) -> Unit = {},
+    /** Taps report the part surface they land on ([onSurfaceTap]), for placing text. */
+    pickingSurface: Boolean = false,
+    onSurfaceTap: (FeaturePick) -> Unit = {},
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -187,11 +199,18 @@ fun PlateViewport(
     val currentOnSimplifyCounted by rememberUpdatedState(onSimplifyCounted)
     val simplifying = simplify.takeIf { project != null && preview == null && !cutting }
     val measuring = measure.takeIf { project != null && preview == null && !cutting && simplifying == null }
+    val editingEars = brimEars.takeIf { project != null && preview == null && !cutting && simplifying == null && measuring == null }
+    val currentOnBrimEarTap by rememberUpdatedState(onBrimEarTap)
+    val currentOnSurfaceTap by rememberUpdatedState(onSurfaceTap)
+    // The tap handler below outlives these: read them through state.
+    val currentEars by rememberUpdatedState(editingEars)
+    val currentMeasuring by rememberUpdatedState(measuring != null)
+    val surfaceTaps = pickingSurface && project != null && preview == null && !cutting && measuring == null
     val currentOnMeasurePick by rememberUpdatedState(onMeasurePick)
     val currentOnMeasured by rememberUpdatedState(onMeasured)
     // One tool's geometry over the plate at a time. The engine sections or
     // simplifies the object for every change: off the main thread.
-    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, simplifying, measuring, project, projectRevision) {
+    LaunchedEffect(cut.takeIf { cutting }, cutShowsFace, simplifying, measuring, editingEars, project, projectRevision) {
         val request = cut.takeIf { cutting }
         when {
             request != null -> {
@@ -212,6 +231,17 @@ fun PlateViewport(
                 cutCenter = null
                 val outcome = withContext(Dispatchers.Default) { surface.showMeasure(MeshToolsJson.encode(measuring)) }
                 outcome?.let(MeshToolsJson::measureOutcome)?.getOrNull()?.let(currentOnMeasured)
+            }
+            editingEars != null -> {
+                cutCenter = null
+                withContext(Dispatchers.Default) {
+                    surface.showBrimEars(
+                        editingEars.instance.objectIndex,
+                        editingEars.instance.instanceIndex,
+                        ObjectToolsJson.encodeEars(editingEars.ears),
+                        editingEars.selected ?: -1,
+                    )
+                }
             }
             else -> {
                 cutCenter = null
@@ -237,7 +267,7 @@ fun PlateViewport(
             modifier = Modifier.fillMaxSize(),
         )
         // Gestures are read here, above the GL view, so they stay in Compose.
-        if (measuring != null) {
+        if (measuring != null || editingEars != null || surfaceTaps) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -245,7 +275,18 @@ fun PlateViewport(
                         detectTapGestures(
                             onDoubleTap = { surface.fit() },
                             onTap = { position ->
-                                surface.measurePick(position.x, position.y)?.let(MeshToolsJson::featurePick)?.let(currentOnMeasurePick)
+                                val ears = currentEars
+                                when {
+                                    ears != null -> surface.brimEarPoint(
+                                        ears.instance.objectIndex, ears.instance.instanceIndex, position.x, position.y, EAR_SNAP_MM,
+                                    )?.let(ObjectToolsJson::earPoint)?.let { p ->
+                                        currentOnBrimEarTap(BrimEarTap(p.bedX, p.bedY, p.x, p.y))
+                                    }
+                                    currentMeasuring -> surface.measurePick(position.x, position.y)
+                                        ?.let(MeshToolsJson::featurePick)?.let(currentOnMeasurePick)
+                                    else -> surface.measurePick(position.x, position.y)
+                                        ?.let(MeshToolsJson::featurePick)?.let(currentOnSurfaceTap)
+                                }
                             },
                         )
                     }
@@ -378,7 +419,7 @@ fun PlateViewport(
                     },
             )
         }
-        if (editable && selection != null && !painting && !cutting && measuring == null) {
+        if (editable && selection != null && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
@@ -409,6 +450,18 @@ fun PlateViewport(
 }
 
 private val AXIS_NAMES = listOf("X", "Y", "Z")
+
+/** How far from an object's outline a tap still places a brim ear on it, mm. */
+private const val EAR_SNAP_MM = 8f
+
+/** Brim ears shown on the plate for an instance; [selected] is highlighted. */
+data class BrimEarsView(val instance: InstanceRef, val ears: List<BrimEar>, val selected: Int? = null)
+
+/**
+ * A tap while editing brim ears: where it lands on the bed ([bedX], [bedY]) and
+ * the nearest point of the object's outline ([x], [y]) when it is near it.
+ */
+data class BrimEarTap(val bedX: Double, val bedY: Double, val x: Double?, val y: Double?)
 
 /** The desktop's axis colours: X red, Y green, Z blue. */
 private val AXIS_COLORS = listOf(Color(0xFFE53935), Color(0xFF43A047), Color(0xFF1E88E5))

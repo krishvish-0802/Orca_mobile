@@ -6,12 +6,14 @@ import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.MeshEditor
 import com.orcamobile.core.domain.project.ObjectEditor
+import com.orcamobile.core.domain.project.ObjectTools
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.engine.NativeConfigOptionCatalog
 import com.orcamobile.core.engine.NativeGCodePreviewRepository
 import com.orcamobile.core.engine.NativeMeshEditor
 import com.orcamobile.core.engine.NativeObjectEditor
+import com.orcamobile.core.engine.NativeObjectTools
 import com.orcamobile.core.engine.NativePlateEditor
 import com.orcamobile.core.engine.NativePresetCatalog
 import com.orcamobile.core.engine.NativeProjectRepository
@@ -41,6 +43,9 @@ internal interface EngineModule {
 
     @Binds
     fun meshEditor(impl: NativeMeshEditor): MeshEditor
+
+    @Binds
+    fun objectTools(impl: NativeObjectTools): ObjectTools
 
     @Binds
     fun configOptions(impl: NativeConfigOptionCatalog): ConfigOptionCatalog

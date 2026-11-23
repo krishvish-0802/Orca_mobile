@@ -10,6 +10,8 @@ import com.orcamobile.core.data.ContentModelImportRepository
 import com.orcamobile.core.data.DataStorePrintSettingsRepository
 import com.orcamobile.core.data.DataStoreUserSettingsRepository
 import com.orcamobile.core.data.FileWorkspaceRepository
+import com.orcamobile.core.data.SystemFontRepository
+import com.orcamobile.core.domain.model.FontRepository
 import com.orcamobile.core.domain.model.ModelImportRepository
 import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.UserSettingsRepository
@@ -40,6 +42,9 @@ internal interface DataModule {
 
     @Binds
     fun printSettings(impl: DataStorePrintSettingsRepository): PrintSettingsRepository
+
+    @Binds
+    fun fonts(impl: SystemFontRepository): FontRepository
 }
 
 @Module

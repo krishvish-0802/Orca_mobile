@@ -62,6 +62,20 @@ internal object NativeViewport {
     /** Shows what simplifying would leave as a wireframe; `{"before","after"}` or `{"error"}`. */
     @JvmStatic external fun nativeSimplifyShow(handle: Long, projectHandle: Long, objectIndex: Int, requestJson: String): String
 
+    /** Shows an object's outline on the bed and brim ears (`[[x,y,r]]`), [selected] (or -1) highlighted. */
+    @JvmStatic external fun nativeBrimEarsShow(handle: Long, projectHandle: Long, objectIndex: Int, instanceIndex: Int, earsJson: String, selected: Int)
+
+    /** A screen point on the bed, snapped to the object's outline within [maxDistance] mm: `{"x","y","bedX","bedY"}`. */
+    @JvmStatic external fun nativeBrimEarPoint(
+        handle: Long,
+        projectHandle: Long,
+        objectIndex: Int,
+        instanceIndex: Int,
+        x: Float,
+        y: Float,
+        maxDistance: Float,
+    ): String
+
     /** The part surface under a screen point as a feature pick, or `{}`. */
     @JvmStatic external fun nativeMeasurePick(handle: Long, x: Float, y: Float): String
 

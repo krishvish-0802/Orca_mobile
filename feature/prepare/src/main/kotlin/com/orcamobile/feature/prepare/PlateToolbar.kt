@@ -93,12 +93,21 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
             ToolButton(OrcaIcons.Measure, stringResource(R.string.prepare_tool_measure), enabled) {
                 onIntent(PrepareIntent.OpenMeshTool(MeshTool.MEASURE))
             }
+            ToolButton(OrcaIcons.Text, stringResource(R.string.prepare_tool_text), enabled) {
+                onIntent(PrepareIntent.OpenMeshTool(MeshTool.EMBOSS))
+            }
             if (selected) {
                 ToolButton(OrcaIcons.Paint, stringResource(R.string.prepare_tool_paint), enabled) {
                     onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SUPPORTS))
                 }
                 ToolButton(OrcaIcons.Cut, stringResource(R.string.prepare_tool_cut), enabled) {
                     onIntent(PrepareIntent.OpenMeshTool(MeshTool.CUT))
+                }
+                ToolButton(OrcaIcons.Layers, stringResource(R.string.prepare_tool_layers), enabled) {
+                    onIntent(PrepareIntent.OpenMeshTool(MeshTool.LAYERS))
+                }
+                ToolButton(OrcaIcons.BrimEars, stringResource(R.string.prepare_tool_brim_ears), enabled) {
+                    onIntent(PrepareIntent.OpenMeshTool(MeshTool.BRIM_EARS))
                 }
                 ToolButton(OrcaIcons.Copies, stringResource(R.string.prepare_tool_copies), enabled) {
                     sheet = PlateSheet.COPIES

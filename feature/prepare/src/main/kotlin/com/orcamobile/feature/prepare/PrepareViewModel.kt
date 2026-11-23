@@ -144,7 +144,7 @@ class PrepareViewModel @Inject constructor(
                 }
             }
             is PrepareIntent.OpenMeshTool -> _state.update {
-                if ((it.selection != null || intent.tool == MeshTool.MEASURE) && it.plateEditable) {
+                if ((it.selection != null || intent.tool == MeshTool.MEASURE || intent.tool == MeshTool.EMBOSS) && it.plateEditable) {
                     it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null)
                 } else {
                     it

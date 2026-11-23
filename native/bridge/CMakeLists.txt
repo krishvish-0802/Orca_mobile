@@ -1,16 +1,19 @@
 # orca_engine: the narrow C++ facade the app talks to. Everything above it
 # (JNI, Kotlin) sees only these headers; libslic3r types never cross it.
 add_library(orca_engine_core STATIC
+    src/BrimEars.cpp
     src/ConfigBuilder.cpp
     src/ConfigBuilder.hpp
     src/ConfigOptions.cpp
     src/ConfigValues.hpp
     src/CutTool.cpp
+    src/EmbossTool.cpp
     src/EngineInfo.cpp
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp
     src/SliceJob.cpp
     src/JsonCodec.cpp
+    src/LayerHeights.cpp
     src/MeasureTool.cpp
     src/MeshEdits.cpp
     src/MeshToolsCommon.hpp
@@ -43,6 +46,7 @@ if (ANDROID)
         jni/JniRegistry.hpp
         jni/JniUtils.hpp
         jni/MeshJni.cpp
+        jni/ToolsJni.cpp
         jni/ObjectJni.cpp
         jni/PaintJni.cpp
         jni/PlateJni.cpp

@@ -147,7 +147,7 @@ object MeshToolsJson {
         putJsonArray("xyz") { xyz.take(3).forEach { add(JsonPrimitive(it)) } }
     }.toString()
 
-    private fun pick(p: FeaturePick): JsonObject = buildJsonObject {
+    fun pick(p: FeaturePick): JsonObject = buildJsonObject {
         put("object", p.objectIndex)
         put("instance", p.instanceIndex)
         put("volume", p.volume)

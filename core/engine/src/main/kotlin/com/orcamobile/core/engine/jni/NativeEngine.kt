@@ -86,6 +86,27 @@ internal object NativeEngine {
     /** One assembly step (MeshToolsJson.encodeAssemble): `{"placed":0,"objects":[..]}` or `{"error"}`. */
     @JvmStatic external fun nativeAssemble(handle: Long, requestJson: String): String
 
+    // Object tools (native/bridge/jni/ToolsJni.cpp); see ObjectToolsJson.
+
+    /** Variable layer height: applies an action (ObjectToolsJson.encode) and returns the profile, or `{"error"}`. */
+    @JvmStatic external fun nativeLayerProfile(
+        handle: Long,
+        objectIndex: Int,
+        presetSelectionJson: String,
+        overrideKeys: Array<String>,
+        overrideValues: Array<String>,
+        actionJson: String,
+    ): String
+
+    /** Brim ears: get, set or find (ObjectToolsJson.encodeEarsRequest); `{"ears":[[x,y,r]]}` or `{"error"}`. */
+    @JvmStatic external fun nativeBrimEars(handle: Long, objectIndex: Int, instanceIndex: Int, requestJson: String): String
+
+    /** An emboss source's size: `{"width","height"}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossSize(sourceJson: String): String
+
+    /** Embosses onto a surface or as a new object: `{"placed","objects"}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmboss(handle: Long, requestJson: String): String
+
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
     @JvmStatic external fun nativeProjectRemove(handle: Long, objectIndex: Int, instanceIndex: Int): String
 

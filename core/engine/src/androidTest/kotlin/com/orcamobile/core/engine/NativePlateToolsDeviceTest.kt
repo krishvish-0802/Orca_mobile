@@ -6,6 +6,13 @@ import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.engine.jni.NativeProgressListener
 import com.orcamobile.core.engine.resources.EngineResources
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.BrimEar
+import com.orcamobile.core.model.EmbossSource
+import com.orcamobile.core.model.LayerBrush
+import com.orcamobile.core.model.LayerProfileAction
+import com.orcamobile.core.model.PlateConfig
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import com.orcamobile.core.model.Axes
 import com.orcamobile.core.model.BooleanOperation
 import com.orcamobile.core.model.ObjectEdit
@@ -380,6 +387,89 @@ class NativePlateToolsDeviceTest {
         assertTrue(!measure(leftEast, leftTop).assembly.differentParts)
         val gcode = File(work, "assembled.gcode")
         assertTrue(NativeEngine.nativeSliceProject(handle, gcode.path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\""))
+    }
+
+    @Test
+    fun variableLayerHeightsBrimEarsAndEmboss() {
+        load(box("cube", 20f, 20f, 20f))
+        val config = PlateConfig(null, keys.zip(values).toMap())
+        fun profile(action: LayerProfileAction) = ObjectToolsJson.layerProfile(
+            NativeEngine.nativeLayerProfile(
+                handle, 0, "", config.overrides.keys.toTypedArray(), config.overrides.values.toTypedArray(), ObjectToolsJson.encode(action),
+            ),
+        ).getOrThrow()
+        fun slices(name: String) =
+            NativeEngine.nativeSliceProject(handle, File(work, "$name.gcode").path, "", keys, values, Quiet, 0L).contains("\"status\":\"succeeded\"")
+
+        // 0.2 mm layers: 100 of them, and no profile of its own.
+        val uniform = profile(LayerProfileAction.Get)
+        assertEquals(100, uniform.layerCount)
+        assertTrue(!uniform.custom)
+        // Thinner layers around 10 mm make more of them.
+        var brushed = uniform
+        repeat(10) { brushed = profile(LayerProfileAction.Brush(10.0, 0.05, 4.0, LayerBrush.DECREASE)) }
+        assertTrue(brushed.custom)
+        assertTrue("${brushed.layerCount}", brushed.layerCount > uniform.layerCount)
+        assertTrue(profile(LayerProfileAction.Smooth(5, false)).custom)
+        assertTrue(slices("brushed"))
+        assertEquals(100, profile(LayerProfileAction.Reset).layerCount)
+
+        // Brim ears: one placed, the corners found, kept on the object.
+        val at = InstanceRef(0, 0)
+        fun ears(request: String) = ObjectToolsJson.ears(NativeEngine.nativeBrimEars(handle, 0, 0, request)).getOrThrow()
+        val found = ears(ObjectToolsJson.encodeEarsRequest("find", maxAngle = 125.0, detection = 1.0, radius = 4.0))
+        assertEquals(4, found.size)
+        val kept = ears(ObjectToolsJson.encodeEarsRequest("set", found + BrimEar(110.0, 100.0, 3.0)))
+        assertEquals(5, kept.size)
+        assertEquals(110.0, kept.last().x, 0.01)
+        assertEquals(5, ears(ObjectToolsJson.encodeEarsRequest("get")).size)
+        EngineJson.objectUpdate(NativeEngine.nativeObjectEdit(handle, 0, """{"set":{"key":"brim_type","value":"painted"}}""")).getOrThrow()
+        assertTrue(slices("ears"))
+
+        // Text on the cube's top, raised; then as an object of its own; then an SVG.
+        val font = listOf("/system/fonts/Roboto-Regular.ttf", "/system/fonts/DroidSans.ttf")
+            .firstOrNull { File(it).canRead() } ?: File("/system/fonts").listFiles()!!.first { it.extension == "ttf" }.path
+        val text = EmbossSource(text = "Orca", fontPath = font, letterHeightMm = 6.0, depthMm = 1.0)
+        val size = ObjectToolsJson.embossSize(NativeEngine.nativeEmbossSize(ObjectToolsJson.source(text).toString())).getOrThrow()
+        assertTrue("$size", size.first > 10 && size.second in 3.0..8.0)
+        // The cube's top: its triangles 2 and 3 face up (see box()).
+        val top = FeaturePick(0, 0, 0, 2, listOf(0.0, 0.0, 10.0))
+        val onTop = EngineJson.plateUpdate(
+            NativeEngine.nativeEmboss(
+                handle,
+                buildJsonObject {
+                    put("source", ObjectToolsJson.source(text))
+                    put("pick", MeshToolsJson.pick(top))
+                    put("kind", 0)
+                }.toString(),
+            ),
+        ).getOrThrow()
+        assertEquals(1, onTop.placed)
+        assertEquals(21.0, onTop.objects.single().sizeMm[2], 0.1)
+        val svg = File(work, "star.svg").apply {
+            writeText(
+                """<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="20mm" viewBox="0 0 20 20">""" +
+                    """<path d="M10 0 L13 7 L20 7 L14 12 L16 20 L10 15 L4 20 L6 12 L0 7 L7 7 Z" fill="black"/></svg>""",
+            )
+        }
+        for (source in listOf(text, EmbossSource(svgPath = svg.path, svgWidthMm = 30.0, depthMm = 2.0))) {
+            EngineJson.plateUpdate(
+                NativeEngine.nativeEmboss(
+                    handle,
+                    buildJsonObject {
+                        put("source", ObjectToolsJson.source(source))
+                        put("x", 160.0)
+                        put("y", 160.0)
+                    }.toString(),
+                ),
+            ).getOrThrow()
+        }
+        val objects = EngineJson.projectObjects(NativeEngine.nativeProjectObjects(handle)).getOrThrow()
+        assertEquals(3, objects.size)
+        assertEquals(30.0, objects[2].sizeMm[0], 0.2)
+        assertEquals(2.0, objects[2].sizeMm[2], 0.05)
+        EngineJson.plateUpdate(NativeEngine.nativePlateArrange(handle, "", keys, values, options)).getOrThrow()
+        assertTrue(slices("embossed"))
     }
 
     /** Two 10 mm cubes 20 mm apart in one STL. */
