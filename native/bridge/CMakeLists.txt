@@ -4,12 +4,12 @@ add_library(orca_engine_core STATIC
     src/BrimEars.cpp
     src/ConfigBuilder.cpp
     src/ConfigBuilder.hpp
-    src/Filaments.cpp
-    src/Filaments.hpp
     src/ConfigOptions.cpp
     src/ConfigValues.hpp
     src/CutTool.cpp
     src/EmbossTool.cpp
+    src/Filaments.cpp
+    src/Filaments.hpp
     src/EngineInfo.cpp
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp
@@ -29,6 +29,8 @@ add_library(orca_engine_core STATIC
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
     src/Project.cpp
+    # Upstream GUI helpers libslic3r calls, without their wx includes.
+    "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/ColorSpaceConvert.cpp"
 )
 target_include_directories(orca_engine_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
