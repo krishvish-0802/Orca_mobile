@@ -459,4 +459,6 @@
         <item quantity="one">%d object selected · long-press another to add it</item>
         <item quantity="other">%d objects selected · drag to move them, twist to turn them, long-press one to add or remove it</item>
     </plurals>
+    <string name="prepare_undo">Undo (two-finger tap)</string>
+    <string name="prepare_redo">Redo (three-finger tap)</string>
 </resources>

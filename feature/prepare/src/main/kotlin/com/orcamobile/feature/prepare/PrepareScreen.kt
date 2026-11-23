@@ -1,5 +1,7 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.designsystem.icon.OrcaIcons
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -306,6 +308,8 @@ fun PrepareScreen(
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
                     group = state.group,
                     onSelectionToggle = { onIntent(PrepareIntent.ToggleSelected(it)) },
+                    onTwoFingerTap = { onIntent(PrepareIntent.Undo) },
+                    onThreeFingerTap = { onIntent(PrepareIntent.Redo) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
                     locked = state.plateTask != null || state.meshTool == MeshTool.SIMPLIFY,
@@ -379,6 +383,19 @@ fun PrepareScreen(
                         onMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                     )
+                }
+                if (state.project != null && preview == null && state.paint == null && state.meshTool == null) {
+                    Row(
+                        Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FilledTonalIconButton(onClick = { onIntent(PrepareIntent.Undo) }, enabled = state.canUndo && state.historyUsable) {
+                            Icon(OrcaIcons.Undo, contentDescription = stringResource(R.string.prepare_undo))
+                        }
+                        FilledTonalIconButton(onClick = { onIntent(PrepareIntent.Redo) }, enabled = state.canRedo && state.historyUsable) {
+                            Icon(OrcaIcons.Redo, contentDescription = stringResource(R.string.prepare_redo))
+                        }
+                    }
                 }
                 PlateStatus(
                     state,

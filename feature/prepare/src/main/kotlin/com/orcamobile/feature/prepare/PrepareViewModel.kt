@@ -14,6 +14,8 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.HistoryAction
+import com.orcamobile.core.model.HistoryState
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
@@ -152,7 +154,10 @@ class PrepareViewModel @Inject constructor(
             PrepareIntent.PlateEdited -> {
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
+            PrepareIntent.Undo -> stepHistory(HistoryAction.UNDO)
+            PrepareIntent.Redo -> stepHistory(HistoryAction.REDO)
             is PrepareIntent.EditTransform -> editTransform(intent.edit)
             is PrepareIntent.SetUniformScale -> _state.update { it.copy(uniformScale = intent.uniform) }
             is PrepareIntent.SetHandleMode -> _state.update { it.copy(handleMode = intent.mode) }
@@ -173,21 +178,25 @@ class PrepareViewModel @Inject constructor(
             PrepareIntent.Painted -> {
                 dropStaleResult()
                 towerInputs.update { it + 1 }
+                recordHistory()
             }
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
             PrepareIntent.ObjectSettingsChanged -> {
                 dropStaleResult()
                 towerInputs.update { it + 1 }
+                recordHistory()
             }
             is PrepareIntent.LaidOnFace -> {
                 _state.update { it.copy(selection = intent.instance, layingOnFace = false) }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
             PrepareIntent.Arrange -> runPlateTool(PlateTask.ARRANGE) { project, presets ->
                 plateTools.arrange(project, presets, _state.value.arrangeOptions)
@@ -263,6 +272,7 @@ class PrepareViewModel @Inject constructor(
                 }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
@@ -303,6 +313,8 @@ class PrepareViewModel @Inject constructor(
                 _state.update { it.copy(loading = false, project = project) }
                 // A desktop 3MF brings its plates.
                 plateTools.plates(project.id).onSuccess(::showPlates)
+                // The first step of the history: as opened.
+                projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory)
             },
             { error -> _state.update { it.copy(loading = false, error = error.message ?: "Could not open the model") } },
         )
@@ -378,6 +390,7 @@ class PrepareViewModel @Inject constructor(
                 }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }.onFailure { error ->
                 _state.update {
                     it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName))
@@ -417,6 +430,7 @@ class PrepareViewModel @Inject constructor(
                     )
                 }
                 dropStaleResult()
+                recordHistory()
             }.onFailure { error ->
                 _state.update { it.copy(plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
                 loadTransform()
@@ -517,6 +531,49 @@ class PrepareViewModel @Inject constructor(
         }
     }
 
+    // --- undo and redo ------------------------------------------------------
+
+    /** Keeps the project as it is now as a step to come back to. */
+    private fun recordHistory() {
+        val project = _state.value.project ?: return
+        viewModelScope.launch { projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory) }
+    }
+
+    private fun showHistory(history: HistoryState) {
+        _state.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
+    }
+
+    /** Back or forward a step: the plate shows the project as it was then; every slice is stale. */
+    private fun stepHistory(action: HistoryAction) {
+        val start = _state.value
+        val project = start.project ?: return
+        if (!start.historyUsable || (action == HistoryAction.UNDO && !start.canUndo) || (action == HistoryAction.REDO && !start.canRedo)) return
+        _state.update { it.copy(plateTask = PlateTask.PLATES, plateNotice = null) }
+        viewModelScope.launch {
+            projects.history(project.id, action).onSuccess { history ->
+                showHistory(history)
+                if (history.changed) {
+                    _state.update {
+                        it.copy(
+                            project = it.project?.copy(objects = history.objects),
+                            selection = null,
+                            group = emptyList(),
+                            plateRevision = it.plateRevision + 1,
+                        )
+                    }
+                    plateTools.plates(project.id).onSuccess(::showPlates)
+                    _state.update { it.copy(plateTask = null) }
+                    dropAllResults()
+                    loadTransform()
+                    towerInputs.update { it + 1 }
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
+            }
+            _state.update { it.copy(plateTask = null) }
+        }
+    }
+
     // --- prime tower --------------------------------------------------------
 
     /**
@@ -550,6 +607,7 @@ class PrepareViewModel @Inject constructor(
             _state.value.project?.let { projects.filamentsChanged(it.id, slot, count - 1) }
             picker.removeFilament(slot)
             _state.update { it.copy(plateRevision = it.plateRevision + 1) }
+            recordHistory()
         }
     }
 
@@ -591,6 +649,8 @@ class PrepareViewModel @Inject constructor(
         thenSelect: InstanceRef? = null,
         shiftResults: ((Int) -> Int?)? = null,
         notice: PlateNotice? = null,
+        /** The change is one to undo (not just showing another plate). */
+        remember: Boolean = true,
         change: suspend (ProjectId) -> Plates,
     ) {
         val start = _state.value
@@ -617,6 +677,7 @@ class PrepareViewModel @Inject constructor(
                     )
                 }
                 loadTransform()
+                if (remember) recordHistory()
             }.onFailure { error ->
                 _state.update { it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
             }
@@ -625,7 +686,7 @@ class PrepareViewModel @Inject constructor(
 
     private fun selectPlate(plate: Int, thenSelect: InstanceRef? = null) {
         if (plate == _state.value.currentPlate && thenSelect == null) return
-        changePlates(thenSelect = thenSelect) { plateTools.plates(it, PlateAction.Select(plate)).getOrThrow() }
+        changePlates(thenSelect = thenSelect, remember = false) { plateTools.plates(it, PlateAction.Select(plate)).getOrThrow() }
     }
 
     private fun removePlate(plate: Int) {

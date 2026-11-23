@@ -81,6 +81,21 @@ class PrepareViewModelTest {
 
     private class FakeProjects(private val result: Result<ProjectSummary>) : ProjectRepository {
         val centers = mutableListOf<Pair<Double, Double>>()
+        val history = mutableListOf<com.orcamobile.core.model.HistoryAction>()
+        private var steps = 0
+        private var at = -1
+
+        override suspend fun history(id: ProjectId, action: com.orcamobile.core.model.HistoryAction): Result<com.orcamobile.core.model.HistoryState> {
+            history += action
+            val changed = when (action) {
+                com.orcamobile.core.model.HistoryAction.RECORD -> { at += 1; steps = at + 1; false }
+                com.orcamobile.core.model.HistoryAction.UNDO -> (at > 0).also { if (it) at -= 1 }
+                com.orcamobile.core.model.HistoryAction.REDO -> (at < steps - 1).also { if (it) at += 1 }
+            }
+            return Result.success(
+                com.orcamobile.core.model.HistoryState(result.getOrThrow().objects, changed, canUndo = at > 0, canRedo = at < steps - 1),
+            )
+        }
         override suspend fun load(path: String) = result
         override suspend fun centerOn(id: ProjectId, x: Double, y: Double) { centers += x to y }
         override fun release(id: ProjectId) = Unit
@@ -808,5 +823,29 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 1)))
         vm.onIntent(PrepareIntent.Select(InstanceRef(0, 2)))
         assertEquals(emptyList(), vm.state.value.group)
+    }
+
+    @Test
+    fun `changes can be undone and redone`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        assertEquals(listOf(com.orcamobile.core.model.HistoryAction.RECORD), projects.history)
+        assertFalse(vm.state.value.canUndo)
+
+        vm.onIntent(PrepareIntent.Arrange)
+        assertTrue(vm.state.value.canUndo)
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        val revision = vm.state.value.plateRevision
+
+        vm.onIntent(PrepareIntent.Undo)
+        assertFalse(vm.state.value.canUndo)
+        assertTrue(vm.state.value.canRedo)
+        assertNull(vm.state.value.selection)
+        assertTrue(vm.state.value.plateRevision > revision)
+
+        vm.onIntent(PrepareIntent.Redo)
+        assertTrue(vm.state.value.canUndo)
+        assertFalse(vm.state.value.canRedo)
+        assertNull(vm.state.value.plateTask)
     }
 }

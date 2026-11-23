@@ -1,5 +1,7 @@
 package com.orcamobile.core.domain.project
 
+import com.orcamobile.core.model.HistoryAction
+import com.orcamobile.core.model.HistoryState
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ProjectSummary
 
@@ -16,6 +18,14 @@ interface ProjectRepository {
      * that is gone fall back to the first; later ones move down.
      */
     suspend fun filamentsChanged(id: ProjectId, removed: Int?, count: Int) = Unit
+
+    /**
+     * The project's undo history: [HistoryAction.RECORD] keeps it as it is now
+     * (after each change, and once when opened), UNDO goes back a step and REDO
+     * forward. Steps cover its objects, parts, paint, object settings and plates.
+     */
+    suspend fun history(id: ProjectId, action: HistoryAction): Result<HistoryState> =
+        Result.success(HistoryState(emptyList(), changed = false, canUndo = false, canRedo = false))
 
     fun release(id: ProjectId)
 }

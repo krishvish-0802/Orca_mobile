@@ -83,7 +83,15 @@ data class PrepareUiState(
     val wipeTower: WipeTower? = null,
     /** A text or SVG to open in the Text tool for editing (from the Parts tab). */
     val textToEdit: EmbossTarget? = null,
+    /** The project's undo history has a step back, or forward. */
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
 ) {
+    /** Undo and redo while nothing else holds the plate. */
+    val historyUsable: Boolean
+        get() = plateEditable && meshTool == null
+
+
     /** Another plate may be shown: not while a tool, a slice or painting holds this one. */
     val canSwitchPlate: Boolean
         get() = project != null && !loading && plateTask == null && slice !is SliceUiState.Running &&
@@ -232,6 +240,12 @@ sealed interface PrepareIntent {
     data object Slice : PrepareIntent
 
     data class Select(val instance: InstanceRef?) : PrepareIntent
+
+    /** Goes back a step in the project's history (a two-finger tap). */
+    data object Undo : PrepareIntent
+
+    /** Goes forward a step again (a three-finger tap). */
+    data object Redo : PrepareIntent
 
     /** Adds [instance] to the selection, or takes it out (a long press). */
     data class ToggleSelected(val instance: InstanceRef) : PrepareIntent

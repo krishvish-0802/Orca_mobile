@@ -40,3 +40,14 @@ data class BedShape(
             return (xs.min() + xs.max()) / 2 to (ys.min() + ys.max()) / 2
         }
 }
+
+/** A step of the project's undo history: record the project as it is, go back, or go forward again. */
+enum class HistoryAction(val nativeValue: Int) { RECORD(0), UNDO(1), REDO(2) }
+
+/** The project after a history step: its objects, whether the step changed it, and what can come next. */
+data class HistoryState(
+    val objects: List<ModelObjectInfo>,
+    val changed: Boolean,
+    val canUndo: Boolean,
+    val canRedo: Boolean,
+)

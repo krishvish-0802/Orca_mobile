@@ -190,6 +190,28 @@ object OrcaIcons {
         }
     }
 
+    /** Undo: an arrow turning back to the left. */
+    val Undo: ImageVector by lazy { icon("Undo") { turnArrow(mirror = false) } }
+
+    /** Redo: an arrow turning on to the right. */
+    val Redo: ImageVector by lazy { icon("Redo") { turnArrow(mirror = true) } }
+
+    private fun PathBuilder.turnArrow(mirror: Boolean) {
+        fun x(v: Float) = if (mirror) 24f - v else v
+        moveTo(x(10f), 4f)
+        lineTo(x(3f), 9.5f)
+        lineTo(x(10f), 15f)
+        verticalLineTo(12f)
+        horizontalLineTo(x(15f))
+        arcTo(3.5f, 3.5f, 0f, isMoreThanHalf = false, isPositiveArc = !mirror, x1 = x(15f), y1 = 19f)
+        horizontalLineTo(x(11f))
+        verticalLineTo(21.5f)
+        horizontalLineTo(x(15f))
+        arcTo(5.75f, 5.75f, 0f, isMoreThanHalf = false, isPositiveArc = mirror, x1 = x(15f), y1 = 10f)
+        horizontalLineTo(x(10f))
+        close()
+    }
+
     /** Align: blocks of different widths against a line on their left. */
     val Align: ImageVector by lazy {
         icon("Align") {

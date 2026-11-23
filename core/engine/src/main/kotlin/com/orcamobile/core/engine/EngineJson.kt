@@ -8,6 +8,7 @@ import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.HistoryState
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ModelObjectInfo
@@ -223,6 +224,11 @@ internal object EngineJson {
         },
     )
 
+    fun history(payload: String): Result<HistoryState> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(HistoryDto.serializer(), element)
+        HistoryState(dto.objects.map { it.toModel() }, dto.changed, dto.canUndo, dto.canRedo)
+    }
+
     fun wipeTower(payload: String): Result<WipeTower?> = decodeOrError(payload) { element ->
         val dto = json.decodeFromJsonElement(WipeTowerDto.serializer(), element)
         if (dto.width == null || dto.depth == null) {
@@ -372,6 +378,14 @@ internal object EngineJson {
 
     @Serializable
     private data class PlateDto(val name: String = "", val settings: Map<String, String> = emptyMap(), val instances: Int = 0)
+
+    @Serializable
+    private data class HistoryDto(
+        val objects: List<ObjectDto>,
+        val changed: Boolean = false,
+        val canUndo: Boolean = false,
+        val canRedo: Boolean = false,
+    )
 
     @Serializable
     private data class WipeTowerDto(

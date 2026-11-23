@@ -259,6 +259,19 @@ public:
     void remove_filament(std::size_t filament, std::size_t count);
     void limit_filaments(std::size_t count);
 
+    // --- Undo and redo ---
+    // record_history() keeps the project as it is now as the latest step (after
+    // a change, and once after loading); undo() goes back a step and redo()
+    // forward again, both returning false when there is none. A change recorded
+    // after an undo drops the steps that were ahead of it. At most
+    // `kHistorySteps` are kept.
+    static constexpr std::size_t kHistorySteps = 30;
+    void record_history();
+    bool undo();
+    bool redo();
+    bool can_undo() const;
+    bool can_redo() const;
+
     // --- Plates (the desktop's PartPlateList) ---
     // Every plate shares the bed's coordinates; the plate view shows the current
     // one, and plate tools and slicing work on it. Throw std::out_of_range for a

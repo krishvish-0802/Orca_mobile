@@ -50,6 +50,31 @@ void native_project_center_on(JNIEnv*, jclass, jlong handle, jdouble x, jdouble 
         project->center_on(x, y);
 }
 
+// Undo and redo: `action` 0 records the project as it is now, 1 undoes, 2 redoes.
+// Returns {"changed", "canUndo", "canRedo", "objects":[..]} or {"error"}.
+jstring native_project_history(JNIEnv* env, jclass, jlong handle, jint action)
+{
+    auto* project = from_handle<orca::engine::Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, orca::engine::json::error_json("The project is no longer loaded"));
+    try {
+        bool changed = false;
+        if (action == 0)
+            project->record_history();
+        else if (action == 1)
+            changed = project->undo();
+        else if (action == 2)
+            changed = project->redo();
+        nlohmann::json out = nlohmann::json::parse(orca::engine::json::to_json(project->objects()));
+        out["changed"] = changed;
+        out["canUndo"] = project->can_undo();
+        out["canRedo"] = project->can_redo();
+        return to_jstring(env, out.dump());
+    } catch (const std::exception& e) {
+        return to_jstring(env, orca::engine::json::error_json(e.what()));
+    }
+}
+
 // The filaments changed: `removed` (0-based, or -1) was taken away and `count`
 // are left.
 void native_project_filaments(JNIEnv*, jclass, jlong handle, jint removed, jint count)
@@ -113,6 +138,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeProjectCenterOn", "(JDD)V", reinterpret_cast<void*>(native_project_center_on)},
     {"nativeProjectRelease", "(J)V", reinterpret_cast<void*>(native_project_release)},
     {"nativeProjectFilaments", "(JII)V", reinterpret_cast<void*>(native_project_filaments)},
+    {"nativeProjectHistory", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_project_history)},
     {"nativeInstanceTransform", "(JIILjava/lang/String;)Ljava/lang/String;",
      reinterpret_cast<void*>(native_instance_transform)},
 };

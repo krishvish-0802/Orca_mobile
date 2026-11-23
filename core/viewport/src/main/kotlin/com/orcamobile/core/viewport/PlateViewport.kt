@@ -111,6 +111,9 @@ fun PlateViewport(
      */
     group: List<InstanceRef> = emptyList(),
     onSelectionToggle: (InstanceRef) -> Unit = {},
+    /** A quick tap with two fingers (undo) or three (redo), as the desktop's shortcuts. */
+    onTwoFingerTap: () -> Unit = {},
+    onThreeFingerTap: () -> Unit = {},
     onPlateEdited: () -> Unit = {},
     /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
     projectRevision: Int = 0,
@@ -211,6 +214,8 @@ fun PlateViewport(
     val currentEditable by rememberUpdatedState(editable)
     val currentSelection by rememberUpdatedState(selection)
     val currentGroup by rememberUpdatedState(group)
+    val currentOnTwoFingerTap by rememberUpdatedState(onTwoFingerTap)
+    val currentOnThreeFingerTap by rememberUpdatedState(onThreeFingerTap)
     val currentOnSelectionToggle by rememberUpdatedState(onSelectionToggle)
     val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)
     val currentOnPlateEdited by rememberUpdatedState(onPlateEdited)
@@ -502,6 +507,12 @@ fun PlateViewport(
                                     currentOnPlateEdited()
                                 }
                             },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
                         )
                     },
             )
@@ -675,17 +686,23 @@ private suspend fun PointerInputScope.plateGestures(
     onPan: (Offset) -> Unit,
     onZoom: (Float, Offset) -> Unit,
     onEdited: () -> Unit,
+    /** A quick tap of two or more fingers that hardly moved: how many. */
+    onFingerTap: (Int) -> Unit = {},
 ) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         val dragging = grabsSelection(down.position)
         var edited = false
         var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
             // Lifting fingers mid-gesture must not turn a pinch into an orbit or a drag.
             fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
             when {
                 pressed.size == 1 && fingers == 1 -> {
                     val change = pressed[0]
@@ -711,8 +728,14 @@ private suspend fun PointerInputScope.plateGestures(
             }
         } while (event.changes.any { it.pressed })
         if (edited) onEdited()
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (!edited && fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
     }
 }
+
+/** How long and how far (per finger) a multi-finger tap may last and move. */
+private const val FINGER_TAP_MILLIS = 300L
+private const val FINGER_TAP_TRAVEL_DP = 12f
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)

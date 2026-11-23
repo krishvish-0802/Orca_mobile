@@ -40,6 +40,9 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectObjects(handle: Long): String
 
+    /** Undo history: [action] 0 records, 1 undoes, 2 redoes; `{"changed","canUndo","canRedo","objects"}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectHistory(handle: Long, action: Int): String
+
     /** The filaments changed: [removed] (0-based, or -1) was taken away and [count] are left. */
     @JvmStatic external fun nativeProjectFilaments(handle: Long, removed: Int, count: Int)
 

@@ -27,6 +27,7 @@ add_library(orca_engine_core STATIC
     src/ProjectImpl.hpp
     src/ProjectObjects.cpp
     src/ProjectFilaments.cpp
+    src/ProjectHistory.cpp
     src/ProjectPlates.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
