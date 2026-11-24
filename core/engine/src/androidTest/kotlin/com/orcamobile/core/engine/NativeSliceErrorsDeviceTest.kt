@@ -17,9 +17,9 @@ import kotlin.math.cos
 import kotlin.math.sin
 
 /**
- * A cube tipped onto an edge, as turning it on the plate leaves it: without
- * supports its first layer is empty, and the slice says so (not just "Errors");
- * with supports it slices.
+ * A cube turned onto a corner, as turning it about two axes on the plate leaves
+ * it: without supports its first layer is empty, and the slice says so (not
+ * just "Errors"); with supports it slices.
  */
 @RunWith(AndroidJUnit4::class)
 class NativeSliceErrorsDeviceTest {
@@ -74,16 +74,20 @@ class NativeSliceErrorsDeviceTest {
         override fun onProgress(percent: Int, message: String) = Unit
     }
 
-    /** A 20 mm cube turned 70° about X: it rests on an edge, one face hanging low over the bed. */
+    /** A 20 mm cube turned 45° about X and 35.26° about Y: it stands on one corner. */
     private fun tippedCube(): File {
         val size = 20f
-        val angle = Math.toRadians(70.0)
-        val c = cos(angle).toFloat()
-        val s = sin(angle).toFloat()
+        val ax = Math.toRadians(45.0)
+        val ay = Math.toRadians(35.26)
         val corners = listOf(
             floatArrayOf(0f, 0f, 0f), floatArrayOf(size, 0f, 0f), floatArrayOf(size, size, 0f), floatArrayOf(0f, size, 0f),
             floatArrayOf(0f, 0f, size), floatArrayOf(size, 0f, size), floatArrayOf(size, size, size), floatArrayOf(0f, size, size),
-        ).map { (x, y, z) -> floatArrayOf(x, y * c - z * s, y * s + z * c) }
+        ).map { (x, y, z) ->
+            // About X, then about Y.
+            val y1 = (y * cos(ax) - z * sin(ax)).toFloat()
+            val z1 = (y * sin(ax) + z * cos(ax)).toFloat()
+            floatArrayOf((x * cos(ay) + z1 * sin(ay)).toFloat(), y1, (-x * sin(ay) + z1 * cos(ay)).toFloat())
+        }
         val faces = listOf(
             intArrayOf(0, 2, 1), intArrayOf(0, 3, 2), intArrayOf(4, 5, 6), intArrayOf(4, 6, 7),
             intArrayOf(0, 1, 5), intArrayOf(0, 5, 4), intArrayOf(1, 2, 6), intArrayOf(1, 6, 5),
