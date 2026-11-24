@@ -31,8 +31,9 @@ import java.util.Locale
 
 /**
  * The desktop's painting tools for the selected object: what to paint (support
- * or seam enforcers and blockers, fuzzy skin, filament colours), with what
- * (brush, ball, smart fill, fill) and how big.
+ * or seam enforcers and blockers, fuzzy skin, filament colours, a painted
+ * modifier's area, a texture's area), with what (brush, ball, smart fill, fill)
+ * and how big.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -45,6 +46,9 @@ internal fun PaintPanel(
     onOpenSettings: (Int) -> Unit = {},
     fuzzySkinDisabled: Boolean = false,
     onEnableFuzzySkin: () -> Unit = {},
+    texture: TextureUiState = TextureUiState(),
+    onTexture: (TextureIntent) -> Unit = {},
+    onPickTexture: () -> Unit = {},
 ) {
     val brush = state.paint ?: return
     val set: (PaintBrush) -> Unit = { onIntent(PrepareIntent.SetBrush(it)) }
@@ -66,7 +70,7 @@ internal fun PaintPanel(
                         onClick = {
                             if (kind != brush.kind) {
                                 val modifier = modifiers.lastOrNull()?.index.takeIf { kind == PaintKind.PAINTED_MODIFIER }
-                                set(brush.copy(kind = kind, state = PaintBrush.ENFORCE, modifier = modifier))
+                                set(brush.copy(kind = kind, state = PaintBrush.ENFORCE, modifier = modifier, textureLayer = texture.active))
                             }
                         },
                         label = { Text(stringResource(kindLabel(kind)), maxLines = 1) },
@@ -75,6 +79,18 @@ internal fun PaintPanel(
             }
             if (brush.kind == PaintKind.PAINTED_MODIFIER) {
                 PaintedModifierSection(brush, modifiers.map { it.index to it.value }, list.busy, set, onListIntent, onOpenSettings)
+            }
+            if (brush.kind == PaintKind.TEXTURE) {
+                TextureSection(texture, onTexture, onPickTexture)
+                // No layer, nothing to paint with yet.
+                if (texture.activeLayer == null || texture.choosing == TextureChoice.NewLayer) {
+                    PrimaryPillButton(
+                        stringResource(R.string.prepare_paint_done),
+                        onClick = { onIntent(PrepareIntent.StopPainting) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    return@Column
+                }
             }
 
             Text(stringResource(R.string.prepare_paint_with), style = MaterialTheme.typography.labelLarge)
@@ -202,6 +218,10 @@ private fun statesFor(kind: PaintKind, state: PrepareUiState): List<Pair<Int, St
         PaintBrush.ENFORCE to stringResource(R.string.prepare_paint_modifier_area),
         PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase),
     )
+    PaintKind.TEXTURE -> listOf(
+        PaintBrush.ENFORCE to stringResource(R.string.prepare_paint_texture_area),
+        PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase),
+    )
     PaintKind.COLOR -> (1..(state.presets?.filaments?.size ?: 1)).map { it to stringResource(R.string.prepare_paint_filament, it) } +
         (PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase))
 }
@@ -216,6 +236,7 @@ internal fun paletteFor(kind: PaintKind, filaments: List<Color> = emptyList()): 
     PaintKind.FUZZY_SKIN -> listOf(Color.Transparent, Color(0xFFFF9919))
     PaintKind.COLOR -> listOf(Color.Transparent) + filaments + FILAMENT_COLORS.drop(filaments.size)
     PaintKind.PAINTED_MODIFIER -> listOf(Color.Transparent, Color(0xFFF2CC33))
+    PaintKind.TEXTURE -> listOf(Color.Transparent, Color(0xFF26C6DA))
 }
 
 /** The loaded filaments' colours, filament 1 first; a slot not yet known takes the stock colour. */
@@ -241,6 +262,7 @@ private fun kindLabel(kind: PaintKind): Int = when (kind) {
     PaintKind.FUZZY_SKIN -> R.string.prepare_paint_kind_fuzzy
     PaintKind.COLOR -> R.string.prepare_paint_kind_color
     PaintKind.PAINTED_MODIFIER -> R.string.prepare_paint_kind_modifier
+    PaintKind.TEXTURE -> R.string.prepare_paint_kind_texture
 }
 
 /**
@@ -319,4 +341,5 @@ private fun hintFor(kind: PaintKind): Int = when (kind) {
     PaintKind.FUZZY_SKIN -> R.string.prepare_paint_hint_fuzzy
     PaintKind.COLOR -> R.string.prepare_paint_hint_color
     PaintKind.PAINTED_MODIFIER -> R.string.prepare_paint_hint_modifier
+    PaintKind.TEXTURE -> R.string.prepare_paint_hint_texture
 }

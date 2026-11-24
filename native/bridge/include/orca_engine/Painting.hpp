@@ -11,9 +11,10 @@
 namespace orca::engine {
 
 // What is painted, as the desktop's painting gizmos: support enforcers and
-// blockers, seam enforcers and blockers, fuzzy skin, filament colours, and the
-// area of a painted modifier (a modifier shaped by paint on a part).
-enum class PaintKind : int { Supports = 0, Seam = 1, FuzzySkin = 2, Color = 3, PaintedModifier = 4 };
+// blockers, seam enforcers and blockers, fuzzy skin, filament colours, the
+// area of a painted modifier (a modifier shaped by paint on a part), and where
+// a texture displacement layer applies (TextureDisplacement.hpp).
+enum class PaintKind : int { Supports = 0, Seam = 1, FuzzySkin = 2, Color = 3, PaintedModifier = 4, Texture = 5 };
 
 // How a touch paints: a circle brush on the surface, a sphere brush through it,
 // a smart fill (spreads over faces within an angle), or a fill of the whole
@@ -59,7 +60,8 @@ class PaintSession {
 public:
     // Throws std::out_of_range for a bad object. For PaintedModifier, `target` is
     // the painted modifier the strokes shape (painted on its part only); without
-    // one the first stroke makes a new one on the part it lands on.
+    // one the first stroke makes a new one on the part it lands on. For Texture,
+    // `target` is the layer's slot (required).
     PaintSession(Project& project, std::size_t object, PaintKind kind, std::optional<std::size_t> target = std::nullopt);
     ~PaintSession();
     PaintSession(const PaintSession&) = delete;

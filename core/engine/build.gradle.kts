@@ -74,7 +74,8 @@ android {
 val packEngineResources = tasks.register<PackEngineResourcesTask>("packEngineResources") {
     resourcesRoot.set(rootProject.layout.projectDirectory.dir("third_party/OrcaSlicer/resources"))
     // flush/: the purge volumes between filament colours (FlushVolPredictor).
-    includes.set(listOf("profiles/**/*.json", "flush/*.txt"))
+    // textures/displacement/: the texture library of the Texture tool.
+    includes.set(listOf("profiles/**/*.json", "flush/*.txt", "textures/displacement/*.png"))
     outputDir.set(layout.buildDirectory.dir("generated/engineResources"))
 }
 

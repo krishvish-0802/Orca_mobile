@@ -96,6 +96,35 @@ object OrcaIcons {
         }
     }
 
+    /** Texture displacement: a block whose top is a row of bumps. */
+    val Texture: ImageVector by lazy {
+        icon("Texture") {
+            // The block.
+            moveTo(3f, 12f)
+            horizontalLineTo(21f)
+            verticalLineTo(21f)
+            horizontalLineTo(3f)
+            close()
+            // Three bumps standing on it.
+            moveTo(3f, 11f)
+            curveTo(3f, 7f, 9f, 7f, 9f, 11f)
+            close()
+            moveTo(9f, 11f)
+            curveTo(9f, 7f, 15f, 7f, 15f, 11f)
+            close()
+            moveTo(15f, 11f)
+            curveTo(15f, 7f, 21f, 7f, 21f, 11f)
+            close()
+            // A smaller row above, set between them.
+            moveTo(6f, 6f)
+            curveTo(6f, 3f, 12f, 3f, 12f, 6f)
+            close()
+            moveTo(12f, 6f)
+            curveTo(12f, 3f, 18f, 3f, 18f, 6f)
+            close()
+        }
+    }
+
     /** Tool settings: three sliders. */
     val Tune: ImageVector by lazy {
         icon("Tune") {

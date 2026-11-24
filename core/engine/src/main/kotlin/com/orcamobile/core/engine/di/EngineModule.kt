@@ -9,6 +9,7 @@ import com.orcamobile.core.domain.project.ObjectEditor
 import com.orcamobile.core.domain.project.ObjectTools
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.project.TextureTools
 import com.orcamobile.core.engine.NativeConfigOptionCatalog
 import com.orcamobile.core.engine.NativeGCodePreviewRepository
 import com.orcamobile.core.engine.NativeMeshEditor
@@ -18,6 +19,7 @@ import com.orcamobile.core.engine.NativePlateEditor
 import com.orcamobile.core.engine.NativePresetCatalog
 import com.orcamobile.core.engine.NativeProjectRepository
 import com.orcamobile.core.engine.NativeSlicingEngine
+import com.orcamobile.core.engine.NativeTextureTools
 import dagger.Binds
 import dagger.Module
 import dagger.hilt.InstallIn
@@ -46,6 +48,9 @@ internal interface EngineModule {
 
     @Binds
     fun objectTools(impl: NativeObjectTools): ObjectTools
+
+    @Binds
+    fun textureTools(impl: NativeTextureTools): TextureTools
 
     @Binds
     fun configOptions(impl: NativeConfigOptionCatalog): ConfigOptionCatalog

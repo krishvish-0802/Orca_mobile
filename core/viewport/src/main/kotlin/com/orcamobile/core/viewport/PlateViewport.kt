@@ -326,7 +326,7 @@ fun PlateViewport(
                 view.setSelection(selection.takeIf { editable })
                 view.setGroup(group.takeIf { editable && selection != null }.orEmpty())
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
-                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.modifier, paintRevision)
+                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.target, paintRevision)
             },
             modifier = Modifier.fillMaxSize(),
         )

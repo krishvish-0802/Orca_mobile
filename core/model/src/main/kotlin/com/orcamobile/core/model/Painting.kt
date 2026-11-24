@@ -9,6 +9,9 @@ enum class PaintKind(val nativeValue: Int) {
 
     /** The area of a painted modifier: a modifier shaped by paint on a part, with settings of its own. */
     PAINTED_MODIFIER(4),
+
+    /** Where a texture displacement layer applies ([PaintBrush.textureLayer] names it). */
+    TEXTURE(5),
 }
 
 /** How a touch paints ([nativeValue] is the bridge's PaintTool). */
@@ -44,7 +47,17 @@ data class PaintBrush(
      * for a new one, made by the first stroke on the part it lands on.
      */
     val modifier: Int? = null,
+    /** Painting a texture layer's area: the layer's slot (TextureLayer.slot). */
+    val textureLayer: Int? = null,
 ) {
+    /** What the paint session shapes: the painted modifier or the texture layer, by kind. */
+    val target: Int?
+        get() = when (kind) {
+            PaintKind.PAINTED_MODIFIER -> modifier
+            PaintKind.TEXTURE -> textureLayer
+            else -> null
+        }
+
     companion object {
         const val ERASE = 0
         const val ENFORCE = 1

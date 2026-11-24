@@ -180,6 +180,24 @@ class PrepareViewModel @Inject constructor(
                 towerInputs.update { it + 1 }
                 recordHistory()
             }
+            PrepareIntent.PaintReloaded -> {
+                _state.update { it.copy(paintRevision = it.paintRevision + 1) }
+                dropStaleResult()
+                recordHistory()
+            }
+            is PrepareIntent.TextureBaked -> {
+                _state.update {
+                    it.copy(
+                        project = it.project?.copy(objects = intent.objects),
+                        plateRevision = it.plateRevision + 1,
+                        paintRevision = it.paintRevision + 1,
+                    )
+                }
+                dropStaleResult()
+                loadTransform()
+                towerInputs.update { it + 1 }
+                recordHistory()
+            }
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }
@@ -563,6 +581,7 @@ class PrepareViewModel @Inject constructor(
                             group = emptyList(),
                             plateRevision = it.plateRevision + 1,
                             historyRevision = it.historyRevision + 1,
+                            paintRevision = it.paintRevision + 1,
                         )
                     }
                     plateTools.plates(project.id).onSuccess(::showPlates)

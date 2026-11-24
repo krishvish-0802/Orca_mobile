@@ -53,12 +53,13 @@ void show_all(Viewport& v, const PaintSession& session)
 }
 
 // A session on `object` for paint `kind` (PaintKind), shown on the viewport; 0 on
-// failure. `target` (or -1): the painted modifier a PaintedModifier session shapes.
+// failure. `target` (or -1): the painted modifier a PaintedModifier session shapes,
+// or the layer slot a Texture session paints.
 jlong native_paint_begin(JNIEnv*, jclass, jlong viewport_handle, jlong project_handle, jint object, jint kind, jint target)
 {
     auto* v = from_handle<Viewport>(viewport_handle);
     auto* project = from_handle<orca::engine::Project>(project_handle);
-    if (v == nullptr || project == nullptr || object < 0 || kind < 0 || kind > 4)
+    if (v == nullptr || project == nullptr || object < 0 || kind < 0 || kind > 5)
         return 0;
     try {
         auto painting = std::make_unique<Painting>();

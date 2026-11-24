@@ -17,9 +17,10 @@ namespace {
 using Slic3r::EnforcerBlockerType;
 using Slic3r::TriangleSelector;
 
-Slic3r::FacetsAnnotation& facets_of(Slic3r::ModelVolume& volume, PaintKind kind)
+Slic3r::FacetsAnnotation& facets_of(Slic3r::ModelVolume& volume, PaintKind kind, int slot = 0)
 {
     switch (kind) {
+    case PaintKind::Texture: return volume.texture_displacement_facet(slot);
     case PaintKind::Supports: return volume.supported_facets;
     case PaintKind::Seam: return volume.seam_facets;
     case PaintKind::FuzzySkin: return volume.fuzzy_skin_facets;
@@ -37,7 +38,8 @@ EnforcerBlockerType max_state(PaintKind kind)
     case PaintKind::Seam: return EnforcerBlockerType::BLOCKER;
     case PaintKind::FuzzySkin: return EnforcerBlockerType::FUZZY_SKIN;
     case PaintKind::Color: return EnforcerBlockerType::ExtruderMax;
-    case PaintKind::PaintedModifier: return EnforcerBlockerType::ENFORCER;
+    case PaintKind::PaintedModifier:
+    case PaintKind::Texture: return EnforcerBlockerType::ENFORCER;
     }
     return EnforcerBlockerType::NONE;
 }
@@ -61,6 +63,8 @@ struct PaintSession::Impl {
     // PaintedModifier: the modifier shaped, and the part it is painted on.
     std::optional<std::size_t> target;
     std::optional<std::size_t> host;
+    // Texture: the layer's slot.
+    int slot = 0;
 
     Part* find(std::size_t volume)
     {
@@ -83,6 +87,11 @@ PaintSession::PaintSession(Project& project, std::size_t object, PaintKind kind,
             throw std::out_of_range("No such object on the plate");
         Slic3r::ModelObject& o = *model.objects[object];
         const Slic3r::ModelVolume* modifier = nullptr;
+        if (kind == PaintKind::Texture) {
+            if (!target || *target >= Slic3r::TEXTURE_DISPLACEMENT_MAX_LAYERS)
+                throw std::invalid_argument("No such texture layer");
+            m_impl->slot = int(*target);
+        }
         if (kind == PaintKind::PaintedModifier && target) {
             if (*target >= o.volumes.size() || !o.volumes[*target]->is_painted_modifier())
                 throw std::invalid_argument("This part is not a painted modifier");
@@ -99,7 +108,7 @@ PaintSession::PaintSession(Project& project, std::size_t object, PaintKind kind,
             part.mesh = volume.get_mesh_shared_ptr();
             part.selector = std::make_unique<TriangleSelector>(*part.mesh);
             if (kind != PaintKind::PaintedModifier) {
-                part.selector->deserialize(facets_of(volume, kind).get_data(), false, max_state(kind));
+                part.selector->deserialize(facets_of(volume, kind, m_impl->slot).get_data(), false, max_state(kind));
             } else if (modifier != nullptr) {
                 // GLGizmoPaintedModifier: only the modifier's own part takes strokes, its paint loaded.
                 if (modifier->painted_modifier_host != volume.id())
@@ -247,7 +256,7 @@ bool PaintSession::commit()
             // The volume must still be the one painted.
             if (volume.get_mesh_shared_ptr() != part.mesh)
                 continue;
-            changed |= facets_of(volume, m_impl->kind).set(*part.selector);
+            changed |= facets_of(volume, m_impl->kind, m_impl->slot).set(*part.selector);
         }
     });
     return changed;

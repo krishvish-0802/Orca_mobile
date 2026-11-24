@@ -210,6 +210,15 @@ internal object NativeEngine {
         cancelToken: Long,
     ): String
 
+    /** The object's texture layer stack, after `requestJson`'s action (TextureJni.cpp); `{"error"}` on failure. */
+    @JvmStatic external fun nativeTextureStack(projectHandle: Long, objectIndex: Int, requestJson: String): String
+
+    /** Bakes the object's painted texture layers; `{"canceled":true}` when [cancelToken] stopped it. */
+    @JvmStatic external fun nativeTextureBake(projectHandle: Long, objectIndex: Int, listener: NativeProgressListener, cancelToken: Long): String
+
+    /** `{"textures":[{"name","path"}]}`: the textures shipped with the app. */
+    @JvmStatic external fun nativeTextureLibrary(): String
+
     /** Like [nativeSlice], for a loaded project sliced as placed. */
     @JvmStatic external fun nativeSliceProject(
         projectHandle: Long,

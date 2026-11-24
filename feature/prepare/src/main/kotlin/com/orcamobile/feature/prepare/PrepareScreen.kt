@@ -92,6 +92,7 @@ fun PrepareRoute(
     layerTool: LayerHeightViewModel = hiltViewModel(),
     earsTool: BrimEarsViewModel = hiltViewModel(),
     embossTool: EmbossViewModel = hiltViewModel(),
+    textureTool: TextureViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
@@ -129,6 +130,7 @@ fun PrepareRoute(
     val layers by layerTool.state.collectAsStateWithLifecycle()
     val ears by earsTool.state.collectAsStateWithLifecycle()
     val emboss by embossTool.state.collectAsStateWithLifecycle()
+    val texture by textureTool.state.collectAsStateWithLifecycle()
     val layersFor = state.project?.id?.let { p -> state.selection?.takeIf { state.meshTool == MeshTool.LAYERS }?.let { p to it } }
     LaunchedEffect(layersFor, state.presets) {
         if (layersFor == null) {
@@ -160,6 +162,39 @@ fun PrepareRoute(
     }
     LaunchedEffect(earsTool) {
         earsTool.events.collect { viewModel.onIntent(PrepareIntent.ObjectSettingsChanged) }
+    }
+    // The Paint tool's Texture kind works on the selected object.
+    val textureIn = state.project?.id?.let { project ->
+        state.selection?.takeIf { state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE }?.let { TextureTarget(project, it.objectIndex) }
+    }
+    LaunchedEffect(textureIn) {
+        if (textureIn == null) {
+            if (textureTool.state.value.target != null) textureTool.onIntent(TextureIntent.Close)
+        } else {
+            textureTool.onIntent(TextureIntent.Open(textureIn))
+        }
+    }
+    // The brush paints the layer the panel has active.
+    LaunchedEffect(texture.active, state.paint?.kind) {
+        val brush = state.paint
+        if (brush?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && brush.textureLayer != texture.active) {
+            viewModel.onIntent(PrepareIntent.SetBrush(brush.copy(textureLayer = texture.active)))
+        }
+    }
+    LaunchedEffect(textureTool, state.historyRevision) {
+        if (state.historyRevision > 0) textureTool.onIntent(TextureIntent.Reload)
+    }
+    LaunchedEffect(textureTool) {
+        textureTool.events.collect { event ->
+            when (event) {
+                TextureEvent.Changed -> viewModel.onIntent(PrepareIntent.ObjectSettingsChanged)
+                TextureEvent.PaintChanged -> viewModel.onIntent(PrepareIntent.PaintReloaded)
+                is TextureEvent.Baked -> viewModel.onIntent(PrepareIntent.TextureBaked(event.objects))
+            }
+        }
+    }
+    val texturePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) textureTool.onIntent(TextureIntent.PickedFile(uri.toString()))
     }
     // An undo or redo while the Text tool is open: the text it edits is read again.
     LaunchedEffect(embossTool, state.historyRevision) {
@@ -237,6 +272,9 @@ fun PrepareRoute(
             emboss = emboss,
             onEmboss = embossTool::onIntent,
             onPickSvg = { svgPicker.launch(arrayOf("image/svg+xml", "*/*")) },
+            texture = texture,
+            onTexture = textureTool::onIntent,
+            onPickTexture = { texturePicker.launch(arrayOf("image/*")) },
         ),
         measure = measure,
         onMeasureIntent = { intent ->
@@ -326,7 +364,7 @@ fun PrepareScreen(
                     paintPalette = state.paint?.let { paletteFor(it.kind, state.choices.slotColoursOrDefault()) }.orEmpty(),
                     filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
-                    paintRevision = state.historyRevision,
+                    paintRevision = state.paintRevision,
                     onPainted = { onIntent(PrepareIntent.Painted) },
                     onPaintedModifier = { volume ->
                         onIntent(PrepareIntent.PaintedModifierMade(volume))
@@ -492,9 +530,18 @@ fun PrepareScreen(
                         onIntent(PrepareIntent.CloseMeshTool)
                     }
                 } else if (preview == null && state.paint != null) {
-                    PaintPanel(state, onIntent, list, onListIntent, { volume -> onOpenObjectSettings(volume, null) }, list.fuzzySkinDisabled) {
-                        onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)
-                    }
+                    PaintPanel(
+                        state,
+                        onIntent,
+                        list,
+                        onListIntent,
+                        { volume -> onOpenObjectSettings(volume, null) },
+                        list.fuzzySkinDisabled,
+                        { onListIntent(ObjectListIntent.EnablePaintedFuzzySkin) },
+                        tools.texture,
+                        tools.onTexture,
+                        tools.onPickTexture,
+                    )
                 } else if (preview == null) {
                     ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
                 }
@@ -888,4 +935,7 @@ data class ObjectToolsUi(
     val emboss: EmbossUiState = EmbossUiState(),
     val onEmboss: (EmbossIntent) -> Unit = {},
     val onPickSvg: () -> Unit = {},
+    val texture: TextureUiState = TextureUiState(),
+    val onTexture: (TextureIntent) -> Unit = {},
+    val onPickTexture: () -> Unit = {},
 )

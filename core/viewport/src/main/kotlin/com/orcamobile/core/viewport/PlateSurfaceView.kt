@@ -280,19 +280,20 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private var highlightedVolume: Int? = null
     private var painting = 0L
-    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val modifier: Int?, val revision: Int)
+    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val target: Int?, val revision: Int)
 
     private var paintTarget: PaintTarget? = null
 
     /**
      * Paints [kind] on object [objectIndex] of the shown project from now on,
-     * coloured by [palette] (r, g, b, a per state); null stops painting. For a
-     * painted modifier, [modifier] is the one shaped (null: a new one).
+     * coloured by [palette] (r, g, b, a per state); null stops painting. [paintOn]
+     * is what is shaped (PaintBrush.target): for a painted modifier the one
+     * shaped (null: a new one), for a texture the layer's slot.
      */
-    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, modifier: Int? = null, revision: Int = 0) {
+    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, paintOn: Int? = null, revision: Int = 0) {
         val h = handle
         val target = if (objectIndex != null && kind != null && projectHandle != 0L) {
-            PaintTarget(projectHandle, objectIndex, kind, modifier.takeIf { kind == PaintKind.PAINTED_MODIFIER }, revision)
+            PaintTarget(projectHandle, objectIndex, kind, paintOn.takeIf { kind == PaintKind.PAINTED_MODIFIER || kind == PaintKind.TEXTURE }, revision)
         } else {
             null
         }
@@ -307,8 +308,8 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         stopPainting(commit = !reread)
         if (h == 0L || target == null) return
         NativeViewport.nativeSetPaintPalette(h, palette)
-        painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, target.modifier ?: -1)
-        if (painting == 0L && target.modifier != null) {
+        painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, target.target ?: -1)
+        if (painting == 0L && target.target != null && target.kind == PaintKind.PAINTED_MODIFIER) {
             // The modifier is gone (undone): the next stroke makes a new one.
             painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, -1)
         }

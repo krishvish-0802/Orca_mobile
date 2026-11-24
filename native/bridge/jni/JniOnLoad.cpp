@@ -35,7 +35,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
         !orca::jni::register_object_natives(env, engine_class) ||
         !orca::jni::register_preview_natives(env, engine_class) ||
         !orca::jni::register_mesh_natives(env, engine_class) ||
-        !orca::jni::register_tools_natives(env, engine_class)) {
+        !orca::jni::register_tools_natives(env, engine_class) ||
+        !orca::jni::register_texture_natives(env, engine_class)) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Registering engine natives failed");
         return JNI_ERR;
     }

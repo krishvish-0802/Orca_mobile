@@ -88,6 +88,8 @@ data class PrepareUiState(
     val canRedo: Boolean = false,
     /** Grows with each undo or redo, so the tools open on the plate read the project again. */
     val historyRevision: Int = 0,
+    /** Grows when the model's paint changed under the brush (undo, a bake, paint from the engine): painting reads it again. */
+    val paintRevision: Int = 0,
 ) {
     /**
      * Undo and redo: on the plate, while painting and in the Text tool (which
@@ -363,6 +365,12 @@ sealed interface PrepareIntent {
 
     /** A stroke changed what will be sliced. */
     data object Painted : PrepareIntent
+
+    /** The engine changed the paint itself (a texture over the whole object, a removed layer): the brush reads it again. */
+    data object PaintReloaded : PrepareIntent
+
+    /** A texture bake made the relief the object's mesh; the plate holds [objects]. */
+    data class TextureBaked(val objects: List<ModelObjectInfo>) : PrepareIntent
 
     /** Turns on (or off) laying the next tapped object on the side tapped. */
     data class SetLayOnFace(val on: Boolean) : PrepareIntent

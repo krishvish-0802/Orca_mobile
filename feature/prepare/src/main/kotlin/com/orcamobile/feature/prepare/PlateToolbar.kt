@@ -100,6 +100,9 @@ internal fun PlateToolbar(state: PrepareUiState, onIntent: (PrepareIntent) -> Un
                 ToolButton(OrcaIcons.Paint, stringResource(R.string.prepare_tool_paint), enabled) {
                     onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.SUPPORTS))
                 }
+                ToolButton(OrcaIcons.Texture, stringResource(R.string.prepare_tool_texture), enabled) {
+                    onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.TEXTURE))
+                }
                 ToolButton(OrcaIcons.Cut, stringResource(R.string.prepare_tool_cut), enabled) {
                     onIntent(PrepareIntent.OpenMeshTool(MeshTool.CUT))
                 }
