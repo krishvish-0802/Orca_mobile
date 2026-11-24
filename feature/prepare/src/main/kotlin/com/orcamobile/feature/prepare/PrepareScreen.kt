@@ -613,8 +613,18 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PresetChip(stringResource(R.string.prepare_preset_vendor), choices.vendor, enabled = choices.vendors.isNotEmpty()) { choosing = PresetField.VENDOR }
-        PresetChip(stringResource(R.string.prepare_preset_printer), choices.printer, enabled = choices.printers.isNotEmpty()) { choosing = PresetField.PRINTER }
-        PresetChip(stringResource(R.string.prepare_preset_process), choices.process, enabled = choices.processes.isNotEmpty()) { choosing = PresetField.PROCESS }
+        PresetChip(
+            stringResource(R.string.prepare_preset_printer),
+            choices.printer,
+            enabled = choices.printers.isNotEmpty(),
+            modified = PresetKind.PRINTER in state.modifiedKinds,
+        ) { choosing = PresetField.PRINTER }
+        PresetChip(
+            stringResource(R.string.prepare_preset_process),
+            choices.process,
+            enabled = choices.processes.isNotEmpty(),
+            modified = PresetKind.PROCESS in state.modifiedKinds,
+        ) { choosing = PresetField.PROCESS }
         FilledTonalButton(onClick = onOpenSettings) {
             Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(
@@ -627,7 +637,7 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             )
         }
     }
-    FilamentBar(choices, onIntent)
+    FilamentBar(choices, onIntent, modified = PresetKind.FILAMENT in state.modifiedKinds)
     if (choices.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     choices.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
@@ -678,7 +688,7 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
 }
 
 @Composable
-private fun PresetChip(label: String, value: String?, enabled: Boolean, onClick: () -> Unit) {
+private fun PresetChip(label: String, value: String?, enabled: Boolean, modified: Boolean = false, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -686,7 +696,11 @@ private fun PresetChip(label: String, value: String?, enabled: Boolean, onClick:
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Column(Modifier.widthIn(max = 220.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                if (modified) stringResource(R.string.prepare_preset_modified, label) else label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
             Text(
                 value ?: stringResource(R.string.prepare_preset_none),
                 style = MaterialTheme.typography.bodyMedium,

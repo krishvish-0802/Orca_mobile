@@ -14,6 +14,7 @@ import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
@@ -47,6 +48,8 @@ data class PrepareUiState(
     val changedSettings: Int = 0,
     /** A preset change waiting on what to do with the changed settings. */
     val unsaved: UnsavedPrompt? = null,
+    /** The kinds of preset with changed settings: their chips say so. */
+    val modifiedKinds: Set<PresetKind> = emptySet(),
     /** The app-wide preset choice, changed from the chips under the plate. */
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */

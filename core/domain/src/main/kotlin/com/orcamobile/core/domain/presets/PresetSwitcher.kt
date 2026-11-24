@@ -123,6 +123,13 @@ class PresetSwitcher @Inject constructor(
         return mine.mapValues { (key, value) -> options[key]?.element(value, slot) ?: value }
     }
 
+    /** The kinds of preset [changes] change (a chip shows its preset as modified). */
+    suspend fun changedKinds(changes: Map<String, String>): Set<PresetKind> {
+        if (changes.isEmpty()) return emptySet()
+        val keys = catalog.presetOptionKeys().getOrNull() ?: return emptySet()
+        return PresetKind.entries.filterTo(mutableSetOf()) { kind -> keys.of(kind).any { it in changes } }
+    }
+
     /** The changes stored, whichever presets they were made over. */
     private suspend fun currentChanges(): Map<String, String> = printSettings.edits.first().values
 

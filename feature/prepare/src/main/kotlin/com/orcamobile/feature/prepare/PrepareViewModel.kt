@@ -816,7 +816,8 @@ class PrepareViewModel @Inject constructor(
         combine(printSettings.edits, presets) { edits, selection ->
             if (edits.appliesTo(selection)) edits.values else emptyMap()
         }.distinctUntilChanged().collect { changes ->
-            _state.update { it.copy(changedSettings = changes.size) }
+            val kinds = switcher.changedKinds(changes)
+            _state.update { it.copy(changedSettings = changes.size, modifiedKinds = kinds) }
             if (previous != null) dropAllResults()
             towerInputs.update { it + 1 }
             previous = changes
