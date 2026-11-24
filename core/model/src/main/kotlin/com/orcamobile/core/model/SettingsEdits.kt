@@ -8,7 +8,18 @@ data class SettingsEdits(
     val selection: PresetSelection?,
     val values: Map<String, String>,
 ) {
-    fun appliesTo(other: PresetSelection?): Boolean = selection == other
+    /**
+     * Whether these changes go over [other]: the same printer and process. The
+     * filaments, their number and colours do not matter: adding a filament or
+     * recolouring one keeps the changes (as the desktop keeps a changed process
+     * while filaments are swapped).
+     */
+    fun appliesTo(other: PresetSelection?): Boolean =
+        if (selection == null || other == null) {
+            selection == other
+        } else {
+            selection.vendor == other.vendor && selection.printer == other.printer && selection.process == other.process
+        }
 
     companion object {
         val NONE = SettingsEdits(null, emptyMap())

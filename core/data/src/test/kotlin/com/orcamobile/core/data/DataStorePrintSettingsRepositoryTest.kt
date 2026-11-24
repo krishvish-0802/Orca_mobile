@@ -35,6 +35,19 @@ class DataStorePrintSettingsRepositoryTest {
     }
 
     @Test
+    fun `changes stay when filaments are added or recoloured`() = runTest {
+        val repository = repository()
+        repository.set(centauri, "enable_support", "1")
+        val recoloured = centauri.copy(filamentColours = listOf("#A01828"))
+        assertEquals(mapOf("enable_support" to "1"), repository.editsFor(recoloured))
+        val two = recoloured.copy(filaments = centauri.filaments + centauri.filaments.first(), filamentColours = listOf("#A01828", "#FFFFFF"))
+        assertEquals(mapOf("enable_support" to "1"), repository.editsFor(two))
+        // A change made with two filaments keeps the earlier one.
+        repository.set(two, "support_type", "tree(auto)")
+        assertEquals(mapOf("enable_support" to "1", "support_type" to "tree(auto)"), repository.editsFor(centauri))
+    }
+
+    @Test
     fun `a change for other presets starts over`() = runTest {
         val repository = repository()
         repository.set(centauri, "layer_height", "0.12")

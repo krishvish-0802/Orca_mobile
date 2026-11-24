@@ -8,6 +8,7 @@
 #include "PresetCatalogImpl.hpp"
 #include "orca_engine/Project.hpp"
 #include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/Exception.hpp"
 #include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
@@ -117,13 +118,14 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
                          ProgressSink& progress, CancelToken& cancel, PresetCatalog* catalog)
 {
     SliceOutcome outcome;
+    // Outside the try: the errors name the objects through it.
+    Slic3r::Print print;
     try {
         Slic3r::DynamicPrintConfig config =
             ConfigBuilder::resolve(request.presets, request.config_overrides, catalog);
         if (center_on_bed)
             model.center_instances_around_point(bed_center(config));
 
-        Slic3r::Print print;
         print.set_status_callback([&progress](const Slic3r::PrintBase::SlicingStatus& status) {
             if (status.percent >= 0)
                 progress.on_progress(status.percent, status.text);
@@ -152,6 +154,15 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
         outcome.statistics = collect_statistics(print, result, gcode_path);
     } catch (const Slic3r::CanceledException&) {
         outcome.status = SliceOutcome::Status::Canceled;
+    } catch (const Slic3r::SlicingErrors& e) {
+        // Its own message is just "Errors"; the reasons are per object.
+        outcome.status = SliceOutcome::Status::Failed;
+        outcome.error = print.slicing_errors_message(e);
+        if (outcome.error.empty())
+            outcome.error = "Slicing failed";
+    } catch (const Slic3r::SlicingError& e) {
+        outcome.status = SliceOutcome::Status::Failed;
+        outcome.error = print.slicing_errors_message(Slic3r::SlicingErrors({e}));
     } catch (const std::exception& e) {
         outcome.status = SliceOutcome::Status::Failed;
         outcome.error = e.what();
