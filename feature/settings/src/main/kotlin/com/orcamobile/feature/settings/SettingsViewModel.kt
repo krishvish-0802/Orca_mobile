@@ -82,7 +82,7 @@ class SettingsViewModel @Inject constructor(
                 val slot = slotOf(intent.key)
                 val preset = presetValues[intent.key].orEmpty()
                 // One filament's value back to its preset's; the other filaments' stay.
-                val perFilament = key in filamentKeys && option.type.isVector && _state.value.filamentSlots.size > 1
+                val perFilament = intent.key in filamentKeys && option.type.isVector && _state.value.filamentSlots.size > 1
                 val written = if (!perFilament) preset
                 else SettingValues.write(option, currentValue(intent.key), SettingValues.editable(option, preset, slot), slot)
                 change { if (written == preset) source.reset(intent.key) else source.set(intent.key, written) }
