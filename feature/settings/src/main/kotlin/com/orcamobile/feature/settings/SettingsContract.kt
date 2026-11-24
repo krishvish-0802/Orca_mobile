@@ -4,6 +4,8 @@ import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.SettingsCheck
+import com.orcamobile.core.model.SettingsFix
 
 /** Everything the settings screen renders. Produced only by [SettingsViewModel]. */
 data class SettingsUiState(
@@ -27,6 +29,10 @@ data class SettingsUiState(
     val kinds: List<PresetKind> = PresetKind.entries,
     /** A change the engine refused, and why. */
     val problem: String? = null,
+    /** What the desktop's rules changed on their own, and why (shown until dismissed). */
+    val notices: List<String> = emptyList(),
+    /** Conflicts between the settings, each with ways out. */
+    val checks: List<SettingsCheck> = emptyList(),
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()
@@ -46,6 +52,11 @@ data class SettingRow(
     val option: ConfigOption,
     val value: String,
     val presetValue: String,
+    /** Greyed out by the desktop's rules, with [reason] saying why. */
+    val enabled: Boolean = true,
+    val reason: String? = null,
+    /** The name the rules give it for these values (brim width as ear radius); null for its own. */
+    val label: String? = null,
 ) {
     val changed: Boolean get() = value != presetValue
 }
@@ -67,4 +78,9 @@ sealed interface SettingsIntent {
     data object ResetAll : SettingsIntent
 
     data object DismissProblem : SettingsIntent
+
+    /** Takes one way out of a conflict between settings. */
+    data class ApplyFix(val fix: SettingsFix) : SettingsIntent
+
+    data object DismissNotices : SettingsIntent
 }

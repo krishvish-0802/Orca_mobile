@@ -31,4 +31,5 @@
     <string name="settings_problem_whole_number">Enter a whole number</string>
     <string name="settings_problem_min">At least %1$s</string>
     <string name="settings_problem_max">At most %1$s</string>
+    <string name="settings_notices_title">Changed to fit your other settings</string>
 </resources>

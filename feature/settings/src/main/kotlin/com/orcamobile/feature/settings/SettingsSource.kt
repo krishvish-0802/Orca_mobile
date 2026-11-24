@@ -10,6 +10,7 @@ import com.orcamobile.core.model.ObjectEdit
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.RulesScope
 import com.orcamobile.core.model.SettingTarget
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -41,6 +42,12 @@ interface SettingsSource {
 
     /** The changes made here, as they change. */
     val changes: Flow<Map<String, String>>
+
+    /** Where the desktop's rules between settings see these changes made. */
+    val rulesScope: RulesScope get() = RulesScope.GLOBAL
+
+    /** Settings under the changes made here, over the presets (for the rules). */
+    suspend fun rulesBase(): Map<String, String> = emptyMap()
 
     suspend fun set(key: String, value: String)
 
@@ -125,6 +132,14 @@ internal class ObjectSettingsSource private constructor(
     }
 
     override val changes: Flow<Map<String, String>> = details.map { settingsOf(it) }
+
+    override val rulesScope: RulesScope = RulesScope.OBJECT
+
+    override suspend fun rulesBase(): Map<String, String> {
+        val edits = configs.configFor(presets).overrides
+        val objectValues = if (target == SettingTarget.OBJECT) emptyMap() else details.value.settings
+        return edits + objectValues
+    }
 
     override suspend fun set(key: String, value: String) = apply(ObjectEdit.SetSetting(target, key, value))
 

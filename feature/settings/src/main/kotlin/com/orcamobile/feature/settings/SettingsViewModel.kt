@@ -8,7 +8,9 @@ import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
+import com.orcamobile.core.model.SettingsReview
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -41,6 +43,11 @@ class SettingsViewModel @Inject constructor(
     private var options: Map<String, ConfigOption> = emptyMap()
     private var presetValues: Map<String, String> = emptyMap()
     private var changes: Map<String, String> = emptyMap()
+    private var review: SettingsReview = SettingsReview.NONE
+    private var reviewJob: Job? = null
+
+    /** Changes the rules made in a row: rules that keep changing the same thing stop being followed. */
+    private var ruleRounds = 0
 
     init {
         viewModelScope.launch { load() }
@@ -62,6 +69,40 @@ class SettingsViewModel @Inject constructor(
             is SettingsIntent.Reset -> change { source.reset(intent.key) }
             SettingsIntent.ResetAll -> change { source.resetAll() }
             SettingsIntent.DismissProblem -> _state.update { it.copy(problem = null) }
+            is SettingsIntent.ApplyFix -> change { write(source, intent.fix.changes) }
+            SettingsIntent.DismissNotices -> _state.update { it.copy(notices = emptyList()) }
+        }
+    }
+
+    /** Writes [values] here: a value equal to the presets' is a reset, not a change. Settings this level can't take are left out. */
+    private suspend fun write(source: SettingsSource, values: Map<String, String>) {
+        for ((key, value) in values) {
+            if (allowed?.contains(key) == false || options[key] == null) continue
+            if (value == currentValue(key)) continue
+            if (value == presetValues[key]) source.reset(key) else source.set(key, value)
+        }
+    }
+
+    /**
+     * The desktop's rules for the settings as they now are: what shows and can be
+     * changed, conflicts to resolve, and values the rules set on their own,
+     * which are written here (and reviewed again).
+     */
+    private fun reviewChanges(source: SettingsSource) {
+        reviewJob?.cancel()
+        reviewJob = viewModelScope.launch {
+            val reviewed = catalog.review(source.presets, source.rulesBase() + changes, source.rulesScope).getOrNull() ?: return@launch
+            review = reviewed
+            val pending = reviewed.changes.filter { (key, value) ->
+                (allowed?.contains(key) != false) && options[key] != null && value != currentValue(key)
+            }
+            _state.update { it.copy(checks = reviewed.checks, notices = (it.notices + reviewed.notices).distinct()) }
+            refresh { this }
+            if (pending.isEmpty()) {
+                ruleRounds = 0
+            } else if (ruleRounds++ < MAX_RULE_ROUNDS) {
+                runCatching { write(source, pending) }
+            }
         }
     }
 
@@ -97,9 +138,11 @@ class SettingsViewModel @Inject constructor(
         tabs = completed
         options = described
         presetValues = values
-        checkNotNull(source).changes.collect { edits ->
+        val active = checkNotNull(source)
+        active.changes.collect { edits ->
             changes = edits
             refresh { copy(loading = false, error = null) }
+            reviewChanges(active)
         }
     }
 
@@ -132,7 +175,17 @@ class SettingsViewModel @Inject constructor(
         val option = options[key] ?: return null
         val preset = presetValues[key] ?: return null
         if (option.mode == OptionMode.DEVELOP || option.mode.ordinal > mode.ordinal) return null
-        return SettingRow(option, changes[key] ?: preset, preset)
+        // Hidden by the desktop's rules for these settings (support options without supports...).
+        val rule = review.stateOf(key)
+        if (!rule.visible) return null
+        return SettingRow(
+            option,
+            changes[key] ?: preset,
+            preset,
+            enabled = rule.enabled,
+            reason = rule.reason.takeIf { !rule.enabled && it.isNotEmpty() },
+            label = review.labels[key],
+        )
     }
 
     /** Options whose label, explanation or key mention [query], grouped where the desktop shows them. */
@@ -164,6 +217,7 @@ class SettingsViewModel @Inject constructor(
 
     private companion object {
         const val OTHER_PAGE = "Other"
+        const val MAX_RULE_ROUNDS = 3
     }
 }
 

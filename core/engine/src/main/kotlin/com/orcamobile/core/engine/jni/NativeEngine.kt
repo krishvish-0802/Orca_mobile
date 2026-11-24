@@ -193,6 +193,19 @@ internal object NativeEngine {
     /** `{"values":{...}}` of [keys] for a preset selection, or the engine defaults for an empty one. */
     @JvmStatic external fun nativeConfigValues(presetSelectionJson: String, keys: Array<String>): String
 
+    /**
+     * The desktop's rules between settings (OptionRules.hpp) for a preset selection
+     * (or "" for the engine defaults) with [keys] = [values] over it, at [scope]
+     * (RulesScope), showing filament slot [filament]. `{"error"}` on failure.
+     */
+    @JvmStatic external fun nativeReviewSettings(
+        presetSelectionJson: String,
+        keys: Array<String>,
+        values: Array<String>,
+        scope: Int,
+        filament: Int,
+    ): String
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)

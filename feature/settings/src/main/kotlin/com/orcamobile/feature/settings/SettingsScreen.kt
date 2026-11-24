@@ -40,6 +40,7 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -180,6 +181,10 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                     ),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (state.notices.isNotEmpty()) {
+                        item(key = "notices") { NoticesCard(state.notices) { onIntent(SettingsIntent.DismissNotices) } }
+                    }
+                    items(state.checks, key = { "check/${it.id}" }) { check -> CheckCard(check, onIntent) }
                     if (state.searching && groups.isEmpty()) {
                         item { Text(stringResource(R.string.settings_search_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
@@ -263,11 +268,16 @@ private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Uni
 private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onOpen: () -> Unit) {
     val option = row.option
     val isSwitch = option.type == OptionType.BOOL || option.type == OptionType.BOOLS
-    val supporting = if (row.changed) stringResource(R.string.settings_changed, displayValue(row.presetValue, row)) else null
+    // Greyed out: why, in the desktop's words, in place of the preset value.
+    val supporting = row.reason
+        ?: if (row.changed) stringResource(R.string.settings_changed, displayValue(row.presetValue, row)) else null
     ListRow(
-        title = option.label,
+        title = row.label ?: option.label,
         supporting = supporting,
-        onClick = if (isSwitch && !SettingValues.isUnset(option, row.value)) {
+        enabled = row.enabled,
+        onClick = if (!row.enabled) {
+            null
+        } else if (isSwitch && !SettingValues.isUnset(option, row.value)) {
             { onIntent(SettingsIntent.Edit(option.key, if (checked(row)) "0" else "1")) }
         } else {
             onOpen
@@ -279,7 +289,11 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
                 }
             }
             if (isSwitch && !SettingValues.isUnset(option, row.value)) {
-                Switch(checked = checked(row), onCheckedChange = { onIntent(SettingsIntent.Edit(option.key, if (it) "1" else "0")) })
+                Switch(
+                    checked = checked(row),
+                    onCheckedChange = { onIntent(SettingsIntent.Edit(option.key, if (it) "1" else "0")) },
+                    enabled = row.enabled,
+                )
             } else {
                 Text(
                     displayValue(row.value, row),
@@ -295,6 +309,39 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
 }
 
 private fun checked(row: SettingRow) = SettingValues.editable(row.option, row.value) == "1"
+
+/** What the rules changed on their own, and why. */
+@Composable
+private fun NoticesCard(notices: List<String>, onDismiss: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.settings_notices_title), style = MaterialTheme.typography.titleSmall)
+            for (notice in notices) Text(notice, style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.settings_problem_ok)) }
+        }
+    }
+}
+
+/** A conflict between settings, and the ways out of it (the first is recommended). */
+@Composable
+private fun CheckCard(check: com.orcamobile.core.model.SettingsCheck, onIntent: (SettingsIntent) -> Unit) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(check.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            check.fixes.forEachIndexed { index, fix ->
+                if (index == 0) {
+                    com.orcamobile.core.designsystem.component.PrimaryPillButton(
+                        fix.label, onClick = { onIntent(SettingsIntent.ApplyFix(fix)) }, modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    com.orcamobile.core.designsystem.component.TonalPillButton(
+                        fix.label, onClick = { onIntent(SettingsIntent.ApplyFix(fix)) }, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun displayValue(serialized: String, row: SettingRow): String {

@@ -27,6 +27,11 @@ import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SettingsEdits
+import com.orcamobile.core.model.OptionRuleState
+import com.orcamobile.core.model.RulesScope
+import com.orcamobile.core.model.SettingsCheck
+import com.orcamobile.core.model.SettingsFix
+import com.orcamobile.core.model.SettingsReview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -53,7 +58,13 @@ class SettingsViewModelTest {
         ConfigOption("machine_start_gcode", OptionType.STRING, "Start G-code", "", "", "", "", "", mode = OptionMode.ADVANCED, multiline = true),
     ).associateBy { it.key }
 
+    /** The desktop's rules, as the test needs them: settings over the presets in, review out. */
+    private var rules: (Map<String, String>, RulesScope) -> SettingsReview = { _, _ -> SettingsReview.NONE }
+
     private val catalog = object : ConfigOptionCatalog {
+        override suspend fun review(selection: PresetSelection?, settings: Map<String, String>, scope: RulesScope, filament: Int) =
+            Result.success(rules(settings, scope))
+
         override suspend fun describe(keys: List<String>) = Result.success(keys.mapNotNull { options[it] })
         override suspend fun values(selection: PresetSelection?, keys: List<String>) = Result.success(
             mapOf(
@@ -177,6 +188,41 @@ class SettingsViewModelTest {
         vm.onIntent(SettingsIntent.SelectKind(PresetKind.PRINTER))
         assertEquals(0, vm.state.value.pageIndex)
         assertEquals("G28\\nG1 Z5", vm.rows().getValue("machine_start_gcode").value)
+    }
+
+    @Test
+    fun `the rules hide, grey out, reset with a notice and offer fixes`() {
+        val fine = SettingsFix("Use 0.28 mm", mapOf("layer_height" to "0.28"))
+        rules = { settings, _ ->
+            SettingsReview(
+                options = mapOf(
+                    "ironing_expansion" to OptionRuleState(visible = false, reason = "Enable Z contouring to use this setting."),
+                    "sparse_infill_density" to OptionRuleState(enabled = false, reason = "Because spiral vase."),
+                ),
+                // A zero layer height goes back to 0.2 mm, as the desktop does.
+                changes = if (settings["layer_height"] == "0") mapOf("layer_height" to "0.2") else emptyMap(),
+                notices = if (settings["layer_height"] == "0") listOf("Layer height can't be zero.") else emptyList(),
+                checks = listOf(SettingsCheck("coarse", "Thicker layers print faster.", listOf(fine))),
+            )
+        }
+        val vm = viewModel()
+        assertEquals(listOf("Quality", "Strength"), vm.state.value.pages.map { it.title })
+        vm.onIntent(SettingsIntent.SelectPage(1))
+        val density = vm.rows().getValue("sparse_infill_density")
+        assertEquals(false, density.enabled)
+        assertEquals("Because spiral vase.", density.reason)
+
+        vm.onIntent(SettingsIntent.SelectPage(0))
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0"))
+        assertEquals("0.2", vm.rows().getValue("layer_height").value)
+        assertEquals(emptyMap(), printSettings.state.value.values)
+        assertEquals(listOf("Layer height can't be zero."), vm.state.value.notices)
+        vm.onIntent(SettingsIntent.DismissNotices)
+        assertEquals(emptyList(), vm.state.value.notices)
+
+        assertEquals("coarse", vm.state.value.checks.single().id)
+        vm.onIntent(SettingsIntent.ApplyFix(fine))
+        assertEquals("0.28", vm.rows().getValue("layer_height").value)
     }
 
     @Test

@@ -6,6 +6,8 @@ import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
+import com.orcamobile.core.model.RulesScope
+import com.orcamobile.core.model.SettingsReview
 import kotlinx.coroutines.withContext
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
@@ -36,6 +38,17 @@ class NativeConfigOptionCatalog @Inject constructor(
 
     override suspend fun presetOptionKeys(): Result<PresetOptionKeys> = call {
         EngineJson.presetOptionKeys(NativeEngine.nativePresetOptionKeys()).getOrThrow()
+    }
+
+    override suspend fun review(
+        selection: PresetSelection?,
+        settings: Map<String, String>,
+        scope: RulesScope,
+        filament: Int,
+    ): Result<SettingsReview> = call {
+        val keys = settings.keys.toTypedArray()
+        val values = keys.map { settings.getValue(it) }.toTypedArray()
+        SettingsJson.review(NativeEngine.nativeReviewSettings(EngineJson.encode(selection), keys, values, scope.nativeValue, filament)).getOrThrow()
     }
 
     private suspend fun <T> call(query: () -> T): Result<T> = withContext(dispatchers.io) {
