@@ -362,7 +362,8 @@ fun PrepareScreen(
                     handleMode = state.handleMode,
                     paint = state.paint,
                     paintPalette = state.paint?.let { paletteFor(it.kind, state.choices.slotColoursOrDefault()) }.orEmpty(),
-                    filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
+                    // Parts in their filament's colour, as the desktop draws them, one filament or several.
+                    filamentColours = state.choices.slotColoursOrDefault(),
                     clearPaintRequest = state.paintClearRequest,
                     paintRevision = state.paintRevision,
                     // The Texture paint shows the relief a bake would make, following every stroke and setting.
