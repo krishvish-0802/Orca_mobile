@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -196,6 +197,12 @@ public:
     // Paint drawn over a volume of an object (every instance of it); null removes it.
     void set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay);
     void clear_paint_overlays();
+    // Model parts of `object` drawn as other triangles (a texture's relief before
+    // it is baked), by volume index, in the volume's coordinates; runs are not
+    // used. Picking and painting still use the parts' own meshes. Replaces the
+    // previews shown; empty clears them.
+    void set_volume_previews(int object, std::map<int, std::shared_ptr<const PaintOverlayMesh>> previews);
+    void clear_volume_previews();
     // Colors by painted state, RGBA; states past the end use the last.
     void set_paint_palette(std::vector<std::array<float, 4>> palette);
 

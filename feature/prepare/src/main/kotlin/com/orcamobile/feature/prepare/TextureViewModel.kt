@@ -49,6 +49,14 @@ data class TextureUiState(
     val bakingPercent: Int? = null,
     val lastBake: TextureBake? = null,
     val error: String? = null,
+    /** The relief a bake would make is shown on the plate. */
+    val preview: Boolean = true,
+    /** The preview is being worked out. */
+    val previewBusy: Boolean = false,
+    /** Grows whenever the engine's stack changed (a setting written, a layer added...): the preview follows it. */
+    val revision: Int = 0,
+    /** Fingers place the active texture (shift, size, turn) instead of painting. */
+    val placing: Boolean = false,
 ) {
     val activeLayer: TextureLayer? get() = active?.let(stack::layer)
 }
@@ -87,6 +95,19 @@ sealed interface TextureIntent {
     data object CancelBake : TextureIntent
 
     data object DismissError : TextureIntent
+
+    data class SetPreview(val on: Boolean) : TextureIntent
+
+    data class SetPlacing(val on: Boolean) : TextureIntent
+
+    /**
+     * A placing gesture on the plate: dragged by ([dxPx], [dyPx]) screen px,
+     * pinched by [scale], twisted by [turnDegrees] (clockwise on screen).
+     */
+    data class Place(val dxPx: Float = 0f, val dyPx: Float = 0f, val scale: Float = 1f, val turnDegrees: Float = 0f) : TextureIntent
+
+    /** The plate is working out the preview (true), or shows it (false). */
+    data class PreviewBusy(val busy: Boolean) : TextureIntent
 }
 
 sealed interface TextureEvent {
@@ -127,7 +148,7 @@ class TextureViewModel @Inject constructor(
             TextureIntent.Close -> {
                 flushEdit()
                 bakeJob?.cancel()
-                _state.update { TextureUiState(library = it.library) }
+                _state.update { TextureUiState(library = it.library, preview = it.preview) }
             }
             TextureIntent.Reload -> reload()
             is TextureIntent.Select -> {
@@ -150,13 +171,17 @@ class TextureViewModel @Inject constructor(
             TextureIntent.Bake -> bake()
             TextureIntent.CancelBake -> bakeJob?.cancel()
             TextureIntent.DismissError -> _state.update { it.copy(error = null) }
+            is TextureIntent.SetPreview -> _state.update { it.copy(preview = intent.on) }
+            is TextureIntent.SetPlacing -> _state.update { it.copy(placing = intent.on && it.activeLayer != null) }
+            is TextureIntent.Place -> place(intent)
+            is TextureIntent.PreviewBusy -> _state.update { if (it.previewBusy == intent.busy) it else it.copy(previewBusy = intent.busy) }
         }
     }
 
     private fun open(target: TextureTarget) {
         if (_state.value.target == target) return
         flushEdit()
-        _state.update { TextureUiState(target = target, library = it.library, busy = true) }
+        _state.update { TextureUiState(target = target, library = it.library, busy = true, preview = it.preview, revision = it.revision + 1) }
         viewModelScope.launch {
             if (_state.value.library.isEmpty()) {
                 tools.library().onSuccess { library -> _state.update { it.copy(library = library) } }
@@ -179,7 +204,11 @@ class TextureViewModel @Inject constructor(
     /** The stack in the panel; the active layer kept when it is still there, else the top one. */
     private fun show(stack: TextureStack, active: Int? = _state.value.active) {
         _state.update {
-            it.copy(stack = stack, active = active?.takeIf { slot -> stack.layer(slot) != null } ?: stack.layers.lastOrNull()?.slot)
+            it.copy(
+                stack = stack,
+                active = active?.takeIf { slot -> stack.layer(slot) != null } ?: stack.layers.lastOrNull()?.slot,
+                revision = it.revision + 1,
+            )
         }
     }
 
@@ -230,10 +259,43 @@ class TextureViewModel @Inject constructor(
         }
     }
 
+    /**
+     * A finger's drag of one screen width's [PLACE_PX_PER_TILE] moves the texture a
+     * whole tile, so the feel is the same at any tile size; pinching out grows it.
+     */
+    private fun place(gesture: TextureIntent.Place) {
+        val s = _state.value.activeLayer?.settings ?: return
+        val tile = (s.tileMm * gesture.scale).coerceIn(TextureLayerSettings.MIN_TILE_MM, TextureLayerSettings.MAX_TILE_MM)
+        val perPx = s.tileMm / PLACE_PX_PER_TILE
+        var turn = s.rotationDegrees - gesture.turnDegrees
+        while (turn > 180f) turn -= 360f
+        while (turn < -180f) turn += 360f
+        edit(
+            s.copy(
+                tileMm = tile,
+                rotationDegrees = turn,
+                // The texture follows the finger: its offset runs the other way; screen y grows downward.
+                offsetXMm = wrap(s.offsetXMm - gesture.dxPx * perPx, tile),
+                offsetYMm = wrap(s.offsetYMm + gesture.dyPx * perPx, tile),
+            ),
+        )
+    }
+
+    /** An offset within half a tile either way: a whole tile further looks the same. */
+    private fun wrap(offset: Float, tile: Float): Float {
+        var o = offset % tile
+        if (o > tile / 2) o -= tile
+        if (o < -tile / 2) o += tile
+        return o
+    }
+
     private suspend fun writeSettings(slot: Int, settings: TextureLayerSettings) {
         val target = _state.value.target ?: return
         tools.setLayer(target.project, target.objectIndex, slot, settings)
-            .onSuccess { _events.send(TextureEvent.Changed) }
+            .onSuccess {
+                _state.update { it.copy(revision = it.revision + 1) }
+                _events.send(TextureEvent.Changed)
+            }
             .onFailure { e -> _state.update { it.copy(error = e.message) } }
     }
 
@@ -295,6 +357,7 @@ class TextureViewModel @Inject constructor(
 
     private companion object {
         const val EDIT_DEBOUNCE_MILLIS = 300L
+        const val PLACE_PX_PER_TILE = 400f
         const val NOTHING_PAINTED = "Paint where the texture goes first (or use Whole object)."
     }
 }

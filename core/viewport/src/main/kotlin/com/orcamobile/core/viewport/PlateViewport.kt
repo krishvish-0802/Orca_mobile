@@ -146,6 +146,24 @@ fun PlateViewport(
     clearPaintRequest: Int = 0,
     /** Grows when the model's paint changed under the brush (undo): painting starts again from it. */
     paintRevision: Int = 0,
+    /**
+     * Shows the relief a texture bake of this object would make (by index), in
+     * place of its parts, worked out again whenever [texturePreviewKey] changes;
+     * null shows the parts as they are.
+     */
+    texturePreview: Int? = null,
+    texturePreviewKey: Int = 0,
+    /** A texture preview is being worked out (true), or is shown (false). */
+    onTexturePreviewBusy: (Boolean) -> Unit = {},
+    /**
+     * Fingers place the texture instead of painting: one drags it across the
+     * surface ([onTextureShift], screen px), two pinch its size ([onTextureScale])
+     * and twist it ([onTextureTurn], degrees clockwise on screen).
+     */
+    placingTexture: Boolean = false,
+    onTextureShift: (Offset) -> Unit = {},
+    onTextureScale: (Float) -> Unit = {},
+    onTextureTurn: (Float) -> Unit = {},
     onPainted: () -> Unit = {},
     /** Painting a new painted modifier: the first stroke made it, volume [Int] of the object. */
     onPaintedModifier: (Int) -> Unit = {},
@@ -229,6 +247,10 @@ fun PlateViewport(
     val currentOnVolumeSelectionChange by rememberUpdatedState(onVolumeSelectionChange)
     val currentPaint by rememberUpdatedState(paint)
     val currentOnPainted by rememberUpdatedState(onPainted)
+    val currentOnTexturePreviewBusy by rememberUpdatedState(onTexturePreviewBusy)
+    val currentOnTextureShift by rememberUpdatedState(onTextureShift)
+    val currentOnTextureScale by rememberUpdatedState(onTextureScale)
+    val currentOnTextureTurn by rememberUpdatedState(onTextureTurn)
     val currentOnPaintedModifier by rememberUpdatedState(onPaintedModifier)
     val painting = paint != null && project != null && preview == null && selection != null
     // A drag on the tower moves it here at once; the engine's answer then replaces it.
@@ -327,6 +349,8 @@ fun PlateViewport(
                 view.setGroup(group.takeIf { editable && selection != null }.orEmpty())
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
                 view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.target, paintRevision)
+                view.onReliefBusy = { currentOnTexturePreviewBusy(it) }
+                view.setTexturePreview(texturePreview, texturePreviewKey)
             },
             modifier = Modifier.fillMaxSize(),
         )
@@ -412,6 +436,25 @@ fun PlateViewport(
                     false
                 }
             }
+        } else if (painting && placingTexture) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) { detectTapGestures(onDoubleTap = { surface.fit() }) }
+                    .pointerInput(surface) {
+                        textureGestures(
+                            onShift = { currentOnTextureShift(it) },
+                            onScale = { currentOnTextureScale(it) },
+                            onTurn = { currentOnTextureTurn(it) },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
+                        )
+                    },
+            )
         } else if (painting) {
             Box(
                 Modifier
@@ -705,6 +748,44 @@ private suspend fun PointerInputScope.paintGestures(
         if (painted) onStrokeEnd()
         val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
         if (camera && fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
+    }
+}
+
+/**
+ * Placing a texture: one finger shifts it, two pinch its size and twist it. The
+ * camera stays put; a quick tap of two or more fingers is [onFingerTap].
+ */
+private suspend fun PointerInputScope.textureGestures(
+    onShift: (Offset) -> Unit,
+    onScale: (Float) -> Unit,
+    onTurn: (Float) -> Unit,
+    onFingerTap: (Int) -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
+            if (pressed.size >= 2) {
+                val zoom = event.calculateZoom()
+                val turn = event.calculateRotation()
+                if (zoom != 1f) onScale(zoom)
+                if (turn != 0f) onTurn(turn)
+            } else if (fingers == 1) {
+                // One finger all along: a drag (once the second lifts, nothing until all are up).
+                val change = pressed.firstOrNull()?.positionChange()
+                if (change != null && change != Offset.Zero) onShift(change)
+            }
+            event.changes.forEach { it.consume() }
+        } while (event.changes.any { it.pressed })
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
     }
 }
 

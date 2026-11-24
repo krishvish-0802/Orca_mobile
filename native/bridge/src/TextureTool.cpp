@@ -26,6 +26,9 @@ using Slic3r::ModelVolume;
 using Slic3r::TEXTURE_DISPLACEMENT_MAX_LAYERS;
 using Slic3r::TextureDisplacementLayer;
 
+// The preview's refinement edge against the bake's automatic one.
+constexpr float kPreviewCoarsening = 1.5f;
+
 // GLGizmoTextureDisplacement::texture_parts: the object's model parts.
 std::vector<ModelVolume*> parts_of(const ModelObject& object)
 {
@@ -172,6 +175,52 @@ struct BakeInput {
     float resting_drop = 0.f;
 };
 
+// GLGizmoTextureDisplacement::bake / queue_preview_job: every painted part,
+// captured by value under the lock.
+std::vector<BakeInput> capture(const Project& project, std::size_t object_index)
+{
+    std::vector<BakeInput> inputs;
+    project.inspect([&](const Slic3r::Model& model) {
+        const ModelObject& object = detail::object_at(model, object_index);
+        const ModelVolume& owner = owner_of(object);
+        const std::vector<ModelVolume*> parts = parts_of(object);
+        // texture_anchor and resting_drops.
+        const Slic3r::Vec3d anchor = Slic3r::texture_displacement_volume_to_world(owner).translation();
+        const auto bottom = [](const ModelVolume& part) {
+            return part.mesh().transformed_bounding_box(Slic3r::texture_displacement_volume_to_world(part)).min.z();
+        };
+        double object_bottom = std::numeric_limits<double>::max();
+        for (const ModelVolume* part : parts)
+            object_bottom = std::min(object_bottom, bottom(*part));
+        for (std::size_t v = 0; v < object.volumes.size(); ++v) {
+            const ModelVolume& part = *object.volumes[v];
+            if (!part.is_model_part() || !part.is_texture_displacement_painted())
+                continue;
+            BakeInput in;
+            in.volume = v;
+            in.mesh = part.get_mesh_shared_ptr();
+            in.layers = layers_for(owner, part);
+            in.options = owner.texture_displacement_options;
+            in.volume_to_world = Slic3r::texture_displacement_volume_to_world(part);
+            if (part.has_texture_uv())
+                in.model_uv = part.texture_uv;
+            for (int i = 0; i < int(TEXTURE_DISPLACEMENT_MAX_LAYERS); ++i)
+                in.facets[std::size_t(i)] = part.texture_displacement_facet(i).get_data();
+            in.anchor = anchor;
+            in.resting_drop = float(bottom(part) - object_bottom);
+            inputs.push_back(std::move(in));
+        }
+    });
+    return inputs;
+}
+
+indexed_triangle_set displace(const BakeInput& in, const Slic3r::TextureDisplacementOptions& options,
+                                      const Slic3r::DisplacementProgressFn& progress, Slic3r::TextureBakeStats* stats)
+{
+    return Slic3r::build_texture_displacement(in.mesh->its, in.layers, in.facets, options, progress, nullptr, in.volume_to_world, nullptr,
+                                              stats, in.model_uv.empty() ? nullptr : &in.model_uv, &in.anchor, in.resting_drop);
+}
+
 } // namespace
 
 TextureStack texture_stack(const Project& project, std::size_t object_index)
@@ -312,39 +361,7 @@ void set_texture_options(Project& project, std::size_t object_index, bool smooth
 
 TextureBakeResult bake_texture(Project& project, std::size_t object_index, const std::function<bool(int)>& progress)
 {
-    // GLGizmoTextureDisplacement::bake: every painted part, captured by value.
-    std::vector<BakeInput> inputs;
-    project.inspect([&](const Slic3r::Model& model) {
-        const ModelObject& object = detail::object_at(model, object_index);
-        const ModelVolume& owner = owner_of(object);
-        const std::vector<ModelVolume*> parts = parts_of(object);
-        // texture_anchor and resting_drops.
-        const Slic3r::Vec3d anchor = Slic3r::texture_displacement_volume_to_world(owner).translation();
-        const auto bottom = [](const ModelVolume& part) {
-            return part.mesh().transformed_bounding_box(Slic3r::texture_displacement_volume_to_world(part)).min.z();
-        };
-        double object_bottom = std::numeric_limits<double>::max();
-        for (const ModelVolume* part : parts)
-            object_bottom = std::min(object_bottom, bottom(*part));
-        for (std::size_t v = 0; v < object.volumes.size(); ++v) {
-            const ModelVolume& part = *object.volumes[v];
-            if (!part.is_model_part() || !part.is_texture_displacement_painted())
-                continue;
-            BakeInput in;
-            in.volume = v;
-            in.mesh = part.get_mesh_shared_ptr();
-            in.layers = layers_for(owner, part);
-            in.options = owner.texture_displacement_options;
-            in.volume_to_world = Slic3r::texture_displacement_volume_to_world(part);
-            if (part.has_texture_uv())
-                in.model_uv = part.texture_uv;
-            for (int i = 0; i < int(TEXTURE_DISPLACEMENT_MAX_LAYERS); ++i)
-                in.facets[std::size_t(i)] = part.texture_displacement_facet(i).get_data();
-            in.anchor = anchor;
-            in.resting_drop = float(bottom(part) - object_bottom);
-            inputs.push_back(std::move(in));
-        }
-    });
+    std::vector<BakeInput> inputs = capture(project, object_index);
     if (inputs.empty())
         throw std::invalid_argument("Nothing is painted, there is nothing to bake");
 
@@ -354,8 +371,8 @@ TextureBakeResult bake_texture(Project& project, std::size_t object_index, const
     for (std::size_t i = 0; i < inputs.size(); ++i) {
         const BakeInput& in = inputs[i];
         bool stopped = false;
-        results[i] = Slic3r::TriangleMesh(Slic3r::build_texture_displacement(
-            in.mesh->its, in.layers, in.facets, in.options,
+        results[i] = Slic3r::TriangleMesh(displace(
+            in, in.options,
             [&](int percent) {
                 if (progress && !progress(int((i * 100 + std::size_t(std::max(0, percent))) / inputs.size()))) {
                     stopped = true;
@@ -363,8 +380,7 @@ TextureBakeResult bake_texture(Project& project, std::size_t object_index, const
                 }
                 return true;
             },
-            nullptr, in.volume_to_world, nullptr, &stats[i], in.model_uv.empty() ? nullptr : &in.model_uv, &in.anchor,
-            in.resting_drop));
+            &stats[i]));
         if (stopped)
             return {};
     }
@@ -452,6 +468,47 @@ TextureBakeResult bake_texture(Project& project, std::size_t object_index, const
     if (result.parts == 0)
         throw std::runtime_error("The object changed while it was baking; nothing was changed");
     return result;
+}
+
+std::optional<std::vector<TexturePreviewPart>> texture_preview(const Project& project, std::size_t object_index,
+                                                               const std::function<bool()>& keep_going)
+{
+    std::vector<TexturePreviewPart> out;
+    for (const BakeInput& in : capture(project, object_index)) {
+        Slic3r::TextureDisplacementOptions options = in.options;
+        if (options.pipeline_v2) {
+            // queue_preview_job: looked at, not printed, so not simplified (most of the bake's time).
+            options.v2_max_triangles_k = 0;
+            // Coarser than the bake's own resolution, so it follows edits on a phone; the relief reads the same.
+            if (options.v2_refine_mm <= 0.f) {
+                const Slic3r::V2Resolution rec = Slic3r::recommend_v2_resolution(in.mesh->its, in.layers, in.volume_to_world);
+                if (rec.edge_mm > 0.f)
+                    options.v2_refine_mm = rec.edge_mm * kPreviewCoarsening;
+            }
+        }
+        bool stopped = false;
+        const indexed_triangle_set its = displace(in, options, [&](int) {
+            if (keep_going && !keep_going()) {
+                stopped = true;
+                return false;
+            }
+            return true;
+        }, nullptr);
+        if (stopped)
+            return std::nullopt;
+        if (its.indices.empty())
+            continue;
+        TexturePreviewPart part;
+        part.volume = in.volume;
+        part.positions.reserve(its.indices.size() * 9);
+        for (const auto& face : its.indices)
+            for (int k = 0; k < 3; ++k) {
+                const Slic3r::Vec3f& p = its.vertices[std::size_t(face[k])];
+                part.positions.insert(part.positions.end(), {p.x(), p.y(), p.z()});
+            }
+        out.push_back(std::move(part));
+    }
+    return out;
 }
 
 std::vector<LibraryTexture> texture_library()

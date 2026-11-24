@@ -219,6 +219,17 @@ internal object NativeEngine {
     /** `{"textures":[{"name","path"}]}`: the textures shipped with the app. */
     @JvmStatic external fun nativeTextureLibrary(): String
 
+    /**
+     * The relief a bake of the object would make, not kept (blocking). A preview
+     * handle for NativeViewport.nativeTexturePreviewShow and [nativeTexturePreviewFree],
+     * or 0 when [cancelToken] stopped it.
+     */
+    @JvmStatic external fun nativeTexturePreviewCompute(projectHandle: Long, objectIndex: Int, cancelToken: Long): Long
+
+    @JvmStatic external fun nativeTexturePreviewTriangles(previewHandle: Long): Long
+
+    @JvmStatic external fun nativeTexturePreviewFree(previewHandle: Long)
+
     /** Like [nativeSlice], for a loaded project sliced as placed. */
     @JvmStatic external fun nativeSliceProject(
         projectHandle: Long,

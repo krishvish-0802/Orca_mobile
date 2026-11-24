@@ -90,6 +90,8 @@ data class PrepareUiState(
     val historyRevision: Int = 0,
     /** Grows when the model's paint changed under the brush (undo, a bake, paint from the engine): painting reads it again. */
     val paintRevision: Int = 0,
+    /** Grows with each stroke that changed the paint. */
+    val paintStrokes: Int = 0,
 ) {
     /**
      * Undo and redo: on the plate, while painting and in the Text tool (which

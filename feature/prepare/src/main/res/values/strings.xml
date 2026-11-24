@@ -484,6 +484,14 @@
     <string name="prepare_texture_smooth">Smooth the relief</string>
     <string name="prepare_texture_smooth_strength">Smoothing %1$d%%</string>
     <string name="prepare_texture_border">Raise the paint\'s edge too</string>
+    <string name="prepare_texture_preview">Show the relief</string>
+    <string name="prepare_texture_preview_on">As Bake would make it, updated as you paint and adjust.</string>
+    <string name="prepare_texture_preview_busy">Updating the relief…</string>
+    <string name="prepare_texture_preview_nothing">Paint where the texture goes to see its relief.</string>
+    <string name="prepare_texture_preview_off">Shows the painted area only.</string>
+    <string name="prepare_texture_place">Place with fingers</string>
+    <string name="prepare_texture_place_on">Drag to shift the texture, pinch to size it, twist to turn it. Turn off to paint or move the view.</string>
+    <string name="prepare_texture_place_off">On: fingers move, size and turn the texture instead of painting.</string>
     <string name="prepare_texture_bake">Bake</string>
     <string name="prepare_texture_baking">Baking… %1$d%%</string>
     <string name="prepare_texture_stop">Stop</string>

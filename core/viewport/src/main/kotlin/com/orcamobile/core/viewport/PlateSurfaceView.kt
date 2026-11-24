@@ -1,14 +1,20 @@
 package com.orcamobile.core.viewport
 
-import androidx.compose.ui.geometry.Offset
 import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
+import androidx.compose.ui.geometry.Offset
+import com.orcamobile.core.engine.EngineLibrary
+import com.orcamobile.core.engine.TexturePreviews
 import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.viewport.jni.NativeViewport
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
@@ -67,6 +73,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow() // stops and joins the GL thread
         stopPainting()
+        stopRelief()
         synchronized(toolLock) {
             if (handle != 0L) {
                 NativeViewport.nativeDestroy(handle)
@@ -357,6 +364,86 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         paintTarget = null
     }
 
+    // --- texture relief preview ---------------------------------------------
+
+    private data class ReliefRequest(val project: Long, val objectIndex: Int, val key: Int)
+
+    /** What is wanted; read by the preview thread, set on the main thread. */
+    @Volatile
+    private var reliefRequest: ReliefRequest? = null
+    private var reliefExecutor: ScheduledExecutorService? = null
+    private var reliefFuture: ScheduledFuture<*>? = null
+    private val reliefLock = Any()
+
+    /** The running preview's stop token (under [reliefLock]); 0 when none runs. */
+    private var reliefToken = 0L
+
+    /** Told (on the main thread) when a preview starts being worked out, and when it is shown. */
+    var onReliefBusy: (Boolean) -> Unit = {}
+
+    /**
+     * Shows the relief a texture bake of object [objectIndex] would make, in place
+     * of its parts, worked out again whenever [key] changes (a stroke, a setting,
+     * an undo); null shows the parts as they are. Edits in quick succession make
+     * one preview: it starts once they rest, and a running one is stopped for a
+     * newer one.
+     */
+    fun setTexturePreview(objectIndex: Int?, key: Int) {
+        val request = if (objectIndex != null && projectHandle != 0L && EngineLibrary.isAvailable) ReliefRequest(projectHandle, objectIndex, key) else null
+        if (request == reliefRequest) return
+        reliefRequest = request
+        reliefFuture?.cancel(false)
+        synchronized(reliefLock) { if (reliefToken != 0L) TexturePreviews.stop(reliefToken) }
+        if (request == null) {
+            synchronized(toolLock) { if (handle != 0L) NativeViewport.nativeTexturePreviewClear(handle) }
+            requestRender()
+            onReliefBusy(false)
+            return
+        }
+        onReliefBusy(true)
+        val executor = reliefExecutor ?: Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "texture-preview").apply { isDaemon = true } }
+            .also { reliefExecutor = it }
+        reliefFuture = executor.schedule({ runRelief(request) }, RELIEF_DEBOUNCE_MILLIS, TimeUnit.MILLISECONDS)
+    }
+
+    /** On the preview thread. */
+    private fun runRelief(request: ReliefRequest) {
+        if (request != reliefRequest) return
+        val token = TexturePreviews.newToken()
+        synchronized(reliefLock) { reliefToken = token }
+        val preview = try {
+            TexturePreviews.compute(request.project, request.objectIndex, token)
+        } finally {
+            synchronized(reliefLock) {
+                reliefToken = 0L
+                TexturePreviews.release(token)
+            }
+        }
+        // Stopped: a newer one is on its way, and what is shown stays until then.
+        if (preview == 0L) return
+        try {
+            if (request == reliefRequest) {
+                synchronized(toolLock) { if (handle != 0L) NativeViewport.nativeTexturePreviewShow(handle, preview) }
+                requestRender()
+            }
+        } finally {
+            TexturePreviews.free(preview)
+        }
+        post { if (request == reliefRequest) onReliefBusy(false) }
+    }
+
+    private fun stopRelief() {
+        reliefRequest = null
+        reliefFuture?.cancel(false)
+        synchronized(reliefLock) { if (reliefToken != 0L) TexturePreviews.stop(reliefToken) }
+        reliefExecutor?.let { executor ->
+            executor.shutdown()
+            // The engine stops at its next step; the project must outlive it.
+            runCatching { executor.awaitTermination(RELIEF_STOP_WAIT_MILLIS, TimeUnit.MILLISECONDS) }
+        }
+        reliefExecutor = null
+    }
+
     /** The volume under a point: its instance, its index in the object, and whether it is a part. */
     fun pickVolume(x: Float, y: Float): VolumeHit? {
         val h = handle
@@ -505,6 +592,12 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 }
+
+/** Edits within this of each other make one texture preview. */
+private const val RELIEF_DEBOUNCE_MILLIS = 250L
+
+/** How long leaving the plate waits for a stopped preview to let go of the project. */
+private const val RELIEF_STOP_WAIT_MILLIS = 2_000L
 
 /** A volume hit on the plate: [volume] is its index in the instance's object. */
 data class VolumeHit(val instance: InstanceRef, val volume: Int, val isPart: Boolean)

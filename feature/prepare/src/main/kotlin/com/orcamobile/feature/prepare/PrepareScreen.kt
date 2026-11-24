@@ -365,6 +365,18 @@ fun PrepareScreen(
                     filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
                     paintRevision = state.paintRevision,
+                    // The Texture paint shows the relief a bake would make, following every stroke and setting.
+                    texturePreview = state.selection?.objectIndex?.takeIf {
+                        state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && tools.texture.preview &&
+                            tools.texture.stack.layers.isNotEmpty() && tools.texture.bakingPercent == null
+                    },
+                    texturePreviewKey = java.util.Objects.hash(state.plateRevision, state.paintRevision, state.paintStrokes, tools.texture.revision),
+                    onTexturePreviewBusy = { tools.onTexture(TextureIntent.PreviewBusy(it)) },
+                    placingTexture = state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && tools.texture.placing &&
+                        tools.texture.activeLayer != null,
+                    onTextureShift = { tools.onTexture(TextureIntent.Place(dxPx = it.x, dyPx = it.y)) },
+                    onTextureScale = { tools.onTexture(TextureIntent.Place(scale = it)) },
+                    onTextureTurn = { tools.onTexture(TextureIntent.Place(turnDegrees = it)) },
                     onPainted = { onIntent(PrepareIntent.Painted) },
                     onPaintedModifier = { volume ->
                         onIntent(PrepareIntent.PaintedModifierMade(volume))

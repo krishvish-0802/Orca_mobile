@@ -176,6 +176,7 @@ class PrepareViewModel @Inject constructor(
             PrepareIntent.ClearPaint -> _state.update { if (it.paint == null) it else it.copy(paintClearRequest = it.paintClearRequest + 1) }
             PrepareIntent.StopPainting -> _state.update { it.copy(paint = null) }
             PrepareIntent.Painted -> {
+                _state.update { it.copy(paintStrokes = it.paintStrokes + 1) }
                 dropStaleResult()
                 towerInputs.update { it + 1 }
                 recordHistory()

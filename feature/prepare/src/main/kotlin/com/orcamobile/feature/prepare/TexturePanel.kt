@@ -100,6 +100,35 @@ internal fun TextureSection(texture: TextureUiState, onIntent: (TextureIntent) -
         Text(stringResource(R.string.prepare_texture_none), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         return
     }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.prepare_texture_preview), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                stringResource(
+                    when {
+                        !texture.preview -> R.string.prepare_texture_preview_off
+                        texture.previewBusy -> R.string.prepare_texture_preview_busy
+                        texture.stack.anyPainted -> R.string.prepare_texture_preview_on
+                        else -> R.string.prepare_texture_preview_nothing
+                    },
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = texture.preview, onCheckedChange = { onIntent(TextureIntent.SetPreview(it)) })
+    }
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.prepare_texture_place), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                stringResource(if (texture.placing) R.string.prepare_texture_place_on else R.string.prepare_texture_place_off),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = texture.placing, onCheckedChange = { onIntent(TextureIntent.SetPlacing(it)) }, enabled = enabled)
+    }
     LayerSettings(texture, layer, enabled, onIntent)
 
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

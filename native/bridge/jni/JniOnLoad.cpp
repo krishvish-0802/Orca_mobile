@@ -49,7 +49,8 @@ extern "C" JNIEXPORT jint JNI_OnLoad(JavaVM* vm, void*)
     } else if (!orca::jni::register_viewport_natives(env, static_cast<jclass>(viewport.get())) ||
                !orca::jni::register_paint_natives(env, static_cast<jclass>(viewport.get())) ||
                !orca::jni::register_mesh_view_natives(env, static_cast<jclass>(viewport.get())) ||
-               !orca::jni::register_tools_view_natives(env, static_cast<jclass>(viewport.get()))) {
+               !orca::jni::register_tools_view_natives(env, static_cast<jclass>(viewport.get())) ||
+               !orca::jni::register_texture_view_natives(env, static_cast<jclass>(viewport.get()))) {
         __android_log_print(ANDROID_LOG_ERROR, kLogTag, "Registering viewport natives failed");
         return JNI_ERR;
     }

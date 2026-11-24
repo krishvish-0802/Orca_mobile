@@ -191,6 +191,11 @@ internal object NativeViewport {
 
     @JvmStatic external fun nativeFit(handle: Long)
 
+    /** Shows a computed texture preview (NativeEngine.nativeTexturePreviewCompute) in place of its parts. */
+    @JvmStatic external fun nativeTexturePreviewShow(handle: Long, previewHandle: Long)
+
+    @JvmStatic external fun nativeTexturePreviewClear(handle: Long)
+
     /** The next parts shown are framed (another plate); edits otherwise keep the camera. */
     @JvmStatic external fun nativeFrameNextParts(handle: Long)
 }

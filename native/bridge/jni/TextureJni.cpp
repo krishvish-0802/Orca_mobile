@@ -1,8 +1,11 @@
 // Texture displacement natives, on com.orcamobile.core.engine.jni.NativeEngine:
-// the object's layer stack, the textures shipped with the app, and the bake.
+// the object's layer stack, the textures shipped with the app, and the bake. On
+// com.orcamobile.core.viewport.jni.NativeViewport: the relief previewed on the plate.
 #include <jni.h>
 
 #include <exception>
+#include <map>
+#include <memory>
 #include <string>
 
 #include "EngineState.hpp"
@@ -13,6 +16,7 @@
 #include "orca_engine/Painting.hpp"
 #include "orca_engine/Project.hpp"
 #include "orca_engine/TextureDisplacement.hpp"
+#include "orca_viewport/Viewport.hpp"
 
 namespace orca::jni {
 
@@ -171,14 +175,101 @@ jstring native_texture_library(JNIEnv* env, jclass)
     }
 }
 
+// A computed preview, until it is shown or dropped.
+struct TexturePreview {
+    int object = 0;
+    std::vector<engine::TexturePreviewPart> parts;
+};
+
+// Computes the relief a bake of the object would make, off the project's lock
+// and without a viewport (blocking: run it off the UI and GL threads). Returns a
+// preview handle for nativeTexturePreviewShow / Free, or 0 when `cancel_handle`
+// stopped it (or it failed): a newer preview is on its way, keep what is shown.
+jlong native_texture_preview_compute(JNIEnv*, jclass, jlong project_handle, jint object, jlong cancel_handle)
+{
+    auto* project = from_handle<Project>(project_handle);
+    if (project == nullptr || object < 0)
+        return 0;
+    auto* token = from_handle<engine::CancelToken>(cancel_handle);
+    try {
+        std::optional<std::vector<engine::TexturePreviewPart>> parts;
+        run_on_engine_thread([&] {
+            parts = engine::texture_preview(*project, std::size_t(object), [&] { return token == nullptr || !token->is_cancel_requested(); });
+        });
+        if (!parts)
+            return 0;
+        auto preview = std::make_unique<TexturePreview>();
+        preview->object = object;
+        preview->parts = std::move(*parts);
+        return to_handle(preview.release());
+    } catch (const std::exception&) {
+        return 0;
+    }
+}
+
+// Shows a computed preview on the viewport in place of its parts (none painted: none shown).
+void native_texture_preview_show(JNIEnv*, jclass, jlong viewport_handle, jlong preview_handle)
+{
+    auto* v = from_handle<orca::viewport::Viewport>(viewport_handle);
+    auto* preview = from_handle<TexturePreview>(preview_handle);
+    if (v == nullptr || preview == nullptr)
+        return;
+    std::map<int, std::shared_ptr<const orca::viewport::PaintOverlayMesh>> meshes;
+    for (const auto& part : preview->parts) {
+        auto mesh = std::make_shared<orca::viewport::PaintOverlayMesh>();
+        mesh->positions = part.positions;
+        meshes[int(part.volume)] = std::move(mesh);
+    }
+    v->set_volume_previews(preview->object, std::move(meshes));
+}
+
+void native_texture_preview_free(JNIEnv*, jclass, jlong preview_handle)
+{
+    delete from_handle<TexturePreview>(preview_handle);
+}
+
+// Triangles in a computed preview, over its parts.
+jlong native_texture_preview_triangles(JNIEnv*, jclass, jlong preview_handle)
+{
+    auto* preview = from_handle<TexturePreview>(preview_handle);
+    if (preview == nullptr)
+        return 0;
+    std::size_t triangles = 0;
+    for (const auto& part : preview->parts)
+        triangles += part.positions.size() / 9;
+    return jlong(triangles);
+}
+
+void native_texture_preview_clear(JNIEnv*, jclass, jlong viewport_handle)
+{
+    if (auto* v = from_handle<orca::viewport::Viewport>(viewport_handle))
+        v->clear_volume_previews();
+}
+
+const JNINativeMethod kViewMethods[] = {
+    {"nativeTexturePreviewShow", "(JJ)V", reinterpret_cast<void*>(native_texture_preview_show)},
+    {"nativeTexturePreviewClear", "(J)V", reinterpret_cast<void*>(native_texture_preview_clear)},
+};
+
 const JNINativeMethod kMethods[] = {
     {"nativeTextureStack", "(JILjava/lang/String;)Ljava/lang/String;", reinterpret_cast<void*>(native_texture_stack)},
     {"nativeTextureBake", "(JILcom/orcamobile/core/engine/jni/NativeProgressListener;J)Ljava/lang/String;",
      reinterpret_cast<void*>(native_texture_bake)},
     {"nativeTextureLibrary", "()Ljava/lang/String;", reinterpret_cast<void*>(native_texture_library)},
+    {"nativeTexturePreviewCompute", "(JIJ)J", reinterpret_cast<void*>(native_texture_preview_compute)},
+    {"nativeTexturePreviewTriangles", "(J)J", reinterpret_cast<void*>(native_texture_preview_triangles)},
+    {"nativeTexturePreviewFree", "(J)V", reinterpret_cast<void*>(native_texture_preview_free)},
 };
 
 } // namespace
+
+bool register_texture_view_natives(JNIEnv* env, jclass native_viewport)
+{
+    if (env->RegisterNatives(native_viewport, kViewMethods, sizeof(kViewMethods) / sizeof(kViewMethods[0])) == 0)
+        return true;
+    env->ExceptionClear();
+    return false;
+}
 
 bool register_texture_natives(JNIEnv* env, jclass native_engine)
 {

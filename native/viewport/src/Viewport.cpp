@@ -185,6 +185,8 @@ struct Viewport::Impl {
     // The next parts shown are framed (another plate); otherwise edits keep the camera.
     bool frame_next_parts = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    // Model parts drawn as other triangles, by (object, volume).
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> volume_previews;
     std::vector<std::array<float, 4>> paint_palette;
     std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
@@ -255,10 +257,10 @@ struct Viewport::Impl {
     }
 
     // GL thread: vertex arrays for exactly the meshes the parts use.
-    void sync_paint_batches(const std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>>& shown)
+    void sync_paint_batches(const std::vector<std::shared_ptr<const PaintOverlayMesh>>& shown)
     {
         std::map<const PaintOverlayMesh*, GpuBatch> next;
-        for (const auto& [key, overlay] : shown) {
+        for (const auto& overlay : shown) {
             const PaintOverlayMesh* mesh = overlay.get();
             if (mesh == nullptr || next.count(mesh) != 0)
                 continue;
@@ -428,6 +430,7 @@ void Viewport::draw()
     std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> volume_previews;
     std::vector<std::array<float, 4>> paint_palette;
     std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
@@ -476,6 +479,7 @@ void Viewport::draw()
         group = d.group;
         highlighted_volume = d.highlighted_volume;
         paint_overlays = d.paint_overlays;
+        volume_previews = d.volume_previews;
         paint_palette = d.paint_palette;
         filament_colours = d.filament_colours;
         overlay = d.overlay;
@@ -489,7 +493,14 @@ void Viewport::draw()
     if (!d.gl_ready)
         return;
     d.sync_part_batches(parts);
-    d.sync_paint_batches(paint_overlays);
+    {
+        std::vector<std::shared_ptr<const PaintOverlayMesh>> meshes;
+        for (const auto& [key, mesh] : paint_overlays)
+            meshes.push_back(mesh);
+        for (const auto& [key, mesh] : volume_previews)
+            meshes.push_back(mesh);
+        d.sync_paint_batches(meshes);
+    }
     d.sync_overlay(overlay, d.tool_slot);
     d.sync_overlay(scene_overlay, d.scene_slot);
     glEnable(GL_DEPTH_TEST);
@@ -578,8 +589,17 @@ void Viewport::draw()
                     glUniform1f(clip_above, cut_view->hide_above ? 1.0f : 0.0f);
                 }
                 glUniform4f(part_color, c.r, c.g, c.b, c.a);
-                batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
-                                   static_cast<GLsizei>(piece.triangle_count * 3));
+                const auto preview = piece.kind == VolumeKind::ModelPart
+                                         ? volume_previews.find({state.part.ref.object, piece.volume})
+                                         : volume_previews.end();
+                const auto preview_batch = preview != volume_previews.end() && preview->second
+                                               ? d.paint_batches.find(preview->second.get())
+                                               : d.paint_batches.end();
+                if (preview_batch != d.paint_batches.end())
+                    preview_batch->second.draw(GL_TRIANGLES);
+                else
+                    batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
+                                       static_cast<GLsizei>(piece.triangle_count * 3));
                 if (cut) {
                     glUniform4f(cut_plane, 0.0f, 0.0f, 0.0f, 0.0f);
                     glUniform1f(clip_above, 0.0f);
@@ -628,6 +648,21 @@ void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const P
         m_impl->paint_overlays[{object, volume}] = std::move(overlay);
     else
         m_impl->paint_overlays.erase({object, volume});
+}
+
+void Viewport::set_volume_previews(int object, std::map<int, std::shared_ptr<const PaintOverlayMesh>> previews)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->volume_previews.clear();
+    for (auto& [volume, mesh] : previews)
+        if (mesh && !mesh->positions.empty())
+            m_impl->volume_previews[{object, volume}] = std::move(mesh);
+}
+
+void Viewport::clear_volume_previews()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->volume_previews.clear();
 }
 
 void Viewport::clear_paint_overlays()

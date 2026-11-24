@@ -114,6 +114,20 @@ void set_texture_options(Project& project, std::size_t object, bool smooth, floa
 // Throws std::invalid_argument when nothing is painted or nothing would move.
 TextureBakeResult bake_texture(Project& project, std::size_t object, const std::function<bool(int)>& progress = {});
 
+// One painted part as a bake would leave it: triangles (x, y, z per vertex,
+// three per triangle) in the part's own coordinates.
+struct TexturePreviewPart {
+    std::size_t volume = 0;
+    std::vector<float> positions;
+};
+
+// The relief a bake would make (queue_preview_job), not kept: every painted
+// part displaced, at a somewhat coarser resolution and unsimplified. Runs
+// outside the project's lock; nullopt when `keep_going` turned false (a newer
+// preview is wanted). Empty when nothing is painted.
+std::optional<std::vector<TexturePreviewPart>> texture_preview(const Project& project, std::size_t object,
+                                                               const std::function<bool()>& keep_going = {});
+
 std::vector<LibraryTexture> texture_library();
 
 } // namespace orca::engine

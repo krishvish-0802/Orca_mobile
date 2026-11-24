@@ -163,6 +163,29 @@ class TextureViewModelTest {
     }
 
     @Test
+    fun `fingers shift, size and turn the texture`() {
+        vm.onIntent(TextureIntent.Open(target))
+        vm.onIntent(TextureIntent.PickLibrary(LibraryTexture("Knurl", "/res/Knurl.png")))
+        vm.onIntent(TextureIntent.SetPlacing(true))
+        assertTrue(vm.state.value.placing)
+        val start = vm.state.value.activeLayer!!.settings
+        vm.onIntent(TextureIntent.Place(scale = 2f))
+        vm.onIntent(TextureIntent.Place(turnDegrees = 30f))
+        // A drag of 400 px is one tile: back where it started.
+        vm.onIntent(TextureIntent.Place(dxPx = 100f))
+        val placed = vm.state.value.activeLayer!!.settings
+        assertEquals(start.tileMm * 2, placed.tileMm, 1e-4f)
+        assertEquals(-30f, placed.rotationDegrees, 1e-4f)
+        assertEquals(-start.tileMm * 2 / 4, placed.offsetXMm, 1e-3f)
+        vm.onIntent(TextureIntent.Place(dxPx = 300f))
+        assertEquals(0f, vm.state.value.activeLayer!!.settings.offsetXMm, 1e-3f)
+        val revision = vm.state.value.revision
+        dispatcher.scheduler.advanceUntilIdle()
+        assertEquals(1, textures.writes.size)
+        assertTrue(vm.state.value.revision > revision)
+    }
+
+    @Test
     fun `removing the active layer moves to the next one`() {
         vm.onIntent(TextureIntent.Open(target))
         vm.onIntent(TextureIntent.PickLibrary(LibraryTexture("Knurl", "/res/Knurl.png")))

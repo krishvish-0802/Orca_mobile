@@ -73,7 +73,19 @@ class NativeTextureDeviceTest {
         assertEquals(6f, set.settings.tileMm, 1e-4f)
         assertTrue(stack(TextureJson.request("paintAll", 0) { put("erase", false) }).first.layers.single().painted)
 
+        // The preview: the relief a bake would make, nothing kept.
+        val started = System.nanoTime()
+        val preview = NativeEngine.nativeTexturePreviewCompute(handle, 0, 0L)
+        val previewMillis = (System.nanoTime() - started) / 1_000_000
+        assertTrue(preview != 0L)
+        val previewTriangles = NativeEngine.nativeTexturePreviewTriangles(preview)
+        NativeEngine.nativeTexturePreviewFree(preview)
+        android.util.Log.i("NativeTextureDeviceTest", "preview: $previewTriangles triangles in $previewMillis ms")
+        assertTrue("$previewTriangles triangles", previewTriangles > 1000)
+        assertEquals(12L, size().triangles)
+
         val before = size()
+        val bakeStarted = System.nanoTime()
         var progress = 0
         val baked = TextureJson.bake(NativeEngine.nativeTextureBake(handle, 0, { percent, _ -> progress = maxOf(progress, percent) }, 0L))
             .getOrThrow()
@@ -82,14 +94,19 @@ class NativeTextureDeviceTest {
         assertEquals(12L, baked.trianglesBefore)
         assertTrue("${baked.trianglesAfter} triangles", baked.trianglesAfter > 1000)
         assertTrue("progress $progress", progress > 0)
+        android.util.Log.i("NativeTextureDeviceTest", "bake: ${baked.trianglesAfter} triangles in ${(System.nanoTime() - bakeStarted) / 1_000_000} ms")
         // The relief stands out of the faces, up to the depth.
         val after = size()
         assertTrue("${after.sizeMm} against ${before.sizeMm}", after.sizeMm[0] > before.sizeMm[0] + 0.3)
         assertTrue("${after.sizeMm}", after.sizeMm[0] < before.sizeMm[0] + 2 * settings.depthMm + 0.1)
         assertTrue(after.triangles > 1000)
 
-        // The layer stays for another bake; its paint is used up.
+        // The layer stays for another bake; its paint is used up, and with it the preview.
         assertFalse(stack(TextureJson.request("get")).first.layers.single().painted)
+        val nothing = NativeEngine.nativeTexturePreviewCompute(handle, 0, 0L)
+        assertTrue(nothing != 0L)
+        assertEquals(0L, NativeEngine.nativeTexturePreviewTriangles(nothing))
+        NativeEngine.nativeTexturePreviewFree(nothing)
 
         val gcode = File(work, "textured.gcode")
         val keys = arrayOf("printable_area", "printable_height", "layer_height", "initial_layer_print_height")
