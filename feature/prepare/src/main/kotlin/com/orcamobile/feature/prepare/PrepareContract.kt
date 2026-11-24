@@ -212,11 +212,32 @@ sealed interface SliceUiState {
 
     data class Running(val percent: Int, val message: String) : SliceUiState
 
-    data class Done(val statistics: SliceStatistics, val gcodePath: String) : SliceUiState
+    /** Sliced; [warnings] are what the slicer would have the user know. */
+    data class Done(
+        val statistics: SliceStatistics,
+        val gcodePath: String,
+        val warnings: List<com.orcamobile.core.model.SliceMessage> = emptyList(),
+    ) : SliceUiState
 
     data object Canceled : SliceUiState
 
-    data class Failed(val message: String) : SliceUiState
+    /** Not sliced: [message], and per object in [details] with the warnings before it. */
+    data class Failed(val message: String, val details: List<com.orcamobile.core.model.SliceMessage> = emptyList()) : SliceUiState
+}
+
+/** A one-tap way to act on something the slicer said. */
+sealed interface SliceFix {
+    /** Turns supports on (the presets' change) and slices again. */
+    data object TurnOnSupports : SliceFix
+
+    /** Turns the object to its best side down (auto-orient). */
+    data class LayFlat(val objectIndex: Int) : SliceFix
+
+    /** Selects the object, to see it on the plate. */
+    data class Show(val objectIndex: Int) : SliceFix
+
+    /** Opens the setting the message is about (the screen navigates). */
+    data class OpenSetting(val key: String) : SliceFix
 }
 
 /** Sending the sliced G-code to a printer host. */
@@ -292,6 +313,9 @@ sealed interface PrepareIntent {
 
     /** Turns the selected object, or every object when none is selected, to print with the least support. */
     data object Orient : PrepareIntent
+
+    /** Acts on something the slicer said ([SliceFix.OpenSetting] is the screen's). */
+    data class ApplySliceFix(val fix: SliceFix) : PrepareIntent
 
     /** Adds [count] copies of the selected object, or as many as fit when null. */
     data class AddCopies(val count: Int?) : PrepareIntent

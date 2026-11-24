@@ -58,7 +58,10 @@ interface SettingsSource {
 
 /** What the settings screen opens on: the presets, or a target in a loaded project's object. */
 sealed interface SettingsArgs {
-    data object Presets : SettingsArgs
+    /** The setting (its key) to open on; null for none. */
+    val focus: String? get() = null
+
+    data class Presets(override val focus: String? = null) : SettingsArgs
 
     data class Object(val project: ProjectId, val objectIndex: Int, val target: SettingTarget) : SettingsArgs
 }
@@ -74,7 +77,7 @@ class SettingsSourceFactory @Inject constructor(
     suspend fun create(args: SettingsArgs): SettingsSource {
         val presets = userSettings.presetSelection()
         return when (args) {
-            SettingsArgs.Presets -> PresetSettingsSource(presets, catalog, printSettings)
+            is SettingsArgs.Presets -> PresetSettingsSource(presets, catalog, printSettings)
             is SettingsArgs.Object -> ObjectSettingsSource.load(args, presets, catalog, configs, objects)
         }
     }

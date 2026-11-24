@@ -1,6 +1,7 @@
 package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.ArrangeOptions
+import com.orcamobile.core.model.SliceMessage
 import com.orcamobile.core.model.Axes
 import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.BedShape
@@ -58,11 +59,12 @@ internal object EngineJson {
 
     fun sliceResult(payload: String, gcodePath: String): SliceResult {
         val dto = json.decodeFromString<SliceOutcomeDto>(payload)
+        val messages = dto.messages.map { it.toModel() }
         return when (dto.status) {
-            "succeeded" -> dto.statistics?.let { SliceResult.Succeeded(gcodePath, it.toModel()) }
+            "succeeded" -> dto.statistics?.let { SliceResult.Succeeded(gcodePath, it.toModel(), messages) }
                 ?: SliceResult.Failed("Engine reported success without statistics")
             "canceled" -> SliceResult.Canceled
-            else -> SliceResult.Failed(dto.error ?: "Slicing failed")
+            else -> SliceResult.Failed(dto.error ?: "Slicing failed", messages)
         }
     }
 
@@ -493,7 +495,29 @@ internal object EngineJson {
         val status: String,
         val error: String? = null,
         val statistics: StatisticsDto? = null,
+        val messages: List<SliceMessageDto> = emptyList(),
     )
+
+    @Serializable
+    private data class SliceMessageDto(
+        val level: String = "warning",
+        val text: String = "",
+        val `object`: String = "",
+        val setting: String = "",
+        val code: String = "",
+    ) {
+        fun toModel() = SliceMessage(
+            level = when (level) {
+                "error" -> SliceMessage.Level.ERROR
+                "info" -> SliceMessage.Level.INFO
+                else -> SliceMessage.Level.WARNING
+            },
+            text = text,
+            objectName = `object`.ifEmpty { null },
+            setting = setting.ifEmpty { null },
+            code = code.ifEmpty { null },
+        )
+    }
 
     @Serializable
     private data class StatisticsDto(

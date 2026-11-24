@@ -523,4 +523,10 @@
     </plurals>
     <string name="prepare_undo">Undo (two-finger tap)</string>
     <string name="prepare_redo">Redo (three-finger tap)</string>
+    <string name="prepare_slice_message_error">Can\'t slice</string>
+    <string name="prepare_slice_message_warning">Check before printing</string>
+    <string name="prepare_slice_fix_supports">Turn on supports</string>
+    <string name="prepare_slice_fix_lay_flat">Lay it flat</string>
+    <string name="prepare_slice_fix_show">Show it</string>
+    <string name="prepare_slice_fix_setting">Go to the setting</string>
 </resources>

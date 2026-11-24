@@ -138,6 +138,7 @@ class SettingsViewModel @Inject constructor(
         tabs = completed
         options = described
         presetValues = values
+        args.focus?.let(::focusOn)
         val active = checkNotNull(source)
         active.changes.collect { edits ->
             changes = edits
@@ -205,6 +206,14 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    /** Opens the tab and page that hold [key], showing every level of detail. */
+    private fun focusOn(key: String) {
+        val kind = _state.value.kinds.firstOrNull { k -> tabs.of(k).any { page -> page.groups.any { key in it.keys } } } ?: return
+        refresh { copy(kind = kind, mode = OptionMode.EXPERT) }
+        val page = _state.value.pages.indexOfFirst { p -> p.groups.any { g -> g.rows.any { it.option.key == key } } }
+        _state.update { it.copy(pageIndex = page.coerceAtLeast(0), focus = key) }
+    }
+
     private fun kindKeys(kind: PresetKind): List<String> = tabs.of(kind).flatMap { page -> page.groups.flatMap { it.keys } }
 
     private fun currentValue(key: String): String = changes[key] ?: presetValues[key].orEmpty()
@@ -227,9 +236,13 @@ const val SETTINGS_OBJECT_ARG = "object"
 const val SETTINGS_VOLUME_ARG = "volume"
 const val SETTINGS_RANGE_ARG = "range"
 
+/** The setting (its key) the presets' settings open on. */
+const val SETTINGS_FOCUS_ARG = "focus"
+
 internal fun settingsArgs(handle: SavedStateHandle): SettingsArgs {
-    val project = handle.get<String>(SETTINGS_PROJECT_ARG)?.takeIf { it.isNotEmpty() } ?: return SettingsArgs.Presets
-    val objectIndex = handle.get<Int>(SETTINGS_OBJECT_ARG)?.takeIf { it >= 0 } ?: return SettingsArgs.Presets
+    val focus = handle.get<String>(SETTINGS_FOCUS_ARG)?.takeIf { it.isNotEmpty() }
+    val project = handle.get<String>(SETTINGS_PROJECT_ARG)?.takeIf { it.isNotEmpty() } ?: return SettingsArgs.Presets(focus)
+    val objectIndex = handle.get<Int>(SETTINGS_OBJECT_ARG)?.takeIf { it >= 0 } ?: return SettingsArgs.Presets(focus)
     val volume = handle.get<Int>(SETTINGS_VOLUME_ARG)?.takeIf { it >= 0 }
     val range = handle.get<Int>(SETTINGS_RANGE_ARG)?.takeIf { it >= 0 }
     return SettingsArgs.Object(

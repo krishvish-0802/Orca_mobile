@@ -34,6 +34,12 @@ std::string to_json(const SliceOutcome& outcome)
     nlohmann::json j{{"status", status_name(outcome.status)}};
     if (!outcome.error.empty())
         j["error"] = outcome.error;
+    nlohmann::json messages = nlohmann::json::array();
+    for (const SliceMessage& m : outcome.messages) {
+        const char* level = m.level == SliceMessage::Level::Error ? "error" : m.level == SliceMessage::Level::Info ? "info" : "warning";
+        messages.push_back({{"level", level}, {"text", m.text}, {"object", m.object}, {"setting", m.setting}, {"code", m.code}});
+    }
+    j["messages"] = messages;
     if (outcome.statistics) {
         const SliceStatistics& s = *outcome.statistics;
         j["statistics"] = {

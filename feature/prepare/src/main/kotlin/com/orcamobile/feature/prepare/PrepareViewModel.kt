@@ -221,6 +221,7 @@ class PrepareViewModel @Inject constructor(
                 plateTools.arrange(project, presets, _state.value.arrangeOptions)
             }
             is PrepareIntent.SetArrangeOptions -> _state.update { it.copy(arrangeOptions = intent.options) }
+            is PrepareIntent.ApplySliceFix -> applySliceFix(intent.fix)
             PrepareIntent.Orient -> {
                 val selected = _state.value.selected
                 runPlateTool(PlateTask.ORIENT) { project, presets ->
@@ -770,6 +771,21 @@ class PrepareViewModel @Inject constructor(
         done?.let { loadPreview(it.gcodePath) }
     }
 
+    private fun applySliceFix(fix: SliceFix) {
+        when (fix) {
+            SliceFix.TurnOnSupports -> viewModelScope.launch {
+                printSettings.set(_state.value.presets, "enable_support", "1")
+                startSlice()
+            }
+            is SliceFix.LayFlat -> {
+                onIntent(PrepareIntent.Select(InstanceRef(fix.objectIndex, 0)))
+                onIntent(PrepareIntent.Orient)
+            }
+            is SliceFix.Show -> onIntent(PrepareIntent.Select(InstanceRef(fix.objectIndex, 0)))
+            is SliceFix.OpenSetting -> Unit
+        }
+    }
+
     /** Counts the settings changes; a change after slicing makes the result stale, as moving an object does. */
     private suspend fun followSettingsChanges() {
         var previous: Map<String, String>? = null
@@ -910,9 +926,9 @@ class PrepareViewModel @Inject constructor(
     private fun SliceEvent.toUiState(): SliceUiState = when (this) {
         is SliceEvent.Progress -> SliceUiState.Running(percent, message)
         is SliceEvent.Finished -> when (val r = result) {
-            is SliceResult.Succeeded -> SliceUiState.Done(r.statistics, r.gcodePath)
+            is SliceResult.Succeeded -> SliceUiState.Done(r.statistics, r.gcodePath, r.warnings)
             SliceResult.Canceled -> SliceUiState.Canceled
-            is SliceResult.Failed -> SliceUiState.Failed(r.message)
+            is SliceResult.Failed -> SliceUiState.Failed(r.message, r.details)
         }
     }
 

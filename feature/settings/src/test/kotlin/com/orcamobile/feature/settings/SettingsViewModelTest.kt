@@ -226,6 +226,14 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `opened on a setting, it shows that setting's page and editor`() {
+        val vm = viewModel(mapOf(SETTINGS_FOCUS_ARG to "nozzle_temperature"))
+        assertEquals(PresetKind.FILAMENT, vm.state.value.kind)
+        assertEquals("nozzle_temperature", vm.state.value.focus)
+        assertTrue(vm.rows().containsKey("nozzle_temperature"))
+    }
+
+    @Test
     fun `simple mode hides advanced and expert options`() {
         val vm = viewModel()
         vm.onIntent(SettingsIntent.SetMode(OptionMode.SIMPLE))

@@ -5,8 +5,10 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.engine.jni.NativeProgressListener
 import com.orcamobile.core.engine.resources.EngineResources
+import com.orcamobile.core.model.SliceMessage
 import com.orcamobile.core.model.SliceResult
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -62,6 +64,10 @@ class NativeSliceErrorsDeviceTest {
         assertTrue("$bare", bare is SliceResult.Failed)
         val message = (bare as SliceResult.Failed).message
         assertTrue("The reason, not just \"Errors\": $message", message.contains("first layer", ignoreCase = true))
+        // Per object, with what kind of problem it is, so the app can offer supports or laying it flat.
+        val detail = bare.details.single { it.code == "empty_first_layer" }
+        assertEquals(SliceMessage.Level.ERROR, detail.level)
+        assertTrue("${detail.objectName}", detail.objectName.orEmpty().startsWith("tipped"))
 
         val supported = slice(
             "supported",

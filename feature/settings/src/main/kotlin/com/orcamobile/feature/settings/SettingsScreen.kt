@@ -87,6 +87,8 @@ fun SettingsRoute(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewMod
 @Composable
 fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, onBack: () -> Unit) {
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    // Opened on a setting: its editor.
+    LaunchedEffect(state.focus) { state.focus?.let { editing = it } }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(

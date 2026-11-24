@@ -42,9 +42,29 @@ sealed interface SliceEvent {
 }
 
 sealed interface SliceResult {
-    data class Succeeded(val gcodePath: String, val statistics: SliceStatistics) : SliceResult
+    /** Sliced; [warnings] are what the slicer would have the user know. */
+    data class Succeeded(
+        val gcodePath: String,
+        val statistics: SliceStatistics,
+        val warnings: List<SliceMessage> = emptyList(),
+    ) : SliceResult
 
     data object Canceled : SliceResult
 
-    data class Failed(val message: String) : SliceResult
+    /** Not sliced: [message] says why; [details] has it per object, with the warnings that came before. */
+    data class Failed(val message: String, val details: List<SliceMessage> = emptyList()) : SliceResult
+}
+
+/** Something the slicer said about the print. */
+data class SliceMessage(
+    val level: Level,
+    val text: String,
+    /** The object it is about, by name; null for the whole plate. */
+    val objectName: String? = null,
+    /** The setting it is about (its key), when the slicer names one. */
+    val setting: String? = null,
+    /** What kind of message it is (SliceMessage codes in native/bridge SliceJob.hpp); null when not one the app knows. */
+    val code: String? = null,
+) {
+    enum class Level { INFO, WARNING, ERROR }
 }

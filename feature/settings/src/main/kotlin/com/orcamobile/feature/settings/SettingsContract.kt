@@ -33,6 +33,8 @@ data class SettingsUiState(
     val notices: List<String> = emptyList(),
     /** Conflicts between the settings, each with ways out. */
     val checks: List<SettingsCheck> = emptyList(),
+    /** The setting the screen was opened on (its key): its editor opens. */
+    val focus: String? = null,
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()

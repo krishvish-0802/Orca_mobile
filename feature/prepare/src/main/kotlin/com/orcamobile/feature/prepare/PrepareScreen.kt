@@ -83,6 +83,8 @@ import kotlin.math.roundToInt
 fun PrepareRoute(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** The settings, opened on one of them (its key): a message's "Go to the setting". */
+    onOpenSetting: (String) -> Unit = { onOpenSettings() },
     /** The settings of an object (project id, object), or of one of its parts or height ranges. */
     onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
     viewModel: PrepareViewModel = hiltViewModel(),
@@ -297,6 +299,7 @@ fun PrepareRoute(
         },
         onBack = onBack,
         onOpenSettings = onOpenSettings,
+        onOpenSetting = onOpenSetting,
     )
 }
 
@@ -307,6 +310,7 @@ fun PrepareScreen(
     onIntent: (PrepareIntent) -> Unit,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSetting: (String) -> Unit = { onOpenSettings() },
     list: ObjectListUiState = ObjectListUiState(),
     onListIntent: (ObjectListIntent) -> Unit = {},
     cut: CutUiState = CutUiState(),
@@ -562,7 +566,7 @@ fun PrepareScreen(
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)
                 }
-                SliceCard(state, onIntent)
+                SliceCard(state, onIntent, onOpenSetting)
                 if (state.slice is SliceUiState.Done) PrintHostCard(state.printHost, onIntent)
             }
         }
@@ -718,7 +722,11 @@ private fun ToolpathColoring.labelRes(): Int = when (this) {
 }
 
 @Composable
-private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
+private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onOpenSetting: (String) -> Unit = {}) {
+    val onFix: (SliceFix) -> Unit = { fix ->
+        if (fix is SliceFix.OpenSetting) onOpenSetting(fix.key) else onIntent(PrepareIntent.ApplySliceFix(fix))
+    }
+    val objects = state.project?.objects.orEmpty()
     StatusCard(title = stringResource(R.string.prepare_slice_title)) {
         if (state.presets == null) {
             Text(stringResource(R.string.prepare_slice_no_presets), style = MaterialTheme.typography.bodySmall)
@@ -751,9 +759,16 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            is SliceUiState.Done -> SliceStatisticsView(slice.statistics)
+            is SliceUiState.Done -> {
+                SliceStatisticsView(slice.statistics)
+                SliceMessagesView(slice.warnings, objects, onFix)
+            }
             SliceUiState.Canceled -> Text(stringResource(R.string.prepare_slice_canceled))
-            is SliceUiState.Failed -> Text(slice.message, color = MaterialTheme.colorScheme.error)
+            is SliceUiState.Failed -> if (slice.details.isEmpty()) {
+                Text(slice.message, color = MaterialTheme.colorScheme.error)
+            } else {
+                SliceMessagesView(slice.details, objects, onFix)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val running = state.slice is SliceUiState.Running
