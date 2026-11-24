@@ -300,10 +300,18 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
             if (h != 0L && target != null) NativeViewport.nativeSetPaintPalette(h, palette)
             return
         }
-        stopPainting()
+        // Only the revision changed: the model's paint changed under the brush (undo).
+        // The session's strokes are already in the model, and writing them back
+        // would undo the undo, so it is dropped as it is.
+        val reread = target != null && paintTarget?.copy(revision = target.revision) == target
+        stopPainting(commit = !reread)
         if (h == 0L || target == null) return
         NativeViewport.nativeSetPaintPalette(h, palette)
         painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, target.modifier ?: -1)
+        if (painting == 0L && target.modifier != null) {
+            // The modifier is gone (undone): the next stroke makes a new one.
+            painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, -1)
+        }
         if (painting != 0L) paintTarget = target
         requestRender()
     }
@@ -338,9 +346,9 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         requestRender()
     }
 
-    private fun stopPainting() {
+    private fun stopPainting(commit: Boolean = true) {
         if (painting != 0L) {
-            NativeViewport.nativePaintCommit(painting)
+            if (commit) NativeViewport.nativePaintCommit(painting)
             NativeViewport.nativePaintEnd(handle, painting)
             requestRender()
         }
