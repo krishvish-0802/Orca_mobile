@@ -155,6 +155,9 @@ void Project::edit(const std::function<void(Slic3r::Model&)>& change)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     change(m_impl->model);
+    // A part's mesh or place changed: its painted modifiers follow (the desktop syncs them too).
+    for (Slic3r::ModelObject* object : m_impl->model.objects)
+        object->sync_painted_modifiers();
 }
 
 void Project::inspect(const std::function<void(const Slic3r::Model&)>& look) const
@@ -267,6 +270,27 @@ void Project::translate(const InstanceRef& ref, double dx, double dy)
     Slic3r::ModelInstance& instance = m_impl->instance(ref);
     instance.set_offset(instance.get_offset() + Slic3r::Vec3d(dx, dy, 0.0));
     m_impl->model.objects[ref.object]->invalidate_bounding_box();
+}
+
+void Project::rotate_group_z(const std::vector<InstanceRef>& refs, double radians)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!std::isfinite(radians) || radians == 0.0 || refs.empty())
+        return;
+    Slic3r::BoundingBoxf3 box;
+    for (const InstanceRef& ref : refs) {
+        m_impl->instance(ref);   // checks it
+        box.merge(m_impl->model.objects[ref.object]->instance_bounding_box(ref.instance));
+    }
+    const Slic3r::Vec3d center = box.center();
+    const Slic3r::Transform3d turn = Slic3r::Geometry::translation_transform(center) *
+        Slic3r::Transform3d(Eigen::AngleAxisd(radians, Slic3r::Vec3d::UnitZ())) *
+        Slic3r::Geometry::translation_transform(-center);
+    for (const InstanceRef& ref : refs) {
+        Slic3r::ModelInstance& instance = m_impl->instance(ref);
+        instance.set_transformation(Slic3r::Geometry::Transformation(turn * instance.get_matrix()));
+        m_impl->model.objects[ref.object]->invalidate_bounding_box();
+    }
 }
 
 void Project::rotate_z(const InstanceRef& ref, double radians)

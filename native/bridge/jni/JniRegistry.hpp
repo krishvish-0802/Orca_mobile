@@ -17,5 +17,7 @@ bool register_mesh_natives(JNIEnv* env, jclass native_engine);
 bool register_mesh_view_natives(JNIEnv* env, jclass native_viewport);
 bool register_tools_natives(JNIEnv* env, jclass native_engine);
 bool register_tools_view_natives(JNIEnv* env, jclass native_viewport);
+bool register_texture_natives(JNIEnv* env, jclass native_engine);
+bool register_texture_view_natives(JNIEnv* env, jclass native_viewport);
 
 } // namespace orca::jni

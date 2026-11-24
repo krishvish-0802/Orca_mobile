@@ -3,6 +3,7 @@ package com.orcamobile.core.engine
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.engine.jni.NativeEngine
+import com.orcamobile.core.model.AlignMode
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateAction
@@ -12,6 +13,7 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
+import com.orcamobile.core.model.WipeTower
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -81,6 +83,27 @@ class NativePlateEditor @Inject constructor(
             val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
             EngineJson.plateUpdate(NativeEngine.nativeProjectRemove(handle, instance.objectIndex, instance.instanceIndex))
                 .getOrThrow()
+        }
+    }
+
+    override suspend fun align(
+        project: ProjectId,
+        instances: List<InstanceRef>,
+        mode: AlignMode,
+        toPlate: Boolean,
+        config: PlateConfig,
+    ) = call(project, config) { handle, presets, keys, values ->
+        val refs = instances.joinToString(",", "[", "]") { "[${it.objectIndex},${it.instanceIndex}]" }
+        NativeEngine.nativePlateAlign(handle, refs, mode.nativeValue, toPlate, presets, keys, values)
+    }
+
+    override suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(project) ?: throw EngineException("The model is no longer loaded")
+            environment.ensureInitialized()
+            val keys = config.overrides.keys.toTypedArray()
+            val values = keys.map { config.overrides.getValue(it) }.toTypedArray()
+            EngineJson.wipeTower(NativeEngine.nativePlateWipeTower(handle, EngineJson.encode(config.presets), keys, values)).getOrThrow()
         }
     }
 

@@ -167,6 +167,77 @@ class NativePlatesDeviceTest {
         assertTrue("the last plate stays", last.contains("error"))
     }
 
+    private fun x(instance: Int): Double =
+        EngineJson.transformUpdate(NativeEngine.nativeInstanceTransform(handle, 0, instance, "")).getOrThrow().transform.position.x
+
+    private fun align(mode: com.orcamobile.core.model.AlignMode, toPlate: Boolean, vararg instances: Int) =
+        EngineJson.plateUpdate(
+            NativeEngine.nativePlateAlign(
+                handle, instances.joinToString(",", "[", "]") { "[0,$it]" }, mode.nativeValue, toPlate, "", keys, values,
+            ),
+        ).getOrThrow()
+
+    @Test
+    fun alignLinesUpAndSpacesObjects() {
+        load(box("cube", 20f, 20f, 20f))
+        EngineJson.plateUpdate(NativeEngine.nativePlateAddCopies(handle, 0, 0, 2, "", keys, values, options)).getOrThrow()
+        EngineJson.plateUpdate(NativeEngine.nativePlateArrange(handle, "", keys, values, options)).getOrThrow()
+
+        align(com.orcamobile.core.model.AlignMode.LEFT, false, 0, 1, 2)
+        assertEquals(x(0), x(1), 0.01)
+        assertEquals(x(0), x(2), 0.01)
+
+        // Spread along X between where two of them stand: the middle one halfway.
+        NativeEngine.nativeInstanceTransform(handle, 0, 1, """{"position":[60,40]}""")
+        NativeEngine.nativeInstanceTransform(handle, 0, 2, """{"position":[160,40]}""")
+        NativeEngine.nativeInstanceTransform(handle, 0, 0, """{"position":[70,120]}""")
+        val spread = align(com.orcamobile.core.model.AlignMode.DISTRIBUTE_X, false, 0, 1, 2)
+        assertEquals(1, spread.placed)
+        assertEquals(110.0, x(0), 0.01)
+
+        // One object to the plate's middle (a 220 mm bed).
+        align(com.orcamobile.core.model.AlignMode.CENTER_X, true, 2)
+        assertEquals(110.0, x(2), 0.01)
+    }
+
+    private fun history(action: com.orcamobile.core.model.HistoryAction) =
+        EngineJson.history(NativeEngine.nativeProjectHistory(handle, action.nativeValue)).getOrThrow()
+
+    @Test
+    fun undoAndRedoStepThroughChanges() {
+        load(box("cube", 20f, 20f, 20f))
+        val start = history(com.orcamobile.core.model.HistoryAction.RECORD)
+        assertTrue(!start.canUndo && !start.canRedo)
+
+        EngineJson.plateUpdate(NativeEngine.nativePlateAddCopies(handle, 0, 0, 2, "", keys, values, options)).getOrThrow()
+        history(com.orcamobile.core.model.HistoryAction.RECORD)
+        plates(PlateAction.Add)
+        plates(PlateAction.Move(InstanceRef(0, 2), 1))
+        val moved = history(com.orcamobile.core.model.HistoryAction.RECORD)
+        assertTrue(moved.canUndo)
+
+        // Back over the move and the new plate: two plates become one again.
+        val back = history(com.orcamobile.core.model.HistoryAction.UNDO)
+        assertTrue(back.changed && back.canRedo)
+        assertEquals(3, back.objects.single().instances)
+        assertEquals(1, plates().plates.size)
+
+        // Back over the copies.
+        assertEquals(1, history(com.orcamobile.core.model.HistoryAction.UNDO).objects.single().instances)
+        assertTrue(!history(com.orcamobile.core.model.HistoryAction.UNDO).changed)
+
+        // And forward again, plates and all.
+        history(com.orcamobile.core.model.HistoryAction.REDO)
+        val again = history(com.orcamobile.core.model.HistoryAction.REDO)
+        assertTrue(again.changed && !again.canRedo)
+        assertEquals(listOf(0, 0, 1), plates().objects.single().plates)
+
+        // A change after an undo drops what was ahead.
+        history(com.orcamobile.core.model.HistoryAction.UNDO)
+        history(com.orcamobile.core.model.HistoryAction.RECORD)
+        assertTrue(!history(com.orcamobile.core.model.HistoryAction.REDO).changed)
+    }
+
     private object Quiet : NativeProgressListener {
         override fun onProgress(percent: Int, message: String) = Unit
     }

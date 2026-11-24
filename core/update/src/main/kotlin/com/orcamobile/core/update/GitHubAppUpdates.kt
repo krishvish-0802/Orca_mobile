@@ -20,28 +20,34 @@ import java.io.IOException
 import kotlin.coroutines.coroutineContext
 
 /**
- * Updates from the repository's rolling latest-build release: its version.json
+ * Updates from one of the repository's rolling releases: its version.json
  * names the build (the CI run number, which is the APK's versionCode) and the
- * APK for each ABI.
+ * APK for each ABI. A milestone branch's build follows that branch's release
+ * first; once the release is gone (the milestone was merged), main's.
  */
 internal class GitHubAppUpdates(
     private val context: Context,
     private val http: OkHttpClient,
     private val dispatchers: CoroutineDispatchers,
-    /** The release's download base, ending in a slash. */
-    private val releaseUrl: String = RELEASE_URL,
+    /** The releases' download bases, each ending in a slash: the first that exists is used. */
+    private val releaseUrls: List<String> = releaseUrlsFor(BuildConfig.UPDATE_TAG),
     private val installedVersion: () -> Long = { installedVersionCode(context) },
     private val abis: List<String> = Build.SUPPORTED_ABIS.toList(),
 ) : AppUpdates {
 
     override suspend fun check(): Result<AppUpdate?> = withContext(dispatchers.io) {
         runCatching {
-            val request = Request.Builder().url(releaseUrl + MANIFEST).header("Cache-Control", "no-cache").build()
-            val text = http.newCall(request).execute().use { response ->
-                if (!response.isSuccessful) throw IOException("The update check got HTTP ${response.code}")
-                response.body?.string().orEmpty()
+            for ((i, releaseUrl) in releaseUrls.withIndex()) {
+                val request = Request.Builder().url(releaseUrl + MANIFEST).header("Cache-Control", "no-cache").build()
+                val text = http.newCall(request).execute().use { response ->
+                    // No such release: try the next channel.
+                    if (response.code == HTTP_NOT_FOUND && i < releaseUrls.lastIndex) return@use null
+                    if (!response.isSuccessful) throw IOException("The update check got HTTP ${response.code}")
+                    response.body?.string().orEmpty()
+                } ?: continue
+                return@runCatching ReleaseManifest.parse(text).updateFor(installedVersion(), abis, releaseUrl)
             }
-            ReleaseManifest.parse(text).updateFor(installedVersion(), abis, releaseUrl)
+            null
         }
     }
 
@@ -98,7 +104,12 @@ internal class GitHubAppUpdates(
     }
 
     companion object {
-        const val RELEASE_URL = "https://github.com/krishvish-0802/Orca_mobile/releases/download/latest-build/"
+        const val RELEASES = "https://github.com/krishvish-0802/Orca_mobile/releases/download/"
+        const val MAIN_TAG = "latest-build"
+        private const val HTTP_NOT_FOUND = 404
+
+        /** [tag]'s release, then main's when [tag] is another. */
+        fun releaseUrlsFor(tag: String): List<String> = listOf(tag, MAIN_TAG).distinct().map { "$RELEASES$it/" }
         const val MANIFEST = "version.json"
         const val UPDATES_DIR = "updates"
         private const val APK_TYPE = "application/vnd.android.package-archive"

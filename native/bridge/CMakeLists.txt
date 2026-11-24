@@ -8,10 +8,15 @@ add_library(orca_engine_core STATIC
     src/ConfigValues.hpp
     src/CutTool.cpp
     src/EmbossTool.cpp
+    src/TextureTool.cpp
+    src/Filaments.cpp
+    src/Filaments.hpp
     src/EngineInfo.cpp
     src/EngineEnvironment.cpp
     src/GCodePreview.cpp
     src/SliceJob.cpp
+    src/WipeTower.cpp
+    src/WipeTower.hpp
     src/JsonCodec.cpp
     src/LayerHeights.cpp
     src/MeasureTool.cpp
@@ -22,10 +27,14 @@ add_library(orca_engine_core STATIC
     src/PlateTools.cpp
     src/ProjectImpl.hpp
     src/ProjectObjects.cpp
+    src/ProjectFilaments.cpp
+    src/ProjectHistory.cpp
     src/ProjectPlates.cpp
     src/PresetCatalog.cpp
     src/PresetCatalogImpl.hpp
     src/Project.cpp
+    # Upstream GUI helpers libslic3r calls, without their wx includes.
+    "${CMAKE_CURRENT_LIST_DIR}/../upstream_glue/ColorSpaceConvert.cpp"
 )
 target_include_directories(orca_engine_core
     PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -48,6 +57,7 @@ if (ANDROID)
         jni/JniUtils.hpp
         jni/MeshJni.cpp
         jni/ToolsJni.cpp
+        jni/TextureJni.cpp
         jni/ObjectJni.cpp
         jni/PaintJni.cpp
         jni/PlateJni.cpp

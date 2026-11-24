@@ -4,9 +4,11 @@
 #include <filesystem>
 
 #include "ConfigBuilder.hpp"
+#include "WipeTower.hpp"
 #include "PresetCatalogImpl.hpp"
 #include "orca_engine/Project.hpp"
 #include "libslic3r/BoundingBox.hpp"
+#include "libslic3r/LocalesUtils.hpp"
 #include "libslic3r/GCode/GCodeProcessor.hpp"
 #include "libslic3r/Model.hpp"
 #include "libslic3r/Print.hpp"
@@ -185,6 +187,17 @@ SliceOutcome run_slice(const Project& project, const SliceRequest& request, Prog
     SliceRequest plate_request = request;
     for (const auto& [key, value] : project.plate_settings())
         plate_request.config_overrides[key] = value;
+    // The prime tower where the plate shows it: its saved spot, kept on the bed.
+    try {
+        const Slic3r::DynamicPrintConfig config =
+            ConfigBuilder::resolve(plate_request.presets, plate_request.config_overrides, catalog);
+        if (const auto tower = detail::place_wipe_tower(project, config)) {
+            plate_request.config_overrides["wipe_tower_x"] = Slic3r::float_to_string_decimal_point(tower->x);
+            plate_request.config_overrides["wipe_tower_y"] = Slic3r::float_to_string_decimal_point(tower->y);
+        }
+    } catch (const std::exception&) {
+        // slice_model() reports a config that does not resolve.
+    }
     return slice_model(model, false, plate_request, progress, cancel, catalog);
 }
 

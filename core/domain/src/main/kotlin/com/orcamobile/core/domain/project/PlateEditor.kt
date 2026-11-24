@@ -1,5 +1,6 @@
 package com.orcamobile.core.domain.project
 
+import com.orcamobile.core.model.AlignMode
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PlateAction
@@ -9,6 +10,7 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
+import com.orcamobile.core.model.WipeTower
 
 /**
  * The desktop's plate tools, run by the engine on a loaded project. Each
@@ -56,4 +58,19 @@ interface PlateEditor {
 
     /** Reads or changes the project's plates. */
     suspend fun plates(project: ProjectId, action: PlateAction): Result<Plates>
+
+    /** The current plate's prime tower, or null when it prints none. */
+    suspend fun wipeTower(project: ProjectId, config: PlateConfig): Result<WipeTower?> = Result.success(null)
+
+    /**
+     * Lines up [instances]: with the outermost of them, or with the plate's
+     * edges or middle when [toPlate]. [PlateUpdate.placed] is how many moved.
+     */
+    suspend fun align(
+        project: ProjectId,
+        instances: List<InstanceRef>,
+        mode: AlignMode,
+        toPlate: Boolean,
+        config: PlateConfig,
+    ): Result<PlateUpdate>
 }

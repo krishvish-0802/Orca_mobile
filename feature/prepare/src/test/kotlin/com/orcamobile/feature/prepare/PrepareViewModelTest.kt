@@ -81,6 +81,21 @@ class PrepareViewModelTest {
 
     private class FakeProjects(private val result: Result<ProjectSummary>) : ProjectRepository {
         val centers = mutableListOf<Pair<Double, Double>>()
+        val history = mutableListOf<com.orcamobile.core.model.HistoryAction>()
+        private var steps = 0
+        private var at = -1
+
+        override suspend fun history(id: ProjectId, action: com.orcamobile.core.model.HistoryAction): Result<com.orcamobile.core.model.HistoryState> {
+            history += action
+            val changed = when (action) {
+                com.orcamobile.core.model.HistoryAction.RECORD -> { at += 1; steps = at + 1; false }
+                com.orcamobile.core.model.HistoryAction.UNDO -> (at > 0).also { if (it) at -= 1 }
+                com.orcamobile.core.model.HistoryAction.REDO -> (at < steps - 1).also { if (it) at += 1 }
+            }
+            return Result.success(
+                com.orcamobile.core.model.HistoryState(result.getOrThrow().objects, changed, canUndo = at > 0, canRedo = at < steps - 1),
+            )
+        }
         override suspend fun load(path: String) = result
         override suspend fun centerOn(id: ProjectId, x: Double, y: Double) { centers += x to y }
         override fun release(id: ProjectId) = Unit
@@ -227,6 +242,14 @@ class PrepareViewModelTest {
 
         override suspend fun orient(project: ProjectId, instance: InstanceRef?, config: PlateConfig) =
             answer("orient $instance", config)
+
+        override suspend fun align(
+            project: ProjectId,
+            instances: List<InstanceRef>,
+            mode: com.orcamobile.core.model.AlignMode,
+            toPlate: Boolean,
+            config: PlateConfig,
+        ) = answer("align $mode toPlate=$toPlate ${instances.size}", config)
 
         override suspend fun addCopies(
             project: ProjectId,
@@ -753,5 +776,94 @@ class PrepareViewModelTest {
         assertEquals(PlateAction.Get, plateEditor.plateCalls.last())
         assertEquals(emptySet(), vm.state.value.slicedPlates)
         assertEquals(PlateNotice.ArrangedAll(2), vm.state.value.plateNotice)
+    }
+
+    @Test
+    fun `a new painted modifier is painted on once its first stroke made it`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER))
+        assertNull(vm.state.value.paint?.modifier)
+        vm.onIntent(PrepareIntent.PaintedModifierMade(1))
+        assertEquals(1, vm.state.value.paint?.modifier)
+
+        vm.onIntent(PrepareIntent.StopPainting)
+        vm.onIntent(PrepareIntent.StartPainting(com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER, modifier = 3))
+        assertEquals(3, vm.state.value.paint?.modifier)
+    }
+
+    @Test
+    fun `a long press adds objects to the selection, and tools take them all`() {
+        val two = ModelObjectInfo("benchy", 3, 225_000, listOf(60.0, 31.0, 48.0))
+        plateEditor.next = PlateUpdate(listOf(two))
+        val vm = viewModel(FakeProjects(Result.success(project.copy(objects = listOf(two)))), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 1)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 2)))
+        assertEquals(InstanceRef(0, 0), vm.state.value.selection)
+        assertEquals(listOf(InstanceRef(0, 1), InstanceRef(0, 2)), vm.state.value.group)
+
+        vm.onIntent(PrepareIntent.Align(com.orcamobile.core.model.AlignMode.LEFT, toPlate = false))
+        assertEquals("align LEFT toPlate=false 3", plateEditor.calls.last())
+        assertEquals(2, vm.state.value.group.size)
+
+        // Taking the main one out: the next takes over.
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        assertEquals(InstanceRef(0, 1), vm.state.value.selection)
+        assertEquals(listOf(InstanceRef(0, 2)), vm.state.value.group)
+
+        // Delete goes from the last instance to the first.
+        vm.onIntent(PrepareIntent.DeleteSelected)
+        assertEquals(listOf("remove InstanceRef(objectIndex=0, instanceIndex=2)", "remove InstanceRef(objectIndex=0, instanceIndex=1)"), plateEditor.calls.takeLast(2))
+        assertNull(vm.state.value.selection)
+        assertEquals(emptyList(), vm.state.value.group)
+
+        // A plain tap selects one again.
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 0)))
+        vm.onIntent(PrepareIntent.ToggleSelected(InstanceRef(0, 1)))
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 2)))
+        assertEquals(emptyList(), vm.state.value.group)
+    }
+
+    @Test
+    fun `changes can be undone and redone`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        assertEquals(listOf(com.orcamobile.core.model.HistoryAction.RECORD), projects.history)
+        assertFalse(vm.state.value.canUndo)
+
+        vm.onIntent(PrepareIntent.Arrange)
+        assertTrue(vm.state.value.canUndo)
+        vm.onIntent(PrepareIntent.Select(InstanceRef(0, 0)))
+        val revision = vm.state.value.plateRevision
+
+        vm.onIntent(PrepareIntent.Undo)
+        assertFalse(vm.state.value.canUndo)
+        assertTrue(vm.state.value.canRedo)
+        assertNull(vm.state.value.selection)
+        assertTrue(vm.state.value.plateRevision > revision)
+
+        vm.onIntent(PrepareIntent.Redo)
+        assertTrue(vm.state.value.canUndo)
+        assertFalse(vm.state.value.canRedo)
+        assertNull(vm.state.value.plateTask)
+    }
+
+    @Test
+    fun `undo works in the Text tool and tells it the project changed`() {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.OpenMeshTool(MeshTool.EMBOSS))
+        assertTrue(vm.state.value.historyUsable)
+        val revision = vm.state.value.historyRevision
+
+        vm.onIntent(PrepareIntent.Undo)
+        assertTrue(vm.state.value.canRedo)
+        assertEquals(revision + 1, vm.state.value.historyRevision)
+        assertEquals(MeshTool.EMBOSS, vm.state.value.meshTool)
+
+        vm.onIntent(PrepareIntent.OpenMeshTool(MeshTool.MEASURE))
+        assertFalse(vm.state.value.historyUsable)
     }
 }

@@ -179,11 +179,95 @@ jstring native_emboss(JNIEnv* env, jclass, jlong handle, jstring request_json)
             orca::engine::FeatureFilter unused;
             const auto picks = json::feature_picks_from_json(nlohmann::json{{"picks", nlohmann::json::array({r["pick"]})}}.dump(), unused);
             const auto kind = static_cast<orca::engine::VolumeKind>(r.value("kind", 0));
-            run_on_engine_thread([&] { change.placed = orca::engine::emboss_on_surface(*project, picks.front(), kind, source); });
+            const bool surface = r.value("surface", false);
+            run_on_engine_thread([&] { change.placed = orca::engine::emboss_on_surface(*project, picks.front(), kind, source, surface); });
         } else {
             run_on_engine_thread([&] { change.placed = orca::engine::emboss_object(*project, source, r.value("x", 0.0), r.value("y", 0.0)); });
         }
         return to_jstring(env, json::to_json(change, project->objects()));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+nlohmann::json source_json(const orca::engine::EmbossSource& s)
+{
+    return {{"text", s.text}, {"font", s.font_path}, {"height", s.letter_height_mm}, {"charGap", s.char_gap},
+            {"lineGap", s.line_gap}, {"boldness", s.boldness_mm}, {"skew", s.skew}, {"svg", s.svg_path},
+            {"svgWidth", s.svg_width_mm}, {"depth", s.depth_mm}};
+}
+
+// What volume `volume` of `object` was embossed from: {"source","kind","surface",
+// "width","height"}; {} when it is no text or SVG; or {"error"}.
+jstring native_embossed(JNIEnv* env, jclass, jlong handle, jint object, jint volume)
+{
+    auto* project = from_handle<Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        std::optional<orca::engine::EmbossedVolume> e;
+        run_on_engine_thread([&] { e = orca::engine::embossed(*project, std::size_t(object), std::size_t(volume)); });
+        if (!e)
+            return to_jstring(env, "{}");
+        return to_jstring(env, nlohmann::json{{"source", source_json(e->source)}, {"kind", static_cast<int>(e->kind)},
+                                              {"surface", e->use_surface}, {"width", e->size[0]}, {"height", e->size[1]}}
+                                   .dump());
+    } catch (const std::exception& ex) {
+        return to_jstring(env, json::error_json(ex.what()));
+    }
+}
+
+// Makes an embossed volume anew: {"source":{..}, "kind": n, "surface": bool}.
+// Returns {"objects":[..]} or {"error"}.
+jstring native_emboss_update(JNIEnv* env, jclass, jlong handle, jint object, jint volume, jstring request_json)
+{
+    auto* project = from_handle<Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const nlohmann::json r = nlohmann::json::parse(to_std_string(env, request_json));
+        const auto source = source_from(r.at("source"));
+        const auto kind = static_cast<orca::engine::VolumeKind>(r.value("kind", 0));
+        const bool surface = r.value("surface", false);
+        run_on_engine_thread([&] {
+            orca::engine::emboss_update(*project, std::size_t(object), std::size_t(volume), kind, source, surface);
+        });
+        return to_jstring(env, json::to_json(orca::engine::PlateChange{}, project->objects()));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// Moves the text (volume `volume`) onto the surface at {"pick":{..}} on another
+// part of its object. Returns {"objects":[..]} or {"error"}.
+jstring native_emboss_move(JNIEnv* env, jclass, jlong handle, jint volume, jstring request_json)
+{
+    auto* project = from_handle<Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const nlohmann::json r = nlohmann::json::parse(to_std_string(env, request_json));
+        orca::engine::FeatureFilter unused;
+        const auto picks = json::feature_picks_from_json(nlohmann::json{{"picks", nlohmann::json::array({r.at("pick")})}}.dump(), unused);
+        run_on_engine_thread([&] {
+            orca::engine::emboss_move(*project, std::size_t(volume), picks.front());
+            orca::engine::emboss_settle(*project, picks.front().via.object);
+        });
+        return to_jstring(env, json::to_json(orca::engine::PlateChange{}, project->objects()));
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// After a text was dragged: the object back on the bed. Returns {"objects":[..]} or {"error"}.
+jstring native_emboss_settle(JNIEnv* env, jclass, jlong handle, jint object)
+{
+    auto* project = from_handle<Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        run_on_engine_thread([&] { orca::engine::emboss_settle(*project, std::size_t(object)); });
+        return to_jstring(env, json::to_json(orca::engine::PlateChange{}, project->objects()));
     } catch (const std::exception& e) {
         return to_jstring(env, json::error_json(e.what()));
     }
@@ -270,6 +354,10 @@ const JNINativeMethod kEngineMethods[] = {
     {"nativeBrimEars", "(JII" STR ")" STR, reinterpret_cast<void*>(native_brim_ears)},
     {"nativeEmbossSize", "(" STR ")" STR, reinterpret_cast<void*>(native_emboss_size)},
     {"nativeEmboss", "(J" STR ")" STR, reinterpret_cast<void*>(native_emboss)},
+    {"nativeEmbossed", "(JII)" STR, reinterpret_cast<void*>(native_embossed)},
+    {"nativeEmbossUpdate", "(JII" STR ")" STR, reinterpret_cast<void*>(native_emboss_update)},
+    {"nativeEmbossSettle", "(JI)" STR, reinterpret_cast<void*>(native_emboss_settle)},
+    {"nativeEmbossMove", "(JI" STR ")" STR, reinterpret_cast<void*>(native_emboss_move)},
 };
 const JNINativeMethod kViewportMethods[] = {
     {"nativeBrimEarsShow", "(JJII" STR "I)V", reinterpret_cast<void*>(native_brim_ears_show)},

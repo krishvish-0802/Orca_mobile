@@ -6,6 +6,7 @@
 
 #include "ConfigValues.hpp"
 #include "PresetCatalogImpl.hpp"
+#include "Filaments.hpp"
 
 namespace orca::engine {
 
@@ -71,7 +72,10 @@ Slic3r::DynamicPrintConfig PresetCatalog::Impl::compose(const PresetSelection& s
         filaments.push_back(require_preset(bundle.filaments, name, "filament"));
 
     const Slic3r::DynamicPrintConfig project_config;
-    return PresetBundle::construct_full_config(printer, process, project_config, filaments, true, std::nullopt);
+    Slic3r::DynamicPrintConfig config =
+        PresetBundle::construct_full_config(printer, process, project_config, filaments, true, std::nullopt);
+    apply_filaments(config, selection.filament_colours);
+    return config;
 }
 
 // --- PresetCatalog -------------------------------------------------------

@@ -149,6 +149,9 @@ void check_free(const ModelObject& object, double min_z, double max_z, const Sli
 std::vector<std::string> setting_keys(SettingScope scope)
 {
     std::vector<std::string> keys = Slic3r::PrintRegionConfig().keys();
+    // The filament an object, part or height range prints with (the desktop's
+    // filament column); the engine spreads it over the per-feature filaments.
+    keys.insert(keys.begin(), "extruder");
     if (scope == SettingScope::Object) {
         const auto object_keys = Slic3r::PrintObjectConfig().keys();
         keys.insert(keys.end(), object_keys.begin(), object_keys.end());
@@ -170,8 +173,9 @@ ObjectDetails Project::details(std::size_t object_index) const
     details.name = object.name;
     details.settings = values_of(object.config);
     for (const ModelVolume* volume : object.volumes)
-        details.volumes.push_back(
-            {volume->name, to_kind(volume->type()), volume->mesh().its.indices.size(), values_of(volume->config)});
+        details.volumes.push_back({volume->name, to_kind(volume->type()), volume->mesh().its.indices.size(),
+                                   values_of(volume->config), volume->emboss_shape.has_value() || volume->text_configuration.has_value(),
+                                   volume->painted_modifier_depth});
     for (const auto& [range, config] : object.layer_config_ranges)
         details.layer_ranges.push_back({range.first, range.second, values_of(config)});
     return details;
@@ -188,13 +192,16 @@ ObjectMesh Project::object_mesh(std::size_t object_index) const
             const ModelVolume& volume = *object.volumes[v];
             if (volume.is_model_part() != (pass == 0))
                 continue;
+            // A painted modifier is its part's mesh again: the paint shows it, not a second shell.
+            if (volume.is_painted_modifier())
+                continue;
             const indexed_triangle_set& its = volume.mesh().its;
             for (const auto& face : its.indices)
                 for (int k = 0; k < 3; ++k) {
                     const Slic3r::Vec3f& p = its.vertices[face[k]];
                     mesh.positions.insert(mesh.positions.end(), {p.x(), p.y(), p.z()});
                 }
-            ObjectMesh::Piece piece{v, to_kind(volume.type()), triangles, its.indices.size(), {}};
+            ObjectMesh::Piece piece{v, to_kind(volume.type()), triangles, its.indices.size(), {}, volume.extruder_id()};
             const Slic3r::Transform3d& matrix = volume.get_matrix();
             for (int i = 0; i < 16; ++i)
                 piece.transform[i] = matrix.matrix().data()[i];
@@ -486,6 +493,15 @@ void Project::set_setting(const SettingTarget& target, const std::string& key, c
     Slic3r::ModelConfig& config = config_of(m_impl->object(target.object), target);
     Slic3r::ConfigSubstitutionContext context(Slic3r::ForwardCompatibilitySubstitutionRule::Disable);
     config.set_deserialize(key, value, context);
+}
+
+void Project::set_painted_depth(std::size_t object_index, std::size_t volume_index, double depth_mm)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    ModelVolume& volume = volume_of(m_impl->object(object_index), volume_index);
+    if (!volume.is_painted_modifier())
+        throw std::invalid_argument("This part is not a painted modifier");
+    volume.painted_modifier_depth = float(std::max(0.0, depth_mm));
 }
 
 void Project::reset_setting(const SettingTarget& target, const std::string& key)

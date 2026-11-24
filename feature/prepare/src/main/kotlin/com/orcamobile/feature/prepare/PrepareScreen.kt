@@ -1,5 +1,7 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.designsystem.icon.OrcaIcons
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -49,6 +51,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -89,6 +92,7 @@ fun PrepareRoute(
     layerTool: LayerHeightViewModel = hiltViewModel(),
     earsTool: BrimEarsViewModel = hiltViewModel(),
     embossTool: EmbossViewModel = hiltViewModel(),
+    textureTool: TextureViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
@@ -126,6 +130,7 @@ fun PrepareRoute(
     val layers by layerTool.state.collectAsStateWithLifecycle()
     val ears by earsTool.state.collectAsStateWithLifecycle()
     val emboss by embossTool.state.collectAsStateWithLifecycle()
+    val texture by textureTool.state.collectAsStateWithLifecycle()
     val layersFor = state.project?.id?.let { p -> state.selection?.takeIf { state.meshTool == MeshTool.LAYERS }?.let { p to it } }
     LaunchedEffect(layersFor, state.presets) {
         if (layersFor == null) {
@@ -148,6 +153,8 @@ fun PrepareRoute(
             if (embossTool.state.value.active) embossTool.onIntent(EmbossIntent.Close)
         } else {
             embossTool.onIntent(EmbossIntent.Open(embossIn))
+            // Opened from the Parts tab's Edit text: that text into the panel.
+            state.textToEdit?.let { embossTool.onIntent(EmbossIntent.Edit(it)) }
         }
     }
     LaunchedEffect(layerTool) {
@@ -155,6 +162,43 @@ fun PrepareRoute(
     }
     LaunchedEffect(earsTool) {
         earsTool.events.collect { viewModel.onIntent(PrepareIntent.ObjectSettingsChanged) }
+    }
+    // The Paint tool's Texture kind works on the selected object.
+    val textureIn = state.project?.id?.let { project ->
+        state.selection?.takeIf { state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE }?.let { TextureTarget(project, it.objectIndex) }
+    }
+    LaunchedEffect(textureIn) {
+        if (textureIn == null) {
+            if (textureTool.state.value.target != null) textureTool.onIntent(TextureIntent.Close)
+        } else {
+            textureTool.onIntent(TextureIntent.Open(textureIn))
+        }
+    }
+    // The brush paints the layer the panel has active.
+    LaunchedEffect(texture.active, state.paint?.kind) {
+        val brush = state.paint
+        if (brush?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && brush.textureLayer != texture.active) {
+            viewModel.onIntent(PrepareIntent.SetBrush(brush.copy(textureLayer = texture.active)))
+        }
+    }
+    LaunchedEffect(textureTool, state.historyRevision) {
+        if (state.historyRevision > 0) textureTool.onIntent(TextureIntent.Reload)
+    }
+    LaunchedEffect(textureTool) {
+        textureTool.events.collect { event ->
+            when (event) {
+                TextureEvent.Changed -> viewModel.onIntent(PrepareIntent.ObjectSettingsChanged)
+                TextureEvent.PaintChanged -> viewModel.onIntent(PrepareIntent.PaintReloaded)
+                is TextureEvent.Baked -> viewModel.onIntent(PrepareIntent.TextureBaked(event.objects))
+            }
+        }
+    }
+    val texturePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) textureTool.onIntent(TextureIntent.PickedFile(uri.toString()))
+    }
+    // An undo or redo while the Text tool is open: the text it edits is read again.
+    LaunchedEffect(embossTool, state.historyRevision) {
+        if (state.historyRevision > 0) embossTool.onIntent(EmbossIntent.ProjectChanged)
     }
     LaunchedEffect(embossTool) {
         embossTool.events.collect { event ->
@@ -228,6 +272,9 @@ fun PrepareRoute(
             emboss = emboss,
             onEmboss = embossTool::onIntent,
             onPickSvg = { svgPicker.launch(arrayOf("image/svg+xml", "*/*")) },
+            texture = texture,
+            onTexture = textureTool::onIntent,
+            onPickTexture = { texturePicker.launch(arrayOf("image/*")) },
         ),
         measure = measure,
         onMeasureIntent = { intent ->
@@ -301,17 +348,40 @@ fun PrepareScreen(
                     coloring = preview?.coloring ?: ToolpathColoring.FeatureType,
                     selection = state.selection,
                     onSelectionChange = { onIntent(PrepareIntent.Select(it)) },
+                    group = state.group,
+                    onSelectionToggle = { onIntent(PrepareIntent.ToggleSelected(it)) },
+                    onTwoFingerTap = { onIntent(PrepareIntent.Undo) },
+                    onThreeFingerTap = { onIntent(PrepareIntent.Redo) },
                     onPlateEdited = { onIntent(PrepareIntent.PlateEdited) },
                     projectRevision = state.plateRevision,
+                    frameKey = state.currentPlate,
                     locked = state.plateTask != null || state.meshTool == MeshTool.SIMPLIFY,
                     layOnFace = state.layingOnFace,
                     onLaidOnFace = { onIntent(PrepareIntent.LaidOnFace(it)) },
                     highlightedVolume = list.selectedVolume,
                     handleMode = state.handleMode,
                     paint = state.paint,
-                    paintPalette = state.paint?.let { paletteFor(it.kind) }.orEmpty(),
+                    paintPalette = state.paint?.let { paletteFor(it.kind, state.choices.slotColoursOrDefault()) }.orEmpty(),
+                    filamentColours = state.choices.slotColoursOrDefault().takeIf { it.size > 1 }.orEmpty(),
                     clearPaintRequest = state.paintClearRequest,
+                    paintRevision = state.paintRevision,
+                    // The Texture paint shows the relief a bake would make, following every stroke and setting.
+                    texturePreview = state.selection?.objectIndex?.takeIf {
+                        state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && tools.texture.preview &&
+                            tools.texture.stack.layers.isNotEmpty() && tools.texture.bakingPercent == null
+                    },
+                    texturePreviewKey = java.util.Objects.hash(state.plateRevision, state.paintRevision, state.paintStrokes, tools.texture.revision),
+                    onTexturePreviewBusy = { tools.onTexture(TextureIntent.PreviewBusy(it)) },
+                    placingTexture = state.paint?.kind == com.orcamobile.core.model.PaintKind.TEXTURE && tools.texture.placing &&
+                        tools.texture.activeLayer != null,
+                    onTextureShift = { tools.onTexture(TextureIntent.Place(dxPx = it.x, dyPx = it.y)) },
+                    onTextureScale = { tools.onTexture(TextureIntent.Place(scale = it)) },
+                    onTextureTurn = { tools.onTexture(TextureIntent.Place(turnDegrees = it)) },
                     onPainted = { onIntent(PrepareIntent.Painted) },
+                    onPaintedModifier = { volume ->
+                        onIntent(PrepareIntent.PaintedModifierMade(volume))
+                        onListIntent(ObjectListIntent.Refresh)
+                    },
                     onVolumeSelectionChange = { instance, volume ->
                         onListIntent(ObjectListIntent.SelectVolume(volume, instance?.objectIndex))
                     },
@@ -331,7 +401,12 @@ fun PrepareScreen(
                         BrimEarsView(it, tools.ears.ears, tools.ears.selected)
                     },
                     onBrimEarTap = { tap -> tools.onEars(BrimEarsIntent.Tap(tap.bedX, tap.bedY, tap.x, tap.y)) },
+                    wipeTower = state.wipeTower.takeIf { state.meshTool == null && state.paint == null },
+                    onWipeTowerMoved = { x, y -> onIntent(PrepareIntent.MoveWipeTower(x, y)) },
                     pickingSurface = state.meshTool == MeshTool.EMBOSS,
+                    editingText = tools.emboss.editing.takeIf { state.meshTool == MeshTool.EMBOSS },
+                    onTextMoved = { tools.onEmboss(EmbossIntent.Moved) },
+                    onTextResize = { tools.onEmboss(EmbossIntent.Resize(it)) },
                     onSurfaceTap = { pick -> tools.onEmboss(EmbossIntent.PlaceOn(pick)) },
                     modifier = Modifier.fillMaxSize(),
                 )
@@ -343,6 +418,7 @@ fun PrepareScreen(
                     state.meshTool == MeshTool.CUT -> R.string.prepare_cut_gestures
                     state.meshTool == MeshTool.MEASURE -> R.string.prepare_measure_gestures
                     state.meshTool == MeshTool.BRIM_EARS -> R.string.prepare_ears_gestures
+                    state.meshTool == MeshTool.EMBOSS && tools.emboss.editing != null -> R.string.prepare_emboss_editing_gestures
                     state.meshTool == MeshTool.EMBOSS -> R.string.prepare_emboss_gestures
                     else -> null
                 }
@@ -357,22 +433,51 @@ fun PrepareScreen(
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                     )
                 }
-                if (preview == null && state.selection != null && state.plateEditable && state.meshTool == null) {
+                if (preview == null && state.selection != null && state.group.isEmpty() && state.plateEditable && state.meshTool == null) {
                     HandleModePicker(
                         mode = state.handleMode,
                         onMode = { onIntent(PrepareIntent.SetHandleMode(it)) },
                         modifier = Modifier.align(Alignment.CenterStart).padding(start = 8.dp),
                     )
                 }
+                if (state.project != null && preview == null && (state.meshTool == null || state.meshTool == MeshTool.EMBOSS)) {
+                    Row(
+                        Modifier.align(Alignment.TopEnd).padding(top = 56.dp, end = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                    ) {
+                        FilledTonalIconButton(onClick = { onIntent(PrepareIntent.Undo) }, enabled = state.canUndo && state.historyUsable) {
+                            Icon(OrcaIcons.Undo, contentDescription = stringResource(R.string.prepare_undo))
+                        }
+                        FilledTonalIconButton(onClick = { onIntent(PrepareIntent.Redo) }, enabled = state.canRedo && state.historyUsable) {
+                            Icon(OrcaIcons.Redo, contentDescription = stringResource(R.string.prepare_redo))
+                        }
+                    }
+                }
                 PlateStatus(
                     state,
                     onIntent,
                     Modifier.align(Alignment.TopCenter).padding(top = if (state.preview is PreviewUiState.Ready) 56.dp else 8.dp),
                 )
+                if (preview == null && state.wipeTower?.overlapsObjects == true && state.meshTool == null && state.paint == null) {
+                    Text(
+                        stringResource(R.string.prepare_wipe_tower_overlaps),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(start = 8.dp, bottom = 88.dp)
+                            .background(MaterialTheme.colorScheme.errorContainer, MaterialTheme.shapes.small)
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
                 val selectedName = state.selectedObjectName
                 if (preview == null && selectedName != null && state.plateTask == null && state.plateNotice == null) {
                     Text(
-                        stringResource(R.string.prepare_selection_hint, selectedName),
+                        if (state.group.isEmpty()) {
+                            stringResource(R.string.prepare_selection_hint, selectedName)
+                        } else {
+                            pluralStringResource(R.plurals.prepare_group_hint, state.selected.size, state.selected.size)
+                        },
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .align(Alignment.TopStart)
@@ -437,9 +542,18 @@ fun PrepareScreen(
                         onIntent(PrepareIntent.CloseMeshTool)
                     }
                 } else if (preview == null && state.paint != null) {
-                    PaintPanel(state, onIntent, list.fuzzySkinDisabled) {
-                        onListIntent(ObjectListIntent.EnablePaintedFuzzySkin)
-                    }
+                    PaintPanel(
+                        state,
+                        onIntent,
+                        list,
+                        onListIntent,
+                        { volume -> onOpenObjectSettings(volume, null) },
+                        list.fuzzySkinDisabled,
+                        { onListIntent(ObjectListIntent.EnablePaintedFuzzySkin) },
+                        tools.texture,
+                        tools.onTexture,
+                        tools.onPickTexture,
+                    )
                 } else if (preview == null) {
                     ObjectPanel(state, list, onIntent, onListIntent, onPickFile, onOpenObjectSettings)
                 }
@@ -487,7 +601,6 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
         PresetChip(stringResource(R.string.prepare_preset_vendor), choices.vendor, enabled = choices.vendors.isNotEmpty()) { choosing = PresetField.VENDOR }
         PresetChip(stringResource(R.string.prepare_preset_printer), choices.printer, enabled = choices.printers.isNotEmpty()) { choosing = PresetField.PRINTER }
         PresetChip(stringResource(R.string.prepare_preset_process), choices.process, enabled = choices.processes.isNotEmpty()) { choosing = PresetField.PROCESS }
-        PresetChip(stringResource(R.string.prepare_preset_filament), choices.filament, enabled = choices.filaments.isNotEmpty()) { choosing = PresetField.FILAMENT }
         FilledTonalButton(onClick = onOpenSettings) {
             Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(
@@ -500,6 +613,7 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             )
         }
     }
+    FilamentBar(choices, onIntent)
     if (choices.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     choices.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
@@ -833,4 +947,7 @@ data class ObjectToolsUi(
     val emboss: EmbossUiState = EmbossUiState(),
     val onEmboss: (EmbossIntent) -> Unit = {},
     val onPickSvg: () -> Unit = {},
+    val texture: TextureUiState = TextureUiState(),
+    val onTexture: (TextureIntent) -> Unit = {},
+    val onPickTexture: () -> Unit = {},
 )

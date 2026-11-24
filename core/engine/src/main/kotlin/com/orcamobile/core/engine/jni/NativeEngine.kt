@@ -40,6 +40,12 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectObjects(handle: Long): String
 
+    /** Undo history: [action] 0 records, 1 undoes, 2 redoes; `{"changed","canUndo","canRedo","objects"}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectHistory(handle: Long, action: Int): String
+
+    /** The filaments changed: [removed] (0-based, or -1) was taken away and [count] are left. */
+    @JvmStatic external fun nativeProjectFilaments(handle: Long, removed: Int, count: Int)
+
     @JvmStatic external fun nativeProjectCenterOn(handle: Long, x: Double, y: Double)
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
@@ -74,6 +80,14 @@ internal object NativeEngine {
      * Returns `{"current", "plates":[{"name","settings","instances"}], "objects":[..]}` or `{"error": ...}`.
      */
     @JvmStatic external fun nativePlates(handle: Long, actionJson: String): String
+
+    /** Lines up instances (`refsJson`: [[object, instance], ..]) by an AlignMode; `{"placed","objects"}` or `{"error"}`. */
+    @JvmStatic external fun nativePlateAlign(
+        handle: Long, refsJson: String, mode: Int, toPlate: Boolean, presetsJson: String, keys: Array<String>, values: Array<String>,
+    ): String
+
+    /** The current plate's prime tower: `{"x","y","width","depth","height","brim","rotation","overlaps"}`, `{}` for none, or `{"error"}`. */
+    @JvmStatic external fun nativePlateWipeTower(handle: Long, presetsJson: String, keys: Array<String>, values: Array<String>): String
 
     // Mesh tools (native/bridge/jni/MeshJni.cpp); requests are MeshToolsJson.encode.
 
@@ -111,6 +125,18 @@ internal object NativeEngine {
     @JvmStatic external fun nativeEmbossSize(sourceJson: String): String
 
     /** Embosses onto a surface or as a new object: `{"placed","objects"}` or `{"error"}`. */
+    /** An embossed volume's settings: `{"source","kind","surface","width","height"}`, `{}` for none, or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossed(handle: Long, objectIndex: Int, volume: Int): String
+
+    /** Makes an embossed volume anew: `{"source","kind","surface"}`; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossUpdate(handle: Long, objectIndex: Int, volume: Int, requestJson: String): String
+
+    /** Moves an embossed volume onto `{"pick":{..}}`; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossMove(handle: Long, volume: Int, requestJson: String): String
+
+    /** Puts an object back on the bed after a text moved; returns `{"objects":[..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeEmbossSettle(handle: Long, objectIndex: Int): String
+
     @JvmStatic external fun nativeEmboss(handle: Long, requestJson: String): String
 
     /** Takes an instance off the plate. `{"objects":[..]}` after it, or `{"error": ...}`. */
@@ -183,6 +209,26 @@ internal object NativeEngine {
         listener: NativeProgressListener,
         cancelToken: Long,
     ): String
+
+    /** The object's texture layer stack, after `requestJson`'s action (TextureJni.cpp); `{"error"}` on failure. */
+    @JvmStatic external fun nativeTextureStack(projectHandle: Long, objectIndex: Int, requestJson: String): String
+
+    /** Bakes the object's painted texture layers; `{"canceled":true}` when [cancelToken] stopped it. */
+    @JvmStatic external fun nativeTextureBake(projectHandle: Long, objectIndex: Int, listener: NativeProgressListener, cancelToken: Long): String
+
+    /** `{"textures":[{"name","path"}]}`: the textures shipped with the app. */
+    @JvmStatic external fun nativeTextureLibrary(): String
+
+    /**
+     * The relief a bake of the object would make, not kept (blocking). A preview
+     * handle for NativeViewport.nativeTexturePreviewShow and [nativeTexturePreviewFree],
+     * or 0 when [cancelToken] stopped it.
+     */
+    @JvmStatic external fun nativeTexturePreviewCompute(projectHandle: Long, objectIndex: Int, cancelToken: Long): Long
+
+    @JvmStatic external fun nativeTexturePreviewTriangles(previewHandle: Long): Long
+
+    @JvmStatic external fun nativeTexturePreviewFree(previewHandle: Long)
 
     /** Like [nativeSlice], for a loaded project sliced as placed. */
     @JvmStatic external fun nativeSliceProject(

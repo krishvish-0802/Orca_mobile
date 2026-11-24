@@ -44,6 +44,8 @@ import com.orcamobile.core.engine.MeshToolsJson
 import com.orcamobile.core.engine.ObjectToolsJson
 import com.orcamobile.core.engine.NativePreviewRegistry
 import com.orcamobile.core.engine.NativeProjectRegistry
+import com.orcamobile.core.model.EmbossTarget
+import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BrimEar
 import com.orcamobile.core.model.CutCheck
@@ -54,6 +56,7 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.MeasureOutcome
 import com.orcamobile.core.model.MeasureRequest
 import com.orcamobile.core.model.PaintBrush
+import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.SimplifyCounts
@@ -66,6 +69,8 @@ import dagger.hilt.components.SingletonComponent
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.exp
 
 /**
@@ -99,9 +104,21 @@ fun PlateViewport(
     coloring: ToolpathColoring = ToolpathColoring.FeatureType,
     selection: InstanceRef? = null,
     onSelectionChange: (InstanceRef?) -> Unit = {},
+    /**
+     * Other instances selected with [selection]: drawn selected, and a drag or a
+     * twist moves them with it. A long press on an object adds it to the
+     * selection or takes it out ([onSelectionToggle]).
+     */
+    group: List<InstanceRef> = emptyList(),
+    onSelectionToggle: (InstanceRef) -> Unit = {},
+    /** A quick tap with two fingers (undo) or three (redo), as the desktop's shortcuts. */
+    onTwoFingerTap: () -> Unit = {},
+    onThreeFingerTap: () -> Unit = {},
     onPlateEdited: () -> Unit = {},
     /** Grows when the engine moved the objects without a gesture, so they are redrawn. */
     projectRevision: Int = 0,
+    /** Changes when the plate shows something else (another plate): the camera frames it then, and only then. */
+    frameKey: Int = 0,
     /** The engine is changing the plate: taps and drags only move the camera. */
     locked: Boolean = false,
     layOnFace: Boolean = false,
@@ -123,9 +140,33 @@ fun PlateViewport(
      */
     paint: PaintBrush? = null,
     paintPalette: List<Color> = emptyList(),
+    /** With several filaments, each filament's colour (filament 1 first): parts show in theirs. */
+    filamentColours: List<Color> = emptyList(),
     /** Grows to erase everything painted of the brush's kind. */
     clearPaintRequest: Int = 0,
+    /** Grows when the model's paint changed under the brush (undo): painting starts again from it. */
+    paintRevision: Int = 0,
+    /**
+     * Shows the relief a texture bake of this object would make (by index), in
+     * place of its parts, worked out again whenever [texturePreviewKey] changes;
+     * null shows the parts as they are.
+     */
+    texturePreview: Int? = null,
+    texturePreviewKey: Int = 0,
+    /** A texture preview is being worked out (true), or is shown (false). */
+    onTexturePreviewBusy: (Boolean) -> Unit = {},
+    /**
+     * Fingers place the texture instead of painting: one drags it across the
+     * surface ([onTextureShift], screen px), two pinch its size ([onTextureScale])
+     * and twist it ([onTextureTurn], degrees clockwise on screen).
+     */
+    placingTexture: Boolean = false,
+    onTextureShift: (Offset) -> Unit = {},
+    onTextureScale: (Float) -> Unit = {},
+    onTextureTurn: (Float) -> Unit = {},
     onPainted: () -> Unit = {},
+    /** Painting a new painted modifier: the first stroke made it, volume [Int] of the object. */
+    onPaintedModifier: (Int) -> Unit = {},
     /**
      * Cutting with this plane, connectors and options: the plate shows the
      * plane, the cut face and the connectors, the object above the plane in
@@ -161,6 +202,21 @@ fun PlateViewport(
     /** Taps report the part surface they land on ([onSurfaceTap]), for placing text. */
     pickingSurface: Boolean = false,
     onSurfaceTap: (FeaturePick) -> Unit = {},
+    /**
+     * A text being edited (with [pickingSurface]): one finger on it slides it
+     * over the surface, two twist it on the surface, and a Size handle at the
+     * plate's edge scales it ([onTextResize], a factor). [onTextMoved] follows a
+     * drag or twist.
+     */
+    editingText: EmbossTarget? = null,
+    onTextMoved: () -> Unit = {},
+    onTextResize: (Double) -> Unit = {},
+    /**
+     * The plate's prime tower: drawn on the bed (red when it meets an object);
+     * a one-finger drag on it moves it, and [onWipeTowerMoved] gets its new corner.
+     */
+    wipeTower: WipeTower? = null,
+    onWipeTowerMoved: (x: Double, y: Double) -> Unit = { _, _ -> },
 ) {
     if (!EngineLibrary.isAvailable) {
         Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
@@ -179,6 +235,10 @@ fun PlateViewport(
     val editable = project != null && preview == null && !locked
     val currentEditable by rememberUpdatedState(editable)
     val currentSelection by rememberUpdatedState(selection)
+    val currentGroup by rememberUpdatedState(group)
+    val currentOnTwoFingerTap by rememberUpdatedState(onTwoFingerTap)
+    val currentOnThreeFingerTap by rememberUpdatedState(onThreeFingerTap)
+    val currentOnSelectionToggle by rememberUpdatedState(onSelectionToggle)
     val currentOnSelectionChange by rememberUpdatedState(onSelectionChange)
     val currentOnPlateEdited by rememberUpdatedState(onPlateEdited)
     val currentLayOnFace by rememberUpdatedState(layOnFace)
@@ -187,7 +247,30 @@ fun PlateViewport(
     val currentOnVolumeSelectionChange by rememberUpdatedState(onVolumeSelectionChange)
     val currentPaint by rememberUpdatedState(paint)
     val currentOnPainted by rememberUpdatedState(onPainted)
+    val currentOnTexturePreviewBusy by rememberUpdatedState(onTexturePreviewBusy)
+    val currentOnTextureShift by rememberUpdatedState(onTextureShift)
+    val currentOnTextureScale by rememberUpdatedState(onTextureScale)
+    val currentOnTextureTurn by rememberUpdatedState(onTextureTurn)
+    val currentOnPaintedModifier by rememberUpdatedState(onPaintedModifier)
     val painting = paint != null && project != null && preview == null && selection != null
+    // A drag on the tower moves it here at once; the engine's answer then replaces it.
+    var towerDrag by remember { mutableStateOf(Offset.Zero) }
+    LaunchedEffect(wipeTower) { towerDrag = Offset.Zero }
+    val shownTower = wipeTower?.let { it.copy(x = it.x + towerDrag.x, y = it.y + towerDrag.y) }
+    val currentTower by rememberUpdatedState(shownTower)
+    val currentOnWipeTowerMoved by rememberUpdatedState(onWipeTowerMoved)
+    val towerGrab = remember { BooleanArray(1) }
+    val towerArray = remember(shownTower, preview) {
+        shownTower?.takeIf { preview == null }?.let {
+            floatArrayOf(
+                it.x.toFloat(), it.y.toFloat(), it.width.toFloat(), it.depth.toFloat(), it.height.toFloat(),
+                it.brim.toFloat(), it.rotationDegrees.toFloat(), if (it.overlapsObjects) 1f else 0f,
+            )
+        } ?: FloatArray(0)
+    }
+    val filamentArray = remember(filamentColours) {
+        filamentColours.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
+    }
     val paletteArray = remember(paintPalette) {
         paintPalette.flatMap { listOf(it.red, it.green, it.blue, it.alpha) }.toFloatArray()
     }
@@ -258,14 +341,21 @@ fun PlateViewport(
             factory = { surface },
             update = { view ->
                 view.setBed(outline, bed?.maxHeight?.toFloat() ?: 0f)
-                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision)
+                view.setFilamentColours(filamentArray)
+                view.setWipeTower(towerArray)
+                view.setProject(project?.let(entryPoint.projectRegistry()::handleOf) ?: 0L, projectRevision, frameKey)
                 view.setPreview(preview?.let(entryPoint.previewRegistry()::handleOf) ?: 0L, layers, coloring.nativeValue)
                 view.setSelection(selection.takeIf { editable })
+                view.setGroup(group.takeIf { editable && selection != null }.orEmpty())
                 view.setHighlightedVolume(highlightedVolume.takeIf { editable && selection != null && paint == null && !cutting })
-                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray)
+                view.setPainting(selection?.objectIndex.takeIf { painting }, paint?.kind.takeIf { painting }, paletteArray, paint?.target, paintRevision)
+                view.onReliefBusy = { currentOnTexturePreviewBusy(it) }
+                view.setTexturePreview(texturePreview, texturePreviewKey)
             },
             modifier = Modifier.fillMaxSize(),
         )
+        val currentText by rememberUpdatedState(editingText)
+        val currentOnTextMoved by rememberUpdatedState(onTextMoved)
         // Gestures are read here, above the GL view, so they stay in Compose.
         if (measuring != null || editingEars != null || surfaceTaps) {
             Box(
@@ -292,13 +382,25 @@ fun PlateViewport(
                     }
                     .pointerInput(surface) {
                         plateGestures(
-                            grabsSelection = { false },
-                            onDrag = { _, _ -> false },
-                            onTwist = { false },
+                            grabsSelection = { position ->
+                                val text = currentText
+                                text != null && surface.embossHits(text, position.x, position.y)
+                            },
+                            onDrag = { _, to -> currentText?.let { surface.embossDrag(it, to.x, to.y) } ?: false },
+                            onTwist = { degrees ->
+                                // Screen angles grow clockwise; seen from the surface that is a negative turn.
+                                currentText?.let { surface.embossRotate(it, -degrees * (PI.toFloat() / 180f)) } ?: false
+                            },
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onPan = { delta -> surface.pan(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onEdited = {},
+                            onEdited = { currentOnTextMoved() },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
                         )
                     },
             )
@@ -334,6 +436,25 @@ fun PlateViewport(
                     false
                 }
             }
+        } else if (painting && placingTexture) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .pointerInput(surface) { detectTapGestures(onDoubleTap = { surface.fit() }) }
+                    .pointerInput(surface) {
+                        textureGestures(
+                            onShift = { currentOnTextureShift(it) },
+                            onScale = { currentOnTextureScale(it) },
+                            onTurn = { currentOnTextureTurn(it) },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
+                        )
+                    },
+            )
         } else if (painting) {
             Box(
                 Modifier
@@ -346,7 +467,19 @@ fun PlateViewport(
                             },
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onStrokeEnd = { if (surface.commitPaint()) currentOnPainted() },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
+                            onStrokeEnd = {
+                                if (surface.commitPaint()) currentOnPainted()
+                                val brush = currentPaint
+                                if (brush?.kind == PaintKind.PAINTED_MODIFIER && brush.modifier == null) {
+                                    surface.paintedModifier()?.let(currentOnPaintedModifier)
+                                }
+                            },
                         )
                     },
             )
@@ -357,6 +490,9 @@ fun PlateViewport(
                     .pointerInput(surface) {
                         detectTapGestures(
                             onDoubleTap = { surface.fit() },
+                            onLongPress = { position ->
+                                if (currentEditable && !currentLayOnFace) surface.pick(position.x, position.y)?.let(currentOnSelectionToggle)
+                            },
                             onTap = { position ->
                                 when {
                                     !currentEditable -> Unit
@@ -388,15 +524,24 @@ fun PlateViewport(
                             grabsSelection = { position ->
                                 val selected = currentSelection
                                 val volume = currentVolume
+                                towerGrab[0] = currentEditable && currentTower?.let { tower ->
+                                    surface.bedPoint(position.x, position.y)?.let { tower.holds(it) }
+                                } == true
                                 when {
+                                    towerGrab[0] -> true
                                     !currentEditable || selected == null -> false
                                     volume != null -> surface.pickVolume(position.x, position.y)
                                         .let { it?.instance == selected && it.volume == volume }
-                                    else -> surface.pick(position.x, position.y) == selected
+                                    else -> surface.pick(position.x, position.y).let { it == selected || it in currentGroup }
                                 }
                             },
                             onDrag = { from, to ->
-                                if (currentVolume != null) {
+                                if (towerGrab[0]) {
+                                    val a = surface.bedPoint(from.x, from.y)
+                                    val b = surface.bedPoint(to.x, to.y)
+                                    if (a != null && b != null) towerDrag += b - a
+                                    a != null && b != null
+                                } else if (currentVolume != null) {
                                     surface.moveVolume(from.x, from.y, to.x, to.y)
                                 } else {
                                     surface.moveSelection(from.x, from.y, to.x, to.y)
@@ -414,12 +559,33 @@ fun PlateViewport(
                             onOrbit = { delta -> surface.orbit(delta.x, delta.y) },
                             onPan = { delta -> surface.pan(delta.x, delta.y) },
                             onZoom = { factor, focus -> surface.zoom(factor, focus.x, focus.y) },
-                            onEdited = { currentOnPlateEdited() },
+                            onEdited = {
+                                if (towerGrab[0]) {
+                                    currentTower?.let { currentOnWipeTowerMoved(it.x, it.y) }
+                                } else {
+                                    currentOnPlateEdited()
+                                }
+                            },
+                            onFingerTap = { fingers ->
+                                when (fingers) {
+                                    2 -> currentOnTwoFingerTap()
+                                    3 -> currentOnThreeFingerTap()
+                                }
+                            },
                         )
                     },
             )
         }
-        if (editable && selection != null && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
+        if (editingText != null && surfaceTaps && preview == null) {
+            Box(Modifier.align(Alignment.CenterEnd).padding(end = 8.dp)) {
+                DragHandle("Size", "⇕", MaterialTheme.colorScheme.primary, onEdited = {}) { _, _, upDp ->
+                    onTextResize(exp(upDp * SCALE_PER_DP).toDouble())
+                    true
+                }
+            }
+        }
+        // The handles work on one object; a multi-selection moves and turns by touch.
+        if (editable && selection != null && group.isEmpty() && !painting && !cutting && measuring == null && editingEars == null && !surfaceTaps) {
             val onEdited = { currentOnPlateEdited() }
             Row(
                 Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
@@ -538,14 +704,25 @@ private suspend fun PointerInputScope.paintGestures(
     onOrbit: (Offset) -> Unit,
     onZoom: (Float, Offset) -> Unit,
     onStrokeEnd: () -> Unit,
+    /** A quick tap of two or more fingers: how many. */
+    onFingerTap: (Int) -> Unit = {},
 ) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
-        var painted = onPaint(down.position, true)
+        // The first dab waits for the finger to move or lift, so the first finger
+        // of a two-finger gesture paints nothing.
+        var started = false
+        var painted = false
         var camera = false
+        var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
             if (pressed.size >= 2) camera = true
             if (camera) {
                 if (pressed.size >= 2) {
@@ -557,12 +734,58 @@ private suspend fun PointerInputScope.paintGestures(
             } else {
                 val change = pressed.firstOrNull()
                 if (change != null && change.positionChange() != Offset.Zero) {
+                    if (!started) {
+                        painted = onPaint(down.position, true)
+                        started = true
+                    }
                     painted = onPaint(change.position, false) || painted
                 }
             }
             event.changes.forEach { it.consume() }
         } while (event.changes.any { it.pressed })
+        // A single tap paints a dab where it landed.
+        if (!camera && !started) painted = onPaint(down.position, true)
         if (painted) onStrokeEnd()
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (camera && fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
+    }
+}
+
+/**
+ * Placing a texture: one finger shifts it, two pinch its size and twist it. The
+ * camera stays put; a quick tap of two or more fingers is [onFingerTap].
+ */
+private suspend fun PointerInputScope.textureGestures(
+    onShift: (Offset) -> Unit,
+    onScale: (Float) -> Unit,
+    onTurn: (Float) -> Unit,
+    onFingerTap: (Int) -> Unit,
+) {
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false)
+        var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
+        do {
+            val event = awaitPointerEvent()
+            val pressed = event.changes.filter { it.pressed }
+            fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
+            if (pressed.size >= 2) {
+                val zoom = event.calculateZoom()
+                val turn = event.calculateRotation()
+                if (zoom != 1f) onScale(zoom)
+                if (turn != 0f) onTurn(turn)
+            } else if (fingers == 1) {
+                // One finger all along: a drag (once the second lifts, nothing until all are up).
+                val change = pressed.firstOrNull()?.positionChange()
+                if (change != null && change != Offset.Zero) onShift(change)
+            }
+            event.changes.forEach { it.consume() }
+        } while (event.changes.any { it.pressed })
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
     }
 }
 
@@ -579,17 +802,23 @@ private suspend fun PointerInputScope.plateGestures(
     onPan: (Offset) -> Unit,
     onZoom: (Float, Offset) -> Unit,
     onEdited: () -> Unit,
+    /** A quick tap of two or more fingers that hardly moved: how many. */
+    onFingerTap: (Int) -> Unit = {},
 ) {
     awaitEachGesture {
         val down = awaitFirstDown(requireUnconsumed = false)
         val dragging = grabsSelection(down.position)
         var edited = false
         var fingers = 1
+        var travel = 0f
+        var lastUptime = down.uptimeMillis
         do {
             val event = awaitPointerEvent()
             val pressed = event.changes.filter { it.pressed }
             // Lifting fingers mid-gesture must not turn a pinch into an orbit or a drag.
             fingers = maxOf(fingers, pressed.size)
+            travel += event.changes.sumOf { it.positionChange().getDistance().toDouble() }.toFloat()
+            lastUptime = event.changes.maxOf { it.uptimeMillis }
             when {
                 pressed.size == 1 && fingers == 1 -> {
                     val change = pressed[0]
@@ -615,8 +844,14 @@ private suspend fun PointerInputScope.plateGestures(
             }
         } while (event.changes.any { it.pressed })
         if (edited) onEdited()
+        val quick = lastUptime - down.uptimeMillis < FINGER_TAP_MILLIS
+        if (!edited && fingers >= 2 && quick && travel < FINGER_TAP_TRAVEL_DP * density * fingers) onFingerTap(fingers)
     }
 }
+
+/** How long and how far (per finger) a multi-finger tap may last and move. */
+private const val FINGER_TAP_MILLIS = 300L
+private const val FINGER_TAP_TRAVEL_DP = 12f
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
@@ -625,3 +860,17 @@ internal interface ViewportEntryPoint {
 
     fun previewRegistry(): NativePreviewRegistry
 }
+
+/** Whether bed point [p] (mm) is on the tower or its brim, turned as it is. */
+private fun WipeTower.holds(p: Offset): Boolean {
+    val a = rotationDegrees * PI / 180
+    val dx = p.x - x
+    val dy = p.y - y
+    val u = dx * cos(a) + dy * sin(a)
+    val v = -dx * sin(a) + dy * cos(a)
+    val reach = brim + TOWER_REACH_MM
+    return u >= -reach && u <= width + reach && v >= -reach && v <= depth + reach
+}
+
+/** How far around the tower a finger still grabs it, mm. */
+private const val TOWER_REACH_MM = 3.0

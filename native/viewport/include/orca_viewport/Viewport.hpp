@@ -2,6 +2,7 @@
 
 #include <array>
 #include <cstddef>
+#include <map>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -42,6 +43,7 @@ struct MeshPiece {
     std::size_t first_triangle = 0;
     std::size_t triangle_count = 0;
     std::array<float, 16> transform{1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    int filament = 0;                // 1-based filament it prints with; 0 when not known
 };
 
 // An object's triangles: x, y, z per vertex, three vertices per triangle.
@@ -136,6 +138,12 @@ public:
     void set_bed(Bed bed);
     // Replaces the instances on the plate (and drops a selection that no longer exists).
     void set_parts(std::vector<Part> parts);
+    // The next set_parts() frames the camera on them (another plate shown);
+    // otherwise only the first parts shown are framed.
+    void frame_next_parts();
+    // RGBA per filament, filament 1 first: model parts take their filament's
+    // colour, as in the desktop. Empty draws them in the plain model colour.
+    void set_filament_colours(std::vector<std::array<float, 4>> colours);
     void clear_parts();
     // Moves an instance already on the plate.
     void set_part_transform(const PartRef& ref, const std::array<float, 16>& transform);
@@ -145,6 +153,10 @@ public:
     // volumes), or none.
     void set_highlighted_volume(std::optional<int> volume);
     std::optional<PartRef> selection() const;
+    // Other instances selected with the selection (a multi-selection): drawn
+    // selected, and moved and turned with it.
+    void set_group(std::vector<PartRef> group);
+    std::vector<PartRef> group() const;
 
     // The instance under a screen point, nearest first; none if the point hits no part.
     std::optional<PartRef> pick(float x_px, float y_px) const;
@@ -175,10 +187,22 @@ public:
         std::array<float, 3> camera{};
     };
     std::optional<SurfaceHit> pick_surface(float x_px, float y_px) const;
+    // As pick_surface(), on the parts of `object` only and passing through its
+    // volume `skip` (a text being dragged over the surface it sits on).
+    std::optional<SurfaceHit> pick_surface_of(float x_px, float y_px, int object, int skip) const;
+    // Whether the screen point's ray passes through volume `volume` of `part`'s
+    // bounds, grown by `margin_mm`: a finger on a text, raised or engraved.
+    bool hits_volume(float x_px, float y_px, const PartRef& part, int volume, float margin_mm) const;
 
     // Paint drawn over a volume of an object (every instance of it); null removes it.
     void set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay);
     void clear_paint_overlays();
+    // Model parts of `object` drawn as other triangles (a texture's relief before
+    // it is baked), by volume index, in the volume's coordinates; runs are not
+    // used. Picking and painting still use the parts' own meshes. Replaces the
+    // previews shown; empty clears them.
+    void set_volume_previews(int object, std::map<int, std::shared_ptr<const PaintOverlayMesh>> previews);
+    void clear_volume_previews();
     // Colors by painted state, RGBA; states past the end use the last.
     void set_paint_palette(std::vector<std::array<float, 4>> palette);
 
@@ -194,6 +218,9 @@ public:
 
     // Tool geometry over the plate; null removes it.
     void set_overlay(std::shared_ptr<const Overlay> overlay);
+    // Shapes that belong to the plate rather than a tool (the prime tower),
+    // drawn under any tool's overlay; null hides them.
+    void set_scene_overlay(std::shared_ptr<const Overlay> overlay);
     // Splits an object's colors by a cut plane, or stops.
     void set_cut_view(std::optional<CutView> view);
     // Where a screen point lands on the plane through `origin` with `normal`

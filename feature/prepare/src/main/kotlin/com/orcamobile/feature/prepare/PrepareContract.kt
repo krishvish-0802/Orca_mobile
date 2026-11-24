@@ -8,7 +8,9 @@ import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.PlateInfo
+import com.orcamobile.core.model.WipeTower
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.viewport.HandleMode
@@ -37,6 +39,8 @@ data class PrepareUiState(
     val showingPreview: Boolean = false,
     /** The object instance being edited on the plate. */
     val selection: InstanceRef? = null,
+    /** Other instances selected with [selection] (long press): they move, turn, align and delete with it. */
+    val group: List<InstanceRef> = emptyList(),
     /** How many settings the user changed from the presets (see the settings screen). */
     val changedSettings: Int = 0,
     /** The app-wide preset choice, changed from the chips under the plate. */
@@ -75,7 +79,30 @@ data class PrepareUiState(
     val slicedPlates: Set<Int> = emptySet(),
     /** Slicing every plate: which one of how many is being sliced (1-based), null otherwise. */
     val slicingAll: Pair<Int, Int>? = null,
+    /** The current plate's prime tower as the slice will place it; null when it prints none. */
+    val wipeTower: WipeTower? = null,
+    /** A text or SVG to open in the Text tool for editing (from the Parts tab). */
+    val textToEdit: EmbossTarget? = null,
+    /** The project's undo history has a step back, or forward. */
+    val canUndo: Boolean = false,
+    val canRedo: Boolean = false,
+    /** Grows with each undo or redo, so the tools open on the plate read the project again. */
+    val historyRevision: Int = 0,
+    /** Grows when the model's paint changed under the brush (undo, a bake, paint from the engine): painting reads it again. */
+    val paintRevision: Int = 0,
+    /** Grows with each stroke that changed the paint. */
+    val paintStrokes: Int = 0,
 ) {
+    /**
+     * Undo and redo: on the plate, while painting and in the Text tool (which
+     * read the project again after a step); not in the other tools, mid-slice
+     * or in the preview.
+     */
+    val historyUsable: Boolean
+        get() = project != null && !loading && plateTask == null && !showingPreview && slice !is SliceUiState.Running &&
+            (meshTool == null || meshTool == MeshTool.EMBOSS)
+
+
     /** Another plate may be shown: not while a tool, a slice or painting holds this one. */
     val canSwitchPlate: Boolean
         get() = project != null && !loading && plateTask == null && slice !is SliceUiState.Running &&
@@ -98,6 +125,10 @@ data class PrepareUiState(
     val paintKinds: List<PaintKind>
         get() = PaintKind.entries.filter { it != PaintKind.COLOR || (presets?.filaments?.size ?: 1) > 1 }
 
+    /** Every selected instance, the main one first. */
+    val selected: List<InstanceRef>
+        get() = listOfNotNull(selection) + group
+
     /** Name of the selected object, for the hint over the plate. */
     val selectedObjectName: String?
         get() = selection?.let { project?.objects?.getOrNull(it.objectIndex)?.name }
@@ -113,6 +144,7 @@ enum class PlateTask {
     FILL_BED,
     DELETE,
     SPLIT,
+    ALIGN,
 
     /** Adding, removing, switching or changing a plate. */
     PLATES,
@@ -220,13 +252,35 @@ sealed interface PrepareIntent {
 
     data class Select(val instance: InstanceRef?) : PrepareIntent
 
+    /** Goes back a step in the project's history (a two-finger tap). */
+    data object Undo : PrepareIntent
+
+    /** Goes forward a step again (a three-finger tap). */
+    data object Redo : PrepareIntent
+
+    /** Adds [instance] to the selection, or takes it out (a long press). */
+    data class ToggleSelected(val instance: InstanceRef) : PrepareIntent
+
+    /** Lines up the selected objects, or puts them on the plate's edge or middle with [toPlate]. */
+    data class Align(val mode: com.orcamobile.core.model.AlignMode, val toPlate: Boolean) : PrepareIntent
+
     data class SelectVendor(val vendor: String) : PrepareIntent
 
     data class SelectPrinter(val printer: String) : PrepareIntent
 
     data class SelectProcess(val process: String) : PrepareIntent
 
-    data class SelectFilament(val filament: String) : PrepareIntent
+    /** Loads [filament] as filament [slot] + 1. */
+    data class SelectFilament(val filament: String, val slot: Int = 0) : PrepareIntent
+
+    /** Adds a filament, a copy of the last. */
+    data object AddFilament : PrepareIntent
+
+    /** Takes filament [slot] + 1 away; what used it falls back to filament 1. */
+    data class RemoveFilament(val slot: Int) : PrepareIntent
+
+    /** Filament [slot] + 1 prints in [colour] ("#RRGGBB"), or its preset's colour when null. */
+    data class SetFilamentColour(val slot: Int, val colour: String?) : PrepareIntent
 
     /** Objects were moved or turned on the plate: earlier slicing results no longer match it. */
     data object PlateEdited : PrepareIntent
@@ -272,10 +326,16 @@ sealed interface PrepareIntent {
     /** Slices every plate with something on it, one after another. */
     data object SliceAll : PrepareIntent
 
+    /** The prime tower was dragged to ([x], [y]) on the current plate. */
+    data class MoveWipeTower(val x: Double, val y: Double) : PrepareIntent
+
     /** Opens a mesh tool on the selected object. */
     data class OpenMeshTool(val tool: MeshTool) : PrepareIntent
 
     data object CloseMeshTool : PrepareIntent
+
+    /** Opens the Text tool on volume [volume] of the selected object, a text or SVG, to edit it. */
+    data class EditText(val volume: Int) : PrepareIntent
 
     data class SetSimplify(val settings: SimplifySettings) : PrepareIntent
 
@@ -294,7 +354,10 @@ sealed interface PrepareIntent {
     data class SetHandleMode(val mode: HandleMode) : PrepareIntent
 
     /** Paints [kind] on the selected object until [StopPainting]. */
-    data class StartPainting(val kind: PaintKind) : PrepareIntent
+    data class StartPainting(val kind: PaintKind, val modifier: Int? = null) : PrepareIntent
+
+    /** The first stroke of a new painted modifier made it: volume [volume] of the selected object, painted from now on. */
+    data class PaintedModifierMade(val volume: Int) : PrepareIntent
 
     data class SetBrush(val brush: PaintBrush) : PrepareIntent
 
@@ -304,6 +367,12 @@ sealed interface PrepareIntent {
 
     /** A stroke changed what will be sliced. */
     data object Painted : PrepareIntent
+
+    /** The engine changed the paint itself (a texture over the whole object, a removed layer): the brush reads it again. */
+    data object PaintReloaded : PrepareIntent
+
+    /** A texture bake made the relief the object's mesh; the plate holds [objects]. */
+    data class TextureBaked(val objects: List<ModelObjectInfo>) : PrepareIntent
 
     /** Turns on (or off) laying the next tapped object on the side tapped. */
     data class SetLayOnFace(val on: Boolean) : PrepareIntent

@@ -2,6 +2,7 @@ package com.orcamobile.core.domain.project
 
 import com.orcamobile.core.model.BrimEar
 import com.orcamobile.core.model.EmbossSource
+import com.orcamobile.core.model.EmbossedVolume
 import com.orcamobile.core.model.FeaturePick
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.LayerProfile
@@ -34,8 +35,36 @@ interface ObjectTools {
     /** The shape's width and height in mm. */
     suspend fun embossSize(source: EmbossSource): Result<Pair<Double, Double>>
 
-    /** On the surface at [at], as a volume of [kind]; [PlateUpdate.placed] is its index in the object. */
-    suspend fun embossOnSurface(project: ProjectId, at: FeaturePick, kind: VolumeKind, source: EmbossSource): Result<PlateUpdate>
+    /**
+     * On the surface at [at], as a volume of [kind]; [PlateUpdate.placed] is its index in the object.
+     * With [useSurface] it follows the surface's shape. It can be edited again later ([embossed]).
+     */
+    suspend fun embossOnSurface(
+        project: ProjectId,
+        at: FeaturePick,
+        kind: VolumeKind,
+        source: EmbossSource,
+        useSurface: Boolean = false,
+    ): Result<PlateUpdate>
+
+    /** What volume [volume] of object [objectIndex] was embossed from, or null when it is no text or SVG. */
+    suspend fun embossed(project: ProjectId, objectIndex: Int, volume: Int): Result<EmbossedVolume?>
+
+    /** Makes the embossed volume anew from [source], as [kind], where it stands. */
+    suspend fun embossUpdate(
+        project: ProjectId,
+        objectIndex: Int,
+        volume: Int,
+        kind: VolumeKind,
+        source: EmbossSource,
+        useSurface: Boolean,
+    ): Result<PlateUpdate>
+
+    /** Moves embossed [volume] onto the surface at [at] (another part of its object), keeping its turn and size. */
+    suspend fun embossMove(project: ProjectId, volume: Int, at: FeaturePick): Result<PlateUpdate>
+
+    /** After a text was dragged on the plate: its object back on the bed. */
+    suspend fun embossSettle(project: ProjectId, objectIndex: Int): Result<PlateUpdate>
 
     /** As a new object lying on the bed at ([x], [y]); [PlateUpdate.placed] is its index. */
     suspend fun embossObject(project: ProjectId, source: EmbossSource, x: Double, y: Double): Result<PlateUpdate>

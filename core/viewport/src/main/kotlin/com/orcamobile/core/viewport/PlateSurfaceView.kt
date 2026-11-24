@@ -3,10 +3,18 @@ package com.orcamobile.core.viewport
 import android.annotation.SuppressLint
 import android.content.Context
 import android.opengl.GLSurfaceView
+import androidx.compose.ui.geometry.Offset
+import com.orcamobile.core.engine.EngineLibrary
+import com.orcamobile.core.engine.TexturePreviews
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
 import com.orcamobile.core.viewport.jni.NativeViewport
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 import javax.microedition.khronos.egl.EGL10
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.egl.EGLDisplay
@@ -36,6 +44,8 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     private var layerRange: IntRange? = null
     private var coloring = 0
     private var selection: InstanceRef? = null
+    private var filamentColours = FloatArray(0)
+    private var wipeTower = FloatArray(0)
 
     init {
         setEGLContextClientVersion(3)
@@ -49,9 +59,12 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         if (handle == 0L) {
             handle = NativeViewport.nativeCreate()
             bed?.let { NativeViewport.nativeSetBed(handle, it, bedHeight) }
+            NativeViewport.nativeSetFilamentColours(handle, filamentColours)
+            NativeViewport.nativeShowWipeTower(handle, wipeTower)
             if (projectHandle != 0L) showProjectOnGlThread(projectHandle)
             if (previewHandle != 0L) applyPreview()
             selection?.let { NativeViewport.nativeSetSelection(handle, it.objectIndex, it.instanceIndex) }
+            if (group.isNotEmpty()) NativeViewport.nativeSetGroup(handle, groupPairs())
             cutJson?.let { json -> if (projectHandle != 0L) NativeViewport.nativeCutShow(handle, projectHandle, json, cutShowsFace) }
         }
         super.onAttachedToWindow()
@@ -60,6 +73,7 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow() // stops and joins the GL thread
         stopPainting()
+        stopRelief()
         synchronized(toolLock) {
             if (handle != 0L) {
                 NativeViewport.nativeDestroy(handle)
@@ -172,11 +186,63 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
      * Shows the project with native handle [project], or clears the plate for 0.
      * A new [revision] redraws it after the engine moved its objects.
      */
-    fun setProject(project: Long, revision: Int = 0) {
-        if (project == projectHandle && revision == projectRevision) return
+    fun setProject(project: Long, revision: Int = 0, frameKey: Int = 0) {
+        if (project == projectHandle && revision == projectRevision && frameKey == this.frameKey) return
+        // Another project or plate: the camera frames what it shows; an edit keeps it.
+        val frame = project != projectHandle || frameKey != this.frameKey
         projectHandle = project
         projectRevision = revision
-        if (handle != 0L) showProjectOnGlThread(project)
+        this.frameKey = frameKey
+        if (handle != 0L) {
+            if (frame) NativeViewport.nativeFrameNextParts(handle)
+            showProjectOnGlThread(project)
+        }
+    }
+
+    private var frameKey = 0
+
+    /** Model parts in their filament's colour: r, g, b, a per filament, filament 1 first; empty for the plain colour. */
+    fun setFilamentColours(rgba: FloatArray) {
+        if (rgba.contentEquals(filamentColours)) return
+        filamentColours = rgba
+        if (handle != 0L) {
+            NativeViewport.nativeSetFilamentColours(handle, rgba)
+            requestRender()
+        }
+    }
+
+    /** The prime tower: x, y, width, depth, height, brim, rotation, overlaps (0/1); empty hides it. */
+    fun setWipeTower(tower: FloatArray) {
+        if (tower.contentEquals(wipeTower)) return
+        wipeTower = tower
+        if (handle != 0L) {
+            NativeViewport.nativeShowWipeTower(handle, tower)
+            requestRender()
+        }
+    }
+
+    /** Whether screen point (x, y) is on the text [target] (or near it). */
+    fun embossHits(target: EmbossTarget, x: Float, y: Float): Boolean {
+        val h = handle
+        return h != 0L && NativeViewport.nativeEmbossHits(h, target.instance.objectIndex, target.instance.instanceIndex, target.volume, x, y)
+    }
+
+    /** Slides the text [target] onto the surface under (x, y); whether it moved. */
+    fun embossDrag(target: EmbossTarget, x: Float, y: Float): Boolean = textEdit { h, project ->
+        NativeViewport.nativeEmbossDrag(h, project, target.instance.objectIndex, target.instance.instanceIndex, target.volume, x, y)
+    }
+
+    /** Turns the text [target] on its surface; whether it turned. */
+    fun embossRotate(target: EmbossTarget, radians: Float): Boolean = textEdit { h, project ->
+        NativeViewport.nativeEmbossRotate(h, project, target.instance.objectIndex, target.instance.instanceIndex, target.volume, radians)
+    }
+
+    /** Where screen point (x, y) meets the bed, mm. */
+    fun bedPoint(x: Float, y: Float): Offset? {
+        val h = handle
+        if (h == 0L) return null
+        val p = NativeViewport.nativeBedPoint(h, x, y) ?: return null
+        return Offset(p[0], p[1])
     }
 
     /** Shows the toolpaths of the preview with native handle [preview] instead of the model; 0 hides them. */
@@ -221,23 +287,39 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
 
     private var highlightedVolume: Int? = null
     private var painting = 0L
-    private var paintTarget: Triple<Long, Int, PaintKind>? = null
+    private data class PaintTarget(val project: Long, val objectIndex: Int, val kind: PaintKind, val target: Int?, val revision: Int)
+
+    private var paintTarget: PaintTarget? = null
 
     /**
      * Paints [kind] on object [objectIndex] of the shown project from now on,
-     * coloured by [palette] (r, g, b, a per state); null stops painting.
+     * coloured by [palette] (r, g, b, a per state); null stops painting. [paintOn]
+     * is what is shaped (PaintBrush.target): for a painted modifier the one
+     * shaped (null: a new one), for a texture the layer's slot.
      */
-    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray) {
+    fun setPainting(objectIndex: Int?, kind: PaintKind?, palette: FloatArray, paintOn: Int? = null, revision: Int = 0) {
         val h = handle
-        val target = if (objectIndex != null && kind != null && projectHandle != 0L) Triple(projectHandle, objectIndex, kind) else null
+        val target = if (objectIndex != null && kind != null && projectHandle != 0L) {
+            PaintTarget(projectHandle, objectIndex, kind, paintOn.takeIf { kind == PaintKind.PAINTED_MODIFIER || kind == PaintKind.TEXTURE }, revision)
+        } else {
+            null
+        }
         if (target == paintTarget) {
             if (h != 0L && target != null) NativeViewport.nativeSetPaintPalette(h, palette)
             return
         }
-        stopPainting()
+        // Only the revision changed: the model's paint changed under the brush (undo).
+        // The session's strokes are already in the model, and writing them back
+        // would undo the undo, so it is dropped as it is.
+        val reread = target != null && paintTarget?.copy(revision = target.revision) == target
+        stopPainting(commit = !reread)
         if (h == 0L || target == null) return
         NativeViewport.nativeSetPaintPalette(h, palette)
-        painting = NativeViewport.nativePaintBegin(h, target.first, target.second, target.third.nativeValue)
+        painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, target.target ?: -1)
+        if (painting == 0L && target.target != null && target.kind == PaintKind.PAINTED_MODIFIER) {
+            // The modifier is gone (undone): the next stroke makes a new one.
+            painting = NativeViewport.nativePaintBegin(h, target.project, target.objectIndex, target.kind.nativeValue, -1)
+        }
         if (painting != 0L) paintTarget = target
         requestRender()
     }
@@ -262,6 +344,9 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
     /** Keeps the paint in the model; whether it changed what will be sliced. */
     fun commitPaint(): Boolean = painting != 0L && NativeViewport.nativePaintCommit(painting)
 
+    /** The painted modifier being shaped, once the first stroke made it. */
+    fun paintedModifier(): Int? = painting.takeIf { it != 0L }?.let { NativeViewport.nativePaintTarget(it) }?.takeIf { it >= 0 }
+
     fun clearPaint() {
         val h = handle
         if (h == 0L || painting == 0L) return
@@ -269,14 +354,94 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         requestRender()
     }
 
-    private fun stopPainting() {
+    private fun stopPainting(commit: Boolean = true) {
         if (painting != 0L) {
-            NativeViewport.nativePaintCommit(painting)
+            if (commit) NativeViewport.nativePaintCommit(painting)
             NativeViewport.nativePaintEnd(handle, painting)
             requestRender()
         }
         painting = 0L
         paintTarget = null
+    }
+
+    // --- texture relief preview ---------------------------------------------
+
+    private data class ReliefRequest(val project: Long, val objectIndex: Int, val key: Int)
+
+    /** What is wanted; read by the preview thread, set on the main thread. */
+    @Volatile
+    private var reliefRequest: ReliefRequest? = null
+    private var reliefExecutor: ScheduledExecutorService? = null
+    private var reliefFuture: ScheduledFuture<*>? = null
+    private val reliefLock = Any()
+
+    /** The running preview's stop token (under [reliefLock]); 0 when none runs. */
+    private var reliefToken = 0L
+
+    /** Told (on the main thread) when a preview starts being worked out, and when it is shown. */
+    var onReliefBusy: (Boolean) -> Unit = {}
+
+    /**
+     * Shows the relief a texture bake of object [objectIndex] would make, in place
+     * of its parts, worked out again whenever [key] changes (a stroke, a setting,
+     * an undo); null shows the parts as they are. Edits in quick succession make
+     * one preview: it starts once they rest, and a running one is stopped for a
+     * newer one.
+     */
+    fun setTexturePreview(objectIndex: Int?, key: Int) {
+        val request = if (objectIndex != null && projectHandle != 0L && EngineLibrary.isAvailable) ReliefRequest(projectHandle, objectIndex, key) else null
+        if (request == reliefRequest) return
+        reliefRequest = request
+        reliefFuture?.cancel(false)
+        synchronized(reliefLock) { if (reliefToken != 0L) TexturePreviews.stop(reliefToken) }
+        if (request == null) {
+            synchronized(toolLock) { if (handle != 0L) NativeViewport.nativeTexturePreviewClear(handle) }
+            requestRender()
+            onReliefBusy(false)
+            return
+        }
+        onReliefBusy(true)
+        val executor = reliefExecutor ?: Executors.newSingleThreadScheduledExecutor { r -> Thread(r, "texture-preview").apply { isDaemon = true } }
+            .also { reliefExecutor = it }
+        reliefFuture = executor.schedule({ runRelief(request) }, RELIEF_DEBOUNCE_MILLIS, TimeUnit.MILLISECONDS)
+    }
+
+    /** On the preview thread. */
+    private fun runRelief(request: ReliefRequest) {
+        if (request != reliefRequest) return
+        val token = TexturePreviews.newToken()
+        synchronized(reliefLock) { reliefToken = token }
+        val preview = try {
+            TexturePreviews.compute(request.project, request.objectIndex, token)
+        } finally {
+            synchronized(reliefLock) {
+                reliefToken = 0L
+                TexturePreviews.release(token)
+            }
+        }
+        // Stopped: a newer one is on its way, and what is shown stays until then.
+        if (preview == 0L) return
+        try {
+            if (request == reliefRequest) {
+                synchronized(toolLock) { if (handle != 0L) NativeViewport.nativeTexturePreviewShow(handle, preview) }
+                requestRender()
+            }
+        } finally {
+            TexturePreviews.free(preview)
+        }
+        post { if (request == reliefRequest) onReliefBusy(false) }
+    }
+
+    private fun stopRelief() {
+        reliefRequest = null
+        reliefFuture?.cancel(false)
+        synchronized(reliefLock) { if (reliefToken != 0L) TexturePreviews.stop(reliefToken) }
+        reliefExecutor?.let { executor ->
+            executor.shutdown()
+            // The engine stops at its next step; the project must outlive it.
+            runCatching { executor.awaitTermination(RELIEF_STOP_WAIT_MILLIS, TimeUnit.MILLISECONDS) }
+        }
+        reliefExecutor = null
     }
 
     /** The volume under a point: its instance, its index in the object, and whether it is a part. */
@@ -328,11 +493,30 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         gesture { NativeViewport.nativeSetSelection(it, ref?.objectIndex ?: -1, ref?.instanceIndex ?: 0) }
     }
 
+    private var group: List<InstanceRef> = emptyList()
+
+    /** Other instances selected with the selection (a multi-selection). */
+    fun setGroup(refs: List<InstanceRef>) {
+        if (refs == group) return
+        group = refs
+        gesture { NativeViewport.nativeSetGroup(it, groupPairs()) }
+    }
+
+    private fun groupPairs(): IntArray = group.flatMap { listOf(it.objectIndex, it.instanceIndex) }.toIntArray()
+
     /** Drags the selected instance with a finger moving between two screen points. */
     fun moveSelection(x0: Float, y0: Float, x1: Float, y1: Float): Boolean =
         edit { h, project -> NativeViewport.nativeMoveSelection(h, project, x0, y0, x1, y1) }
 
     fun rotateSelection(radians: Float): Boolean = edit { h, project -> NativeViewport.nativeRotateSelection(h, project, radians) }
+
+    /** As [edit], for a text: it needs no selected object. */
+    private inline fun textEdit(action: (Long, Long) -> Boolean): Boolean {
+        val h = handle
+        val project = projectHandle
+        if (h == 0L || project == 0L) return false
+        return action(h, project).also { if (it) requestRender() }
+    }
 
     private inline fun edit(action: (Long, Long) -> Boolean): Boolean {
         val h = handle
@@ -408,6 +592,12 @@ internal class PlateSurfaceView(context: Context) : GLSurfaceView(context) {
         }
     }
 }
+
+/** Edits within this of each other make one texture preview. */
+private const val RELIEF_DEBOUNCE_MILLIS = 250L
+
+/** How long leaving the plate waits for a stopped preview to let go of the project. */
+private const val RELIEF_STOP_WAIT_MILLIS = 2_000L
 
 /** A volume hit on the plate: [volume] is its index in the instance's object. */
 data class VolumeHit(val instance: InstanceRef, val volume: Int, val isPart: Boolean)

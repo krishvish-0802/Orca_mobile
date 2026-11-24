@@ -51,6 +51,8 @@ struct VolumeInfo {
     VolumeKind kind = VolumeKind::ModelPart;
     std::size_t triangle_count = 0;
     SettingValues settings;
+    bool embossed = false;          // a text or an SVG, which the Emboss tool edits
+    double painted_depth = 0;       // a painted modifier: how far it reaches in, mm (0: across the part)
 };
 
 // A height range of an object with settings of its own (layer height and
@@ -93,6 +95,7 @@ struct ObjectMesh {
         std::size_t first_triangle = 0;
         std::size_t triangle_count = 0;
         std::array<double, 16> transform{};
+        int filament = 1;           // the filament it prints with, 1-based (its own or its object's)
     };
     std::vector<float> positions;   // x, y, z per vertex, three vertices per triangle
     std::vector<Piece> pieces;
@@ -173,6 +176,9 @@ public:
     void translate(const InstanceRef& ref, double dx, double dy);
     // Turns an instance about the vertical axis through the center of its bounding box.
     void rotate_z(const InstanceRef& ref, double radians);
+    // Turns several instances together about the vertical axis through the
+    // middle of all of them, as the desktop turns a selection of objects.
+    void rotate_group_z(const std::vector<InstanceRef>& refs, double radians);
     // Handles on the plate: turn about a world axis (0 X, 1 Y, 2 Z) through the
     // center of the bounding box, or grow by `factor` along one of the
     // instance's axes (-1: all three). Both leave it on the bed.
@@ -238,11 +244,33 @@ public:
     std::array<double, 3> volume_center(const InstanceRef& via, std::size_t volume) const;
 
     void set_setting(const SettingTarget& target, const std::string& key, const std::string& value);
+    // How far a painted modifier reaches into its part from the paint, mm; 0 across the part.
+    void set_painted_depth(std::size_t object, std::size_t volume, double depth_mm);
     void reset_setting(const SettingTarget& target, const std::string& key);
     // Adds a height range with its own layer height; returns its index.
     std::size_t add_layer_range(std::size_t object, double min_z, double max_z, const std::string& layer_height);
     void set_layer_range(std::size_t object, std::size_t range, double min_z, double max_z);
     void remove_layer_range(std::size_t object, std::size_t range);
+
+    // Filaments: filament `filament` (0-based) was taken away and `count` are
+    // left; objects, parts, height ranges and painting on it fall back to the
+    // first, and later filaments move down. limit_filaments() drops any filament
+    // number beyond `count` (a printer with fewer filaments).
+    void remove_filament(std::size_t filament, std::size_t count);
+    void limit_filaments(std::size_t count);
+
+    // --- Undo and redo ---
+    // record_history() keeps the project as it is now as the latest step (after
+    // a change, and once after loading); undo() goes back a step and redo()
+    // forward again, both returning false when there is none. A change recorded
+    // after an undo drops the steps that were ahead of it. At most
+    // `kHistorySteps` are kept.
+    static constexpr std::size_t kHistorySteps = 30;
+    void record_history();
+    bool undo();
+    bool redo();
+    bool can_undo() const;
+    bool can_redo() const;
 
     // --- Plates (the desktop's PartPlateList) ---
     // Every plate shares the bed's coordinates; the plate view shows the current

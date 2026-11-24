@@ -16,6 +16,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,7 +51,31 @@ internal fun EmbossPanel(
     var choosingFont by rememberSaveable { mutableStateOf(false) }
     Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.prepare_emboss_title), style = MaterialTheme.typography.titleMedium)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.prepare_emboss_title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+                if (state.editing != null) {
+                    TextButton(onClick = { onIntent(EmbossIntent.NewText) }, enabled = !state.busy) {
+                        Text(stringResource(R.string.prepare_emboss_new))
+                    }
+                    TextButton(onClick = { onIntent(EmbossIntent.Delete) }, enabled = !state.busy) {
+                        Text(stringResource(R.string.prepare_emboss_delete), color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+            if (state.editing != null) {
+                Text(
+                    stringResource(R.string.prepare_emboss_editing),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+            state.missingFont?.let { (missing, used) ->
+                Text(
+                    stringResource(R.string.prepare_emboss_font_missing, missing, used),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
             val modes = EmbossMode.entries
             SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
                 modes.forEachIndexed { index, mode ->
@@ -113,7 +138,18 @@ internal fun EmbossPanel(
                     FilterChip(selected = state.kind == kind, onClick = { onIntent(EmbossIntent.SetKind(kind)) }, label = { Text(stringResource(embossKindLabel(kind))) })
                 }
             }
-            Text(
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(stringResource(R.string.prepare_emboss_surface), style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.prepare_emboss_surface_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = state.useSurface, onCheckedChange = { onIntent(EmbossIntent.SetUseSurface(it)) })
+            }
+            if (state.editing == null) Text(
                 stringResource(if (canPlaceOnObject) R.string.prepare_emboss_place_hint else R.string.prepare_emboss_select_hint),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

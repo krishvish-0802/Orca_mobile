@@ -91,6 +91,8 @@ void apply_edit(Project& project, std::size_t object, const nlohmann::json& edit
                                      a.at("scale").get<std::array<double, 3>>());
     } else if (name == "set") {
         project.set_setting(target_of(object, a), a.at("key").get<std::string>(), a.at("value").get<std::string>());
+    } else if (name == "paintedDepth") {
+        project.set_painted_depth(object, a.at("volume").get<std::size_t>(), a.at("depth").get<double>());
     } else if (name == "reset") {
         project.reset_setting(target_of(object, a), a.at("key").get<std::string>());
     } else if (name == "addRange") {
@@ -140,7 +142,7 @@ jstring native_object_edit(JNIEnv* env, jclass, jlong handle, jint object, jstri
 jboolean native_paint_everything(JNIEnv*, jclass, jlong handle, jint object, jint kind, jint state)
 {
     auto* project = from_handle<Project>(handle);
-    if (project == nullptr || object < 0 || kind < 0 || kind > 3)
+    if (project == nullptr || object < 0 || kind < 0 || kind > 4)
         return JNI_FALSE;
     try {
         orca::engine::PaintSession session(*project, std::size_t(object), static_cast<orca::engine::PaintKind>(kind));

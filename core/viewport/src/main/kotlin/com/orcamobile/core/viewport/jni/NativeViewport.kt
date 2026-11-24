@@ -100,7 +100,10 @@ internal object NativeViewport {
     // Painting (native/bridge/jni/PaintJni.cpp).
 
     /** Opens a paint session on an object for a PaintKind and shows its paint; 0 on failure. */
-    @JvmStatic external fun nativePaintBegin(handle: Long, projectHandle: Long, objectIndex: Int, kind: Int): Long
+    @JvmStatic external fun nativePaintBegin(handle: Long, projectHandle: Long, objectIndex: Int, kind: Int, target: Int): Long
+
+    /** The painted modifier a painted-modifier session shapes, or -1 while there is none. */
+    @JvmStatic external fun nativePaintTarget(painting: Long): Int
 
     /** One brush step at a screen point; [strokeStart] begins a new stroke. Whether it painted. */
     @JvmStatic external fun nativePaintAt(
@@ -126,11 +129,36 @@ internal object NativeViewport {
     /** Colours by painted state, r, g, b, a for each (state 0 first). */
     @JvmStatic external fun nativeSetPaintPalette(handle: Long, rgba: FloatArray)
 
+    /** The prime tower: x, y, width, depth, height, brim, rotation (degrees), overlaps (0/1); empty hides it. */
+    @JvmStatic external fun nativeShowWipeTower(handle: Long, tower: FloatArray)
+
+    /** Whether a screen point is on (or within 2 mm of) volume [volume] of the instance: a text to drag. */
+    @JvmStatic external fun nativeEmbossHits(handle: Long, objectIndex: Int, instanceIndex: Int, volume: Int, x: Float, y: Float): Boolean
+
+    /** Moves embossed [volume] onto the surface under the screen point; whether it moved. */
+    @JvmStatic external fun nativeEmbossDrag(
+        handle: Long, project: Long, objectIndex: Int, instanceIndex: Int, volume: Int, x: Float, y: Float,
+    ): Boolean
+
+    /** Turns embossed [volume] about its normal; whether it turned. */
+    @JvmStatic external fun nativeEmbossRotate(
+        handle: Long, project: Long, objectIndex: Int, instanceIndex: Int, volume: Int, radians: Float,
+    ): Boolean
+
+    /** Where a screen point meets the bed, {x, y} mm, or null. */
+    @JvmStatic external fun nativeBedPoint(handle: Long, x: Float, y: Float): FloatArray?
+
+    /** RGBA per filament, filament 1 first: model parts take their filament's colour; empty for one filament. */
+    @JvmStatic external fun nativeSetFilamentColours(handle: Long, rgba: FloatArray)
+
     /** Highlights a volume (index in its object) of the selected instance; negative for none. */
     @JvmStatic external fun nativeHighlightVolume(handle: Long, volume: Int)
 
     /** Highlights an instance; a negative [objectIndex] clears the selection. */
     @JvmStatic external fun nativeSetSelection(handle: Long, objectIndex: Int, instanceIndex: Int)
+
+    /** Instances selected with the selection, as object, instance pairs: drawn selected, moved and turned with it. */
+    @JvmStatic external fun nativeSetGroup(handle: Long, pairs: IntArray)
 
     /** Slides the selected instance of [projectHandle] by the bed distance between two screen points. */
     @JvmStatic external fun nativeMoveSelection(handle: Long, projectHandle: Long, x0: Float, y0: Float, x1: Float, y1: Float): Boolean
@@ -162,4 +190,12 @@ internal object NativeViewport {
     @JvmStatic external fun nativeZoom(handle: Long, factor: Float, focusX: Float, focusY: Float)
 
     @JvmStatic external fun nativeFit(handle: Long)
+
+    /** Shows a computed texture preview (NativeEngine.nativeTexturePreviewCompute) in place of its parts. */
+    @JvmStatic external fun nativeTexturePreviewShow(handle: Long, previewHandle: Long)
+
+    @JvmStatic external fun nativeTexturePreviewClear(handle: Long)
+
+    /** The next parts shown are framed (another plate); edits otherwise keep the camera. */
+    @JvmStatic external fun nativeFrameNextParts(handle: Long)
 }

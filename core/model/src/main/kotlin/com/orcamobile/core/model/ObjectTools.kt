@@ -59,3 +59,16 @@ data class EmbossSource(
 ) {
     val isSvg: Boolean get() = svgPath.isNotEmpty()
 }
+
+/** An embossed volume's settings, read back to edit it: what it was made from, as what, and its shape's size (mm). */
+data class EmbossedVolume(
+    val source: EmbossSource,
+    val kind: VolumeKind,
+    /** It follows the surface's shape (the desktop's "Use surface"). */
+    val useSurface: Boolean,
+    val widthMm: Double,
+    val heightMm: Double,
+)
+
+/** A text or SVG being edited: volume [volume] of [instance]'s object. */
+data class EmbossTarget(val instance: InstanceRef, val volume: Int)

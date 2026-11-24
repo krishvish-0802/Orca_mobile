@@ -8,6 +8,7 @@ import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.GCodePreviewSummary
+import com.orcamobile.core.model.HistoryState
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ModelObjectInfo
@@ -31,6 +32,7 @@ import com.orcamobile.core.model.TransformEdit
 import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.VolumeInfo
 import com.orcamobile.core.model.VolumeKind
+import com.orcamobile.core.model.WipeTower
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -120,7 +122,7 @@ internal object EngineJson {
                 name = o.name,
                 settings = o.settings,
                 volumes = o.volumes.map {
-                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel())
+                    VolumeInfo(it.name, VolumeKind.of(it.kind), it.triangles, it.settings, it.transform.toModel(), it.embossed, it.paintedDepth)
                 },
                 layerRanges = o.layerRanges.map { LayerRange(it.min, it.max, it.settings) },
             ),
@@ -163,6 +165,10 @@ internal object EngineJson {
             )
             is ObjectEdit.SetSetting -> "set" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key), "value" to JsonPrimitive(edit.value))
             is ObjectEdit.ResetSetting -> "reset" to target(edit.target) + mapOf("key" to JsonPrimitive(edit.key))
+            is ObjectEdit.SetPaintedDepth -> "paintedDepth" to mapOf(
+                "volume" to JsonPrimitive(edit.volume),
+                "depth" to JsonPrimitive(edit.depthMm),
+            )
             is ObjectEdit.AddRange -> "addRange" to mapOf(
                 "min" to JsonPrimitive(edit.minZ),
                 "max" to JsonPrimitive(edit.maxZ),
@@ -218,6 +224,20 @@ internal object EngineJson {
         },
     )
 
+    fun history(payload: String): Result<HistoryState> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(HistoryDto.serializer(), element)
+        HistoryState(dto.objects.map { it.toModel() }, dto.changed, dto.canUndo, dto.canRedo)
+    }
+
+    fun wipeTower(payload: String): Result<WipeTower?> = decodeOrError(payload) { element ->
+        val dto = json.decodeFromJsonElement(WipeTowerDto.serializer(), element)
+        if (dto.width == null || dto.depth == null) {
+            null
+        } else {
+            WipeTower(dto.x, dto.y, dto.width, dto.depth, dto.height, dto.brim, dto.rotation, dto.overlaps)
+        }
+    }
+
     fun plates(payload: String): Result<Plates> = decodeOrError(payload) { element ->
         val dto = json.decodeFromJsonElement(PlatesDto.serializer(), element)
         Plates(dto.current, dto.plates.map { PlateInfo(it.name, it.settings, it.instances) }, dto.objects.map { it.toModel() })
@@ -265,7 +285,7 @@ internal object EngineJson {
         selection?.let {
             json.encodeToString(
                 PresetSelectionDto.serializer(),
-                PresetSelectionDto(it.vendor, it.printer, it.process, it.filaments),
+                PresetSelectionDto(it.vendor, it.printer, it.process, it.filaments, it.filamentColours),
             )
         } ?: ""
 
@@ -313,6 +333,8 @@ internal object EngineJson {
         val triangles: Long = 0,
         val settings: Map<String, String> = emptyMap(),
         val transform: TransformDto,
+        val embossed: Boolean = false,
+        val paintedDepth: Double = 0.0,
     )
 
     @Serializable
@@ -356,6 +378,26 @@ internal object EngineJson {
 
     @Serializable
     private data class PlateDto(val name: String = "", val settings: Map<String, String> = emptyMap(), val instances: Int = 0)
+
+    @Serializable
+    private data class HistoryDto(
+        val objects: List<ObjectDto>,
+        val changed: Boolean = false,
+        val canUndo: Boolean = false,
+        val canRedo: Boolean = false,
+    )
+
+    @Serializable
+    private data class WipeTowerDto(
+        val x: Double = 0.0,
+        val y: Double = 0.0,
+        val width: Double? = null,
+        val depth: Double? = null,
+        val height: Double = 0.0,
+        val brim: Double = 0.0,
+        val rotation: Double = 0.0,
+        val overlaps: Boolean = false,
+    )
 
     @Serializable
     private data class PlatesDto(val current: Int, val plates: List<PlateDto>, val objects: List<ObjectDto>)
@@ -435,6 +477,7 @@ internal object EngineJson {
         val printer: String,
         val process: String,
         val filaments: List<String>,
+        val filamentColours: List<String> = emptyList(),
     )
 
     @Serializable

@@ -14,6 +14,7 @@
 #include <vector>
 
 #include "ConfigBuilder.hpp"
+#include "WipeTower.hpp"
 #include "libslic3r/Arrange.hpp"
 #include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/ClipperUtils.hpp"
@@ -114,6 +115,26 @@ void add_exclude_areas(const DynamicPrintConfig& config, ArrangePolygons& fixed)
     }
 }
 
+// The plate's prime tower, kept clear as the desktop's arrange keeps it
+// (PartPlate::estimate_wipe_tower_polygon): it does not move.
+void add_wipe_tower(const std::optional<WipeTowerPlacement>& tower, ArrangePolygons& fixed)
+{
+    if (!tower)
+        return;
+    const double b = tower->brim;
+    ArrangePolygon item;
+    item.poly.contour = Slic3r::Polygon({{scaled(tower->x - b), scaled(tower->y - b)},
+                                         {scaled(tower->x + tower->width + b), scaled(tower->y - b)},
+                                         {scaled(tower->x + tower->width + b), scaled(tower->y + tower->depth + b)},
+                                         {scaled(tower->x - b), scaled(tower->y + tower->depth + b)}});
+    item.bed_idx = 0;
+    item.is_virt_object = true;
+    item.is_wipe_tower = true;
+    item.height = tower->height;
+    item.name = "WipeTower";
+    fixed.push_back(std::move(item));
+}
+
 // Where an item packed onto logical bed `bed_idx` goes: that many bed widths to
 // the right, where the desktop would put its next plates.
 coord_t bed_stride(const Slic3r::Points& bed)
@@ -211,6 +232,9 @@ PlateChange arrange_plates(Project& project, const PlateConfig& plate_config, co
                            PresetCatalog* catalog, bool all_plates)
 {
     const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+    // Each plate has its own tower; Arrange all leaves them to be placed after.
+    const std::optional<WipeTowerPlacement> tower =
+        all_plates ? std::nullopt : detail::place_wipe_tower(project, config);
     PlateChange change;
     project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         ArrangeParams params = make_params(config, options);
@@ -229,6 +253,7 @@ PlateChange arrange_plates(Project& project, const PlateConfig& plate_config, co
         if (selected.empty())
             return;
         add_exclude_areas(config, fixed);
+        add_wipe_tower(tower, fixed);
 
         Slic3r::arrangement::update_arrange_items(selected, fixed, &config, params);
         const Slic3r::Points bed = Slic3r::arrangement::get_shrink_bedpts(&config, params);
@@ -297,6 +322,7 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
                        const PlateConfig& plate_config, const ArrangeOptions& options, PresetCatalog* catalog)
 {
     const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+    const std::optional<WipeTowerPlacement> tower = detail::place_wipe_tower(project, config);
     PlateChange change;
     project.edit_plates([&](Slic3r::Model& model, PlateMembership& plates) {
         check(model, source);
@@ -315,6 +341,7 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
                 fixed.push_back(std::move(item));
             }
         add_exclude_areas(config, fixed);
+        add_wipe_tower(tower, fixed);
 
         const ArrangePolygon pattern = Slic3r::get_instance_arrange_poly(original, config);
         std::size_t wanted = count.value_or(0);
@@ -366,6 +393,83 @@ PlateChange add_copies(Project& project, const InstanceRef& source, std::optiona
         if (!count)
             change.not_placed = 0;   // filling tries until the bed is full: nothing is "left out"
         object->invalidate_bounding_box();
+    });
+    return change;
+}
+
+PlateChange align(Project& project, const std::vector<InstanceRef>& refs, AlignMode mode, bool to_plate,
+                  const PlateConfig& plate_config, PresetCatalog* catalog)
+{
+    const bool distribute = mode == AlignMode::DistributeX || mode == AlignMode::DistributeY;
+    if (distribute ? refs.size() < 3 : (refs.size() < 2 && !to_plate) || refs.empty())
+        return {};
+    Slic3r::BoundingBoxf bed;
+    if (to_plate) {
+        const DynamicPrintConfig config = resolve(project, plate_config, catalog);
+        if (const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area"))
+            for (const Slic3r::Vec2d& p : area->values)
+                bed.merge(p);
+        if (!bed.defined)
+            throw std::invalid_argument("The printer has no bed to align to");
+    }
+    const int axis = (mode == AlignMode::CenterX || mode == AlignMode::MaxX || mode == AlignMode::MinX ||
+                      mode == AlignMode::DistributeX) ? 0 : 1;
+    PlateChange change;
+    project.edit([&](Slic3r::Model& model) {
+        struct Item {
+            Slic3r::ModelInstance* instance;
+            Slic3r::BoundingBoxf3 box;
+        };
+        std::vector<Item> items;
+        Slic3r::BoundingBoxf3 all;
+        for (const InstanceRef& ref : refs) {
+            if (ref.object >= model.objects.size() || ref.instance >= model.objects[ref.object]->instances.size())
+                throw std::out_of_range("No such instance on the plate");
+            const Slic3r::ModelObject& object = *model.objects[ref.object];
+            items.push_back({object.instances[ref.instance], object.instance_bounding_box(ref.instance)});
+            all.merge(items.back().box);
+        }
+        const auto lo = [&](const Slic3r::BoundingBoxf3& b) { return b.min[axis]; };
+        const auto hi = [&](const Slic3r::BoundingBoxf3& b) { return b.max[axis]; };
+        const auto mid = [&](const Slic3r::BoundingBoxf3& b) { return b.center()[axis]; };
+        const auto shift = [&](Item& item, double by) {
+            if (std::abs(by) < 1e-6)
+                return;
+            Slic3r::Vec3d offset = item.instance->get_offset();
+            offset[axis] += by;
+            item.instance->set_offset(offset);
+            ++change.placed;
+        };
+        if (distribute) {
+            // GLGizmoAlignment::distribute_objects_generic: the outer two stay.
+            std::sort(items.begin(), items.end(), [&](const Item& a, const Item& b) { return mid(a.box) < mid(b.box); });
+            const double first = lo(all) + (hi(items.front().box) - lo(items.front().box)) / 2;
+            const double last = hi(all) - (hi(items.back().box) - lo(items.back().box)) / 2;
+            const double step = (last - first) / double(items.size() - 1);
+            for (std::size_t i = 1; i + 1 < items.size(); ++i)
+                shift(items[i], first + double(i) * step - mid(items[i].box));
+        } else {
+            double target = 0;
+            const double bed_lo = to_plate ? bed.min[axis] : 0, bed_hi = to_plate ? bed.max[axis] : 0;
+            switch (mode) {
+            case AlignMode::MinX:
+            case AlignMode::MinY: target = to_plate ? bed_lo : lo(all); break;
+            case AlignMode::MaxX:
+            case AlignMode::MaxY: target = to_plate ? bed_hi : hi(all); break;
+            default: target = to_plate ? (bed_lo + bed_hi) / 2 : mid(all); break;
+            }
+            for (Item& item : items) {
+                switch (mode) {
+                case AlignMode::MinX:
+                case AlignMode::MinY: shift(item, target - lo(item.box)); break;
+                case AlignMode::MaxX:
+                case AlignMode::MaxY: shift(item, target - hi(item.box)); break;
+                default: shift(item, target - mid(item.box)); break;
+                }
+            }
+        }
+        for (const InstanceRef& ref : refs)
+            model.objects[ref.object]->invalidate_bounding_box();
     });
     return change;
 }

@@ -14,10 +14,13 @@ import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.HistoryAction
+import com.orcamobile.core.model.HistoryState
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PlateAction
+import com.orcamobile.core.model.PlateSettingKeys
 import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
 import com.orcamobile.core.model.PresetSelection
@@ -65,6 +68,10 @@ class PrepareViewModel @Inject constructor(
     /** Each plate's last slice, while it still matches the plate; the current plate's is [PrepareUiState.slice]. */
     private val plateResults = mutableMapOf<Int, SliceUiState.Done>()
 
+    /** Grows when something the prime tower depends on changed besides what the state shows (paint, settings). */
+    private val towerInputs = MutableStateFlow(0)
+    private var towerJob: Job? = null
+
     init {
         val modelPath = savedStateHandle.get<String>(PREPARE_MODEL_PATH_ARG)
         viewModelScope.launch {
@@ -81,12 +88,20 @@ class PrepareViewModel @Inject constructor(
             updateHost { copy(startOptions = options) }
         }
         viewModelScope.launch { followSettingsChanges() }
+        viewModelScope.launch { followWipeTower() }
     }
 
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
             PrepareIntent.SliceAll -> sliceAllPlates()
+            is PrepareIntent.MoveWipeTower -> {
+                val plate = _state.value.currentPlate
+                changePlates(stale = setOf(plate)) { project ->
+                    plateTools.plates(project, PlateAction.SetSetting(plate, PlateSettingKeys.WIPE_TOWER_X, intent.x.mm())).getOrThrow()
+                    plateTools.plates(project, PlateAction.SetSetting(plate, PlateSettingKeys.WIPE_TOWER_Y, intent.y.mm())).getOrThrow()
+                }
+            }
             is PrepareIntent.SelectPlate -> selectPlate(intent.plate)
             PrepareIntent.AddPlate -> changePlates { project ->
                 val added = plateTools.plates(project, PlateAction.Add).getOrThrow()
@@ -106,7 +121,10 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
             is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
             is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
-            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.filament) }
+            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.slot, intent.filament) }
+            PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }
+            is PrepareIntent.RemoveFilament -> removeFilament(intent.slot)
+            is PrepareIntent.SetFilamentColour -> viewModelScope.launch { picker.setFilamentColour(intent.slot, intent.colour) }
             is PrepareIntent.Select -> {
                 // An object of another plate (picked from the list): show its plate first.
                 val plate = intent.instance?.let { ref -> _state.value.project?.objects?.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) }
@@ -115,13 +133,31 @@ class PrepareViewModel @Inject constructor(
                     return
                 }
                 // Painting belongs to one object: choosing another (or none) ends it.
-                _state.update { it.copy(selection = intent.instance, paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex }) }
+                _state.update {
+                    it.copy(
+                        selection = intent.instance,
+                        group = emptyList(),
+                        paint = it.paint.takeIf { _ -> intent.instance?.objectIndex == it.selection?.objectIndex },
+                    )
+                }
                 loadTransform()
+            }
+            is PrepareIntent.ToggleSelected -> toggleSelected(intent.instance)
+            is PrepareIntent.Align -> {
+                val refs = _state.value.selected
+                if (refs.isNotEmpty()) {
+                    runPlateTool(PlateTask.ALIGN) { project, presets ->
+                        plateTools.align(project, presets, refs, intent.mode, intent.toPlate)
+                    }
+                }
             }
             PrepareIntent.PlateEdited -> {
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
+            PrepareIntent.Undo -> stepHistory(HistoryAction.UNDO)
+            PrepareIntent.Redo -> stepHistory(HistoryAction.REDO)
             is PrepareIntent.EditTransform -> editTransform(intent.edit)
             is PrepareIntent.SetUniformScale -> _state.update { it.copy(uniformScale = intent.uniform) }
             is PrepareIntent.SetHandleMode -> _state.update { it.copy(handleMode = intent.mode) }
@@ -129,32 +165,74 @@ class PrepareViewModel @Inject constructor(
                 if (!it.plateEditable || it.selection == null) {
                     it
                 } else {
-                    it.copy(paint = PaintBrush(kind = intent.kind), layingOnFace = false)
+                    it.copy(paint = PaintBrush(kind = intent.kind, modifier = intent.modifier), layingOnFace = false, group = emptyList())
                 }
+            }
+            is PrepareIntent.PaintedModifierMade -> _state.update {
+                val brush = it.paint
+                if (brush?.kind == com.orcamobile.core.model.PaintKind.PAINTED_MODIFIER) it.copy(paint = brush.copy(modifier = intent.volume)) else it
             }
             is PrepareIntent.SetBrush -> _state.update { if (it.paint == null) it else it.copy(paint = intent.brush) }
             PrepareIntent.ClearPaint -> _state.update { if (it.paint == null) it else it.copy(paintClearRequest = it.paintClearRequest + 1) }
             PrepareIntent.StopPainting -> _state.update { it.copy(paint = null) }
-            PrepareIntent.Painted -> dropStaleResult()
+            PrepareIntent.Painted -> {
+                _state.update { it.copy(paintStrokes = it.paintStrokes + 1) }
+                dropStaleResult()
+                towerInputs.update { it + 1 }
+                recordHistory()
+            }
+            PrepareIntent.PaintReloaded -> {
+                _state.update { it.copy(paintRevision = it.paintRevision + 1) }
+                dropStaleResult()
+                recordHistory()
+            }
+            is PrepareIntent.TextureBaked -> {
+                _state.update {
+                    it.copy(
+                        project = it.project?.copy(objects = intent.objects),
+                        plateRevision = it.plateRevision + 1,
+                        paintRevision = it.paintRevision + 1,
+                    )
+                }
+                dropStaleResult()
+                loadTransform()
+                towerInputs.update { it + 1 }
+                recordHistory()
+            }
             is PrepareIntent.SetLayOnFace -> _state.update { it.copy(layingOnFace = intent.on && it.plateEditable) }
             is PrepareIntent.ObjectChanged -> {
                 _state.update { it.copy(project = it.project?.copy(objects = intent.objects), plateRevision = it.plateRevision + 1) }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
-            PrepareIntent.ObjectSettingsChanged -> dropStaleResult()
+            PrepareIntent.ObjectSettingsChanged -> {
+                dropStaleResult()
+                towerInputs.update { it + 1 }
+                recordHistory()
+            }
             is PrepareIntent.LaidOnFace -> {
                 _state.update { it.copy(selection = intent.instance, layingOnFace = false) }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
             PrepareIntent.Arrange -> runPlateTool(PlateTask.ARRANGE) { project, presets ->
                 plateTools.arrange(project, presets, _state.value.arrangeOptions)
             }
             is PrepareIntent.SetArrangeOptions -> _state.update { it.copy(arrangeOptions = intent.options) }
             PrepareIntent.Orient -> {
-                val only = _state.value.selection
-                runPlateTool(PlateTask.ORIENT) { project, presets -> plateTools.orient(project, presets, only) }
+                val selected = _state.value.selected
+                runPlateTool(PlateTask.ORIENT) { project, presets ->
+                    if (selected.isEmpty()) {
+                        plateTools.orient(project, presets, null)
+                    } else {
+                        // Each selected object in turn; the last result shows the plate.
+                        selected.fold(Result.success(PlateUpdate(emptyList()))) { last, ref ->
+                            last.fold({ plateTools.orient(project, presets, ref) }, { Result.failure(it) })
+                        }
+                    }
+                }
             }
             is PrepareIntent.AddCopies -> _state.value.selection?.let { source ->
                 val task = if (intent.count == null) PlateTask.FILL_BED else PlateTask.COPY
@@ -162,8 +240,14 @@ class PrepareViewModel @Inject constructor(
                     plateTools.addCopies(project, presets, source, intent.count, _state.value.arrangeOptions)
                 }
             }
-            PrepareIntent.DeleteSelected -> _state.value.selection?.let { selected ->
-                runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ -> plateTools.remove(project, selected) }
+            PrepareIntent.DeleteSelected -> _state.value.selected.takeIf { it.isNotEmpty() }?.let { selected ->
+                // Last first, so the numbers of the ones still to go do not shift.
+                val order = selected.sortedWith(compareByDescending<InstanceRef> { it.objectIndex }.thenByDescending { it.instanceIndex })
+                runPlateTool(PlateTask.DELETE, keepSelection = false) { project, _ ->
+                    order.fold(Result.success(PlateUpdate(emptyList()))) { last, ref ->
+                        last.fold({ plateTools.remove(project, ref) }, { Result.failure(it) })
+                    }
+                }
             }
             PrepareIntent.DismissPlateNotice -> _state.update { it.copy(plateNotice = null) }
             PrepareIntent.SplitToObjects -> _state.value.selection?.let { selected ->
@@ -173,12 +257,24 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.OpenMeshTool -> _state.update {
                 if ((it.selection != null || intent.tool == MeshTool.MEASURE || intent.tool == MeshTool.EMBOSS) && it.plateEditable) {
-                    it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null)
+                    it.copy(meshTool = intent.tool, layingOnFace = false, simplifyCounts = null, group = emptyList())
                 } else {
                     it
                 }
             }
-            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null, simplifyCounts = null) }
+            PrepareIntent.CloseMeshTool -> _state.update { it.copy(meshTool = null, simplifyCounts = null, textToEdit = null) }
+            is PrepareIntent.EditText -> _state.update {
+                val selected = it.selection
+                if (selected == null || !it.plateEditable) {
+                    it
+                } else {
+                    it.copy(
+                        meshTool = MeshTool.EMBOSS,
+                        layingOnFace = false,
+                        textToEdit = com.orcamobile.core.model.EmbossTarget(selected, intent.volume),
+                    )
+                }
+            }
             is PrepareIntent.SetSimplify -> _state.update { it.copy(simplify = intent.settings) }
             is PrepareIntent.SimplifyCounted -> _state.update {
                 if (it.meshTool == MeshTool.SIMPLIFY) it.copy(simplifyCounts = intent.counts) else it
@@ -195,6 +291,7 @@ class PrepareViewModel @Inject constructor(
                 }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }
             PrepareIntent.CancelSlice -> cancelSlice()
             is PrepareIntent.ShowPreview -> _state.update {
@@ -235,6 +332,8 @@ class PrepareViewModel @Inject constructor(
                 _state.update { it.copy(loading = false, project = project) }
                 // A desktop 3MF brings its plates.
                 plateTools.plates(project.id).onSuccess(::showPlates)
+                // The first step of the history: as opened.
+                projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory)
             },
             { error -> _state.update { it.copy(loading = false, error = error.message ?: "Could not open the model") } },
         )
@@ -261,6 +360,12 @@ class PrepareViewModel @Inject constructor(
         }
         _state.update { it.copy(presets = selection, bed = bed) }
         val project = _state.value.project
+        // Fewer filaments (another printer): nothing may print with one that is gone.
+        val count = selection?.filaments?.size ?: 0
+        if (project != null && count > 0 && count < (old.presets?.filaments?.size ?: 0)) {
+            projects.filamentsChanged(project.id, null, count)
+            _state.update { it.copy(plateRevision = it.plateRevision + 1) }
+        }
         if (project != null && printerChanged) {
             val (x, y) = bed.center
             projects.centerOn(project.id, x, y)
@@ -297,12 +402,14 @@ class PrepareViewModel @Inject constructor(
                         plateTask = null,
                         project = it.project?.copy(objects = update.objects),
                         selection = it.selection.takeIf { keepSelection }?.takeIf { ref -> update.objects.holds(ref) },
+                        group = it.group.takeIf { keepSelection }.orEmpty().filter { ref -> update.objects.holds(ref) },
                         plateRevision = it.plateRevision + 1,
                         plateNotice = notice(task, update),
                     )
                 }
                 dropStaleResult()
                 loadTransform()
+                recordHistory()
             }.onFailure { error ->
                 _state.update {
                     it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName))
@@ -342,6 +449,7 @@ class PrepareViewModel @Inject constructor(
                     )
                 }
                 dropStaleResult()
+                recordHistory()
             }.onFailure { error ->
                 _state.update { it.copy(plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
                 loadTransform()
@@ -357,7 +465,7 @@ class PrepareViewModel @Inject constructor(
         PlateTask.ARRANGE_ALL -> PlateNotice.ArrangedAll(
             update.objects.flatMap { o -> (0 until o.instances).map(o::plateOf) }.distinct().size,
         ).takeIf { update.notPlaced == 0 } ?: PlateNotice.NotPlaced(update.notPlaced)
-        PlateTask.ORIENT, PlateTask.DELETE, PlateTask.PLATES -> null
+        PlateTask.ORIENT, PlateTask.DELETE, PlateTask.PLATES, PlateTask.ALIGN -> null
     }
 
     private fun List<ModelObjectInfo>.holds(ref: InstanceRef): Boolean =
@@ -442,6 +550,91 @@ class PrepareViewModel @Inject constructor(
         }
     }
 
+    // --- undo and redo ------------------------------------------------------
+
+    /** Keeps the project as it is now as a step to come back to. */
+    private fun recordHistory() {
+        val project = _state.value.project ?: return
+        viewModelScope.launch { projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory) }
+    }
+
+    private fun showHistory(history: HistoryState) {
+        _state.update { it.copy(canUndo = history.canUndo, canRedo = history.canRedo) }
+    }
+
+    /** Back or forward a step: the plate shows the project as it was then; every slice is stale. */
+    private fun stepHistory(action: HistoryAction) {
+        val start = _state.value
+        val project = start.project ?: return
+        if (!start.historyUsable || (action == HistoryAction.UNDO && !start.canUndo) || (action == HistoryAction.REDO && !start.canRedo)) return
+        _state.update { it.copy(plateTask = PlateTask.PLATES, plateNotice = null) }
+        viewModelScope.launch {
+            projects.history(project.id, action).onSuccess { history ->
+                showHistory(history)
+                if (history.changed) {
+                    val painting = start.paint != null
+                    _state.update {
+                        it.copy(
+                            project = it.project?.copy(objects = history.objects),
+                            // Painting keeps its object (the paint is read again); otherwise nothing is selected.
+                            selection = it.selection.takeIf { painting }?.takeIf { ref -> history.objects.holds(ref) },
+                            paint = it.paint.takeIf { _ -> it.selection?.let { ref -> history.objects.holds(ref) } == true },
+                            group = emptyList(),
+                            plateRevision = it.plateRevision + 1,
+                            historyRevision = it.historyRevision + 1,
+                            paintRevision = it.paintRevision + 1,
+                        )
+                    }
+                    plateTools.plates(project.id).onSuccess(::showPlates)
+                    _state.update { it.copy(plateTask = null) }
+                    dropAllResults()
+                    loadTransform()
+                    towerInputs.update { it + 1 }
+                }
+            }.onFailure { error ->
+                _state.update { it.copy(plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
+            }
+            _state.update { it.copy(plateTask = null) }
+        }
+    }
+
+    // --- prime tower --------------------------------------------------------
+
+    /**
+     * The current plate's prime tower, read again whenever what it depends on
+     * changed: the objects, the plate, its settings, the presets or the paint.
+     */
+    private suspend fun followWipeTower() {
+        combine(
+            _state.map { Triple(it.project?.id, it.plateRevision, it.currentPlate) }.distinctUntilChanged(),
+            _state.map { it.presets to it.plates.getOrNull(it.currentPlate)?.settings }.distinctUntilChanged(),
+            towerInputs,
+        ) { _, _, _ -> }.collect {
+            val project = _state.value.project ?: return@collect
+            towerJob?.cancel()
+            towerJob = viewModelScope.launch {
+                val tower = plateTools.wipeTower(project.id, _state.value.presets).getOrNull()
+                _state.update { it.copy(wipeTower = tower) }
+            }
+        }
+    }
+
+    private fun Double.mm(): String = String.format(java.util.Locale.ROOT, "%.2f", this)
+
+    // --- filaments ----------------------------------------------------------
+
+    /** As the desktop's delete filament: the model's numbers follow before the slot goes. */
+    private fun removeFilament(slot: Int) {
+        val count = _state.value.choices.slots.size
+        if (count <= 1 || slot !in 0 until count) return
+        viewModelScope.launch {
+            _state.value.project?.let { projects.filamentsChanged(it.id, slot, count - 1) }
+            picker.removeFilament(slot)
+            _state.update { it.copy(plateRevision = it.plateRevision + 1) }
+            recordHistory()
+        }
+    }
+
     // --- plates -------------------------------------------------------------
 
     private fun keepResult(plate: Int, done: SliceUiState.Done) {
@@ -462,6 +655,9 @@ class PrepareViewModel @Inject constructor(
                 selection = it.selection?.takeIf { ref ->
                     !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
                 },
+                group = it.group.filter { ref ->
+                    !switched && plates.objects.getOrNull(ref.objectIndex)?.plateOf(ref.instanceIndex) == plates.current
+                },
                 plateRevision = if (redraw) it.plateRevision + 1 else it.plateRevision,
             )
         }
@@ -477,6 +673,8 @@ class PrepareViewModel @Inject constructor(
         thenSelect: InstanceRef? = null,
         shiftResults: ((Int) -> Int?)? = null,
         notice: PlateNotice? = null,
+        /** The change is one to undo (not just showing another plate). */
+        remember: Boolean = true,
         change: suspend (ProjectId) -> Plates,
     ) {
         val start = _state.value
@@ -503,6 +701,7 @@ class PrepareViewModel @Inject constructor(
                     )
                 }
                 loadTransform()
+                if (remember) recordHistory()
             }.onFailure { error ->
                 _state.update { it.copy(plateTask = null, plateNotice = PlateNotice.Failed(error.message ?: error.javaClass.simpleName)) }
             }
@@ -511,7 +710,7 @@ class PrepareViewModel @Inject constructor(
 
     private fun selectPlate(plate: Int, thenSelect: InstanceRef? = null) {
         if (plate == _state.value.currentPlate && thenSelect == null) return
-        changePlates(thenSelect = thenSelect) { plateTools.plates(it, PlateAction.Select(plate)).getOrThrow() }
+        changePlates(thenSelect = thenSelect, remember = false) { plateTools.plates(it, PlateAction.Select(plate)).getOrThrow() }
     }
 
     private fun removePlate(plate: Int) {
@@ -523,15 +722,37 @@ class PrepareViewModel @Inject constructor(
 
     private fun moveSelectionToPlate(target: Int?) {
         val start = _state.value
-        val selection = start.selection ?: return
-        if (!start.plateEditable) return
+        val selected = start.selected
+        if (selected.isEmpty() || !start.plateEditable) return
         val from = start.currentPlate
         val to = target ?: start.plates.size
         if (to == from) return
         changePlates(stale = setOf(from, to), notice = PlateNotice.MovedToPlate(to)) { project ->
             if (target == null) plateTools.plates(project, PlateAction.Add).getOrThrow()
-            plateTools.plates(project, PlateAction.Move(selection, to)).getOrThrow()
+            var plates: Plates? = null
+            for (ref in selected) plates = plateTools.plates(project, PlateAction.Move(ref, to)).getOrThrow()
+            requireNotNull(plates)
         }
+    }
+
+    /**
+     * A long press: the object joins the selection (becoming it when there is
+     * none), or leaves it; the next selected one takes over as the main one.
+     */
+    private fun toggleSelected(instance: InstanceRef) {
+        val s = _state.value
+        if (!s.plateEditable || s.meshTool != null) return
+        val plate = s.project?.objects?.getOrNull(instance.objectIndex)?.plateOf(instance.instanceIndex)
+        if (plate != null && plate != s.currentPlate) return
+        _state.update {
+            when {
+                it.selection == null -> it.copy(selection = instance, group = emptyList())
+                it.selection == instance -> it.copy(selection = it.group.firstOrNull(), group = it.group.drop(1))
+                instance in it.group -> it.copy(group = it.group - instance)
+                else -> it.copy(group = it.group + instance)
+            }
+        }
+        loadTransform()
     }
 
     /** The slice shown becomes [plate]'s own, if it kept one; its preview is read again. */
@@ -558,6 +779,7 @@ class PrepareViewModel @Inject constructor(
         }.distinctUntilChanged().collect { changes ->
             _state.update { it.copy(changedSettings = changes.size) }
             if (previous != null) dropAllResults()
+            towerInputs.update { it + 1 }
             previous = changes
         }
     }

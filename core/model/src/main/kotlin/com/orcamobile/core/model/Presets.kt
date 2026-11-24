@@ -8,7 +8,10 @@ data class PresetSelection(
     val vendor: String,
     val printer: String,
     val process: String,
+    /** One per filament slot: filament 1, 2, ... as objects and painting number them. */
     val filaments: List<String>,
+    /** "#RRGGBB" per slot over its preset's colour; empty (or shorter) keeps the preset's. */
+    val filamentColours: List<String> = emptyList(),
 )
 
 /** Processes and filaments that suit one printer, with the defaults its profile recommends. */

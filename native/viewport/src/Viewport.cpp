@@ -179,11 +179,18 @@ struct Viewport::Impl {
     bool has_bed = false;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     bool framed = false;
+    // The next parts shown are framed (another plate); otherwise edits keep the camera.
+    bool frame_next_parts = false;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    // Model parts drawn as other triangles, by (object, volume).
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> volume_previews;
     std::vector<std::array<float, 4>> paint_palette;
+    std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
+    std::shared_ptr<const Overlay> scene_overlay;
     std::optional<CutView> cut_view;
 
     // Toolpaths: the shown data (kept for context loss) and whether it needs uploading.
@@ -205,9 +212,14 @@ struct Viewport::Impl {
     // One vertex array per part mesh, shared by the instances that use it.
     std::map<const PartMesh*, GpuBatch> part_batches;
     std::map<const PaintOverlayMesh*, GpuBatch> paint_batches;
-    // The overlay shown and its vertex arrays, one per shape.
-    const Overlay* overlay_uploaded = nullptr;
-    std::vector<GpuBatch> overlay_batches;
+    // The overlays shown and their vertex arrays, one per shape: the tool's,
+    // and the scene's own (the prime tower).
+    struct OverlaySlot {
+        const Overlay* uploaded = nullptr;
+        std::vector<GpuBatch> batches;
+    };
+    OverlaySlot tool_slot;
+    OverlaySlot scene_slot;
     ToolpathRenderer toolpath_renderer;
     bool gl_ready = false;
 
@@ -245,10 +257,10 @@ struct Viewport::Impl {
     }
 
     // GL thread: vertex arrays for exactly the meshes the parts use.
-    void sync_paint_batches(const std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>>& shown)
+    void sync_paint_batches(const std::vector<std::shared_ptr<const PaintOverlayMesh>>& shown)
     {
         std::map<const PaintOverlayMesh*, GpuBatch> next;
-        for (const auto& [key, overlay] : shown) {
+        for (const auto& overlay : shown) {
             const PaintOverlayMesh* mesh = overlay.get();
             if (mesh == nullptr || next.count(mesh) != 0)
                 continue;
@@ -266,8 +278,9 @@ struct Viewport::Impl {
     }
 
     // GL thread: opaque shapes first, then see-through ones, then those on top.
-    void draw_overlay(const Overlay& shown, const Eigen::Matrix4f& view_proj, const Eigen::Vector3f& eye)
+    void draw_overlay(const Overlay& shown, OverlaySlot& slot, const Eigen::Matrix4f& view_proj, const Eigen::Vector3f& eye)
     {
+        std::vector<GpuBatch>& overlay_batches = slot.batches;
         const Eigen::Matrix4f identity = Eigen::Matrix4f::Identity();
         for (int pass = 0; pass < 3; ++pass) {
             for (std::size_t i = 0; i < shown.shapes.size() && i < overlay_batches.size(); ++i) {
@@ -317,19 +330,19 @@ struct Viewport::Impl {
         }
     }
 
-    void sync_overlay(const std::shared_ptr<const Overlay>& shown)
+    void sync_overlay(const std::shared_ptr<const Overlay>& shown, OverlaySlot& slot)
     {
-        if (shown.get() == overlay_uploaded && overlay_batches.size() == (shown ? shown->shapes.size() : 0))
+        if (shown.get() == slot.uploaded && slot.batches.size() == (shown ? shown->shapes.size() : 0))
             return;
-        for (GpuBatch& batch : overlay_batches)
+        for (GpuBatch& batch : slot.batches)
             batch.release();
-        overlay_batches.clear();
-        overlay_uploaded = shown.get();
+        slot.batches.clear();
+        slot.uploaded = shown.get();
         if (!shown)
             return;
-        overlay_batches.resize(shown->shapes.size());
+        slot.batches.resize(shown->shapes.size());
         for (std::size_t i = 0; i < shown->shapes.size(); ++i)
-            overlay_batches[i].upload(shown->shapes[i].positions, nullptr);
+            slot.batches[i].upload(shown->shapes[i].positions, nullptr);
     }
 
     void sync_part_batches(const std::vector<PartState>& shown)
@@ -375,10 +388,12 @@ void Viewport::on_surface_created()
     for (auto& [mesh, batch] : d.paint_batches)
         batch.abandon();
     d.paint_batches.clear();
-    for (GpuBatch& batch : d.overlay_batches)
-        batch.abandon();
-    d.overlay_batches.clear();
-    d.overlay_uploaded = nullptr;
+    for (Impl::OverlaySlot* slot : {&d.tool_slot, &d.scene_slot}) {
+        for (GpuBatch& batch : slot->batches)
+            batch.abandon();
+        slot->batches.clear();
+        slot->uploaded = nullptr;
+    }
 
     std::string error;
     d.gl_ready = d.lit_program.build(shaders::kLitVertex, shaders::kLitFragment, error) &&
@@ -412,10 +427,14 @@ void Viewport::draw()
     Camera camera;
     std::vector<PartState> parts;
     std::optional<PartRef> selection;
+    std::vector<PartRef> group;
     std::optional<int> highlighted_volume;
     std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> paint_overlays;
+    std::map<std::pair<int, int>, std::shared_ptr<const PaintOverlayMesh>> volume_previews;
     std::vector<std::array<float, 4>> paint_palette;
+    std::vector<std::array<float, 4>> filament_colours;
     std::shared_ptr<const Overlay> overlay;
+    std::shared_ptr<const Overlay> scene_overlay;
     std::optional<CutView> cut_view;
     bool show_toolpaths = false;
     {
@@ -457,10 +476,14 @@ void Viewport::draw()
         camera = d.camera;
         parts = d.parts;
         selection = d.selection;
+        group = d.group;
         highlighted_volume = d.highlighted_volume;
         paint_overlays = d.paint_overlays;
+        volume_previews = d.volume_previews;
         paint_palette = d.paint_palette;
+        filament_colours = d.filament_colours;
         overlay = d.overlay;
+        scene_overlay = d.scene_overlay;
         cut_view = d.cut_view;
         show_toolpaths = d.has_toolpaths;
     }
@@ -470,8 +493,16 @@ void Viewport::draw()
     if (!d.gl_ready)
         return;
     d.sync_part_batches(parts);
-    d.sync_paint_batches(paint_overlays);
-    d.sync_overlay(overlay);
+    {
+        std::vector<std::shared_ptr<const PaintOverlayMesh>> meshes;
+        for (const auto& [key, mesh] : paint_overlays)
+            meshes.push_back(mesh);
+        for (const auto& [key, mesh] : volume_previews)
+            meshes.push_back(mesh);
+        d.sync_paint_batches(meshes);
+    }
+    d.sync_overlay(overlay, d.tool_slot);
+    d.sync_overlay(scene_overlay, d.scene_slot);
     glEnable(GL_DEPTH_TEST);
     glDisable(GL_CULL_FACE);
 
@@ -529,7 +560,8 @@ void Viewport::draw()
             auto batch = d.part_batches.find(state.part.mesh.get());
             if (batch == d.part_batches.end())
                 continue;
-            const bool selected = selection && *selection == state.part.ref;
+            const bool selected = (selection && *selection == state.part.ref) ||
+                                  std::find(group.begin(), group.end(), state.part.ref) != group.end();
             for (const PieceState& piece_state : state.pieces) {
                 const MeshPiece& piece = piece_state.piece;
                 if ((piece.kind != VolumeKind::ModelPart) != see_through)
@@ -537,6 +569,13 @@ void Viewport::draw()
                 const Eigen::Matrix4f placed = state.transform * piece_state.transform;
                 glUniformMatrix4fv(model_matrix, 1, GL_FALSE, placed.data());
                 Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
+                // Several filaments: a part in its filament's colour, the selection tinted.
+                if (piece.kind == VolumeKind::ModelPart && piece.filament >= 1 &&
+                    std::size_t(piece.filament) <= filament_colours.size()) {
+                    const auto& f = filament_colours[std::size_t(piece.filament) - 1];
+                    const float t = selected ? 0.45f : 0.0f;
+                    c = Color{f[0] + (kSelected.r - f[0]) * t, f[1] + (kSelected.g - f[1]) * t, f[2] + (kSelected.b - f[2]) * t, 1.0f};
+                }
                 if (selected && highlighted_volume && *highlighted_volume == piece.volume)
                     c = piece.kind == VolumeKind::ModelPart ? Color{0.30f, 0.60f, 1.00f, 1.0f} : kHighlightedVolume;
                 const bool cut = cut_view && cut_view->object == state.part.ref.object && piece.kind == VolumeKind::ModelPart;
@@ -550,8 +589,17 @@ void Viewport::draw()
                     glUniform1f(clip_above, cut_view->hide_above ? 1.0f : 0.0f);
                 }
                 glUniform4f(part_color, c.r, c.g, c.b, c.a);
-                batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
-                                   static_cast<GLsizei>(piece.triangle_count * 3));
+                const auto preview = piece.kind == VolumeKind::ModelPart
+                                         ? volume_previews.find({state.part.ref.object, piece.volume})
+                                         : volume_previews.end();
+                const auto preview_batch = preview != volume_previews.end() && preview->second
+                                               ? d.paint_batches.find(preview->second.get())
+                                               : d.paint_batches.end();
+                if (preview_batch != d.paint_batches.end())
+                    preview_batch->second.draw(GL_TRIANGLES);
+                else
+                    batch->second.draw(GL_TRIANGLES, static_cast<GLint>(piece.first_triangle * 3),
+                                       static_cast<GLsizei>(piece.triangle_count * 3));
                 if (cut) {
                     glUniform4f(cut_plane, 0.0f, 0.0f, 0.0f, 0.0f);
                     glUniform1f(clip_above, 0.0f);
@@ -587,8 +635,10 @@ void Viewport::draw()
             glDisable(GL_POLYGON_OFFSET_FILL);
         }
     }
+    if (scene_overlay)
+        d.draw_overlay(*scene_overlay, d.scene_slot, view_proj, eye);
     if (overlay)
-        d.draw_overlay(*overlay, view_proj, eye);
+        d.draw_overlay(*overlay, d.tool_slot, view_proj, eye);
 }
 
 void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const PaintOverlayMesh> overlay)
@@ -598,6 +648,21 @@ void Viewport::set_paint_overlay(int object, int volume, std::shared_ptr<const P
         m_impl->paint_overlays[{object, volume}] = std::move(overlay);
     else
         m_impl->paint_overlays.erase({object, volume});
+}
+
+void Viewport::set_volume_previews(int object, std::map<int, std::shared_ptr<const PaintOverlayMesh>> previews)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->volume_previews.clear();
+    for (auto& [volume, mesh] : previews)
+        if (mesh && !mesh->positions.empty())
+            m_impl->volume_previews[{object, volume}] = std::move(mesh);
+}
+
+void Viewport::clear_volume_previews()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->volume_previews.clear();
 }
 
 void Viewport::clear_paint_overlays()
@@ -646,11 +711,100 @@ std::optional<Viewport::SurfaceHit> Viewport::pick_surface(float x_px, float y_p
     return best;
 }
 
+std::optional<Viewport::SurfaceHit> Viewport::pick_surface_of(float x_px, float y_px, int object, int skip) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction, eye;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return std::nullopt;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        eye = m_impl->camera.eye();
+        parts = m_impl->parts;
+    }
+    std::optional<SurfaceHit> best;
+    float nearest = std::numeric_limits<float>::infinity();
+    for (const PartState& state : parts) {
+        if (state.part.ref.object != object)
+            continue;
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.kind != VolumeKind::ModelPart || piece.piece.volume == skip)
+                continue;
+            const Eigen::Matrix4f placed = state.transform * piece.transform;
+            std::size_t triangle = 0;
+            const std::optional<float> t = intersect(*state.part.mesh, piece.piece.first_triangle, piece.piece.triangle_count,
+                                                     piece.box, placed, origin, direction, &triangle);
+            if (!t || *t >= nearest)
+                continue;
+            nearest = *t;
+            const Eigen::Matrix4f inverse = placed.inverse();
+            const Eigen::Vector3f hit = (inverse * (origin + direction * *t).homogeneous()).head<3>();
+            const Eigen::Vector3f camera = (inverse * eye.homogeneous()).head<3>();
+            best = SurfaceHit{state.part.ref, piece.piece.volume, triangle - piece.piece.first_triangle,
+                              {hit.x(), hit.y(), hit.z()}, {camera.x(), camera.y(), camera.z()}};
+        }
+    }
+    return best;
+}
+
+bool Viewport::hits_volume(float x_px, float y_px, const PartRef& part, int volume, float margin_mm) const
+{
+    std::vector<PartState> parts;
+    Eigen::Vector3f origin, direction;
+    {
+        std::lock_guard<std::mutex> lock(m_impl->mutex);
+        if (m_impl->has_toolpaths)
+            return false;
+        m_impl->camera.ray(x_px, y_px, origin, direction);
+        parts = m_impl->parts;
+    }
+    for (const PartState& state : parts) {
+        if (!(state.part.ref == part))
+            continue;
+        for (const PieceState& piece : state.pieces) {
+            if (piece.piece.volume != volume || piece.box.isEmpty())
+                continue;
+            // The ray in the volume's own coordinates, against its box (slab test).
+            const Eigen::Matrix4f inverse = (state.transform * piece.transform).inverse();
+            const Eigen::Vector3f o = (inverse * origin.homogeneous()).head<3>();
+            const Eigen::Vector3f d = inverse.topLeftCorner<3, 3>() * direction;
+            // The margin in world mm, as the volume may be scaled.
+            const float scale = std::max(1e-6f, (state.transform * piece.transform).topLeftCorner<3, 3>().col(0).norm());
+            const Eigen::Vector3f grow = Eigen::Vector3f::Constant(margin_mm / scale);
+            const Eigen::Vector3f lo = piece.box.min() - grow, hi = piece.box.max() + grow;
+            float t0 = -std::numeric_limits<float>::infinity(), t1 = std::numeric_limits<float>::infinity();
+            bool hit = true;
+            for (int a = 0; a < 3 && hit; ++a) {
+                if (std::abs(d[a]) < 1e-9f) {
+                    hit = o[a] >= lo[a] && o[a] <= hi[a];
+                    continue;
+                }
+                float ta = (lo[a] - o[a]) / d[a], tb = (hi[a] - o[a]) / d[a];
+                if (ta > tb)
+                    std::swap(ta, tb);
+                t0 = std::max(t0, ta);
+                t1 = std::min(t1, tb);
+                hit = t0 <= t1 && t1 >= 0;
+            }
+            if (hit)
+                return true;
+        }
+    }
+    return false;
+}
+
 void Viewport::set_bed(Bed bed)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->pending_bed = std::move(bed);
     m_impl->framed = false;
+}
+
+void Viewport::set_filament_colours(std::vector<std::array<float, 4>> colours)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->filament_colours = std::move(colours);
 }
 
 void Viewport::set_parts(std::vector<Part> parts)
@@ -669,11 +823,22 @@ void Viewport::set_parts(std::vector<Part> parts)
     }
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     Impl& d = *m_impl;
+    // Framed when the plate shows something for the first time or another plate;
+    // an edit (a moved object, a new text, a cut) keeps the camera where it is.
+    const bool frame = d.parts.empty() || d.frame_next_parts || !d.framed;
     d.parts = std::move(states);
+    d.frame_next_parts = false;
     if (d.selection && std::none_of(d.parts.begin(), d.parts.end(),
                                     [&](const PartState& s) { return s.part.ref == *d.selection; }))
         d.selection.reset();
-    d.frame_scene_locked();
+    if (frame)
+        d.frame_scene_locked();
+}
+
+void Viewport::frame_next_parts()
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->frame_next_parts = true;
 }
 
 void Viewport::clear_parts()
@@ -681,6 +846,7 @@ void Viewport::clear_parts()
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->parts.clear();
     m_impl->selection.reset();
+    m_impl->group.clear();
 }
 
 void Viewport::set_part_transform(const PartRef& ref, const std::array<float, 16>& transform)
@@ -728,6 +894,18 @@ std::optional<PartRef> Viewport::selection() const
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     return m_impl->selection;
+}
+
+void Viewport::set_group(std::vector<PartRef> group)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->group = std::move(group);
+}
+
+std::vector<PartRef> Viewport::group() const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    return m_impl->group;
 }
 
 std::optional<PartRef> Viewport::pick(float x_px, float y_px) const
@@ -850,6 +1028,12 @@ void Viewport::set_overlay(std::shared_ptr<const Overlay> overlay)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     m_impl->overlay = std::move(overlay);
+}
+
+void Viewport::set_scene_overlay(std::shared_ptr<const Overlay> overlay)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->scene_overlay = std::move(overlay);
 }
 
 void Viewport::set_cut_view(std::optional<CutView> view)

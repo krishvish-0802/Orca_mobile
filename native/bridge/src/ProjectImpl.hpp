@@ -30,6 +30,18 @@ struct Project::Impl {
     std::size_t current_plate = 0;
     mutable std::map<std::size_t, std::size_t> plate_by_instance;
 
+    // Undo and redo (the desktop's UndoRedo stack, for the whole project): the
+    // project after each change, oldest first; `at` is the one shown. A copy of
+    // a model shares its meshes, so a step costs little.
+    struct State {
+        Slic3r::Model model;
+        std::vector<Plate> plates;
+        std::size_t current_plate = 0;
+        std::map<std::size_t, std::size_t> plate_by_instance;
+    };
+    std::vector<State> history;
+    std::size_t at = 0;
+
     std::size_t plate_of(const Slic3r::ModelInstance& instance) const
     {
         auto [it, added] = plate_by_instance.try_emplace(instance.id().id, current_plate);

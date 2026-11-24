@@ -182,6 +182,7 @@ jobs:
           -Porca.native=true -Porca.depsPrefix="${DEPS_PREFIX}" -Porca.abis="${ORCA_ABI}"
           -Porca.ndkVersion="${NDK_REVISION}" -Porca.prebuiltEngineDir="${RUNNER_TEMP}/engine-libs"
           -Porca.versionCode="${{ github.run_number }}"
+          -Porca.updateTag="${{ github.ref_name == 'main' && 'latest-build' || format('{0}-build', github.ref_name) }}"
 
       - name: Check 16 KB page alignment
         run: |
@@ -256,15 +257,17 @@ jobs:
   # Builds from main that passed the emulator test go to one rolling pre-release,
   # so a phone can always install the latest from a fixed link:
   # https://github.com/<owner>/<repo>/releases/download/latest-build/orca-mobile-arm64-v8a.apk
+  # A milestone branch (milestone-N) publishes to its own, milestone-N-build; its
+  # builds update from there until the release is deleted on merging into main.
   publish:
     name: Publish the latest build
     needs: [engine, emulator-smoke]
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    if: (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/milestone-')) && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     concurrency:
-      group: publish-latest-build
+      group: publish-${{ github.ref_name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v5
@@ -279,6 +282,8 @@ jobs:
       - name: Update the latest-build release
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name == 'main' && 'latest-build' || format('{0}-build', github.ref_name) }}
+          TITLE: ${{ github.ref_name == 'main' && 'Latest build' || format('Latest {0} build', github.ref_name) }}
         run: |
           set -euo pipefail
           mkdir -p out
@@ -286,16 +291,16 @@ jobs:
             cp "$(ls apks/orca-mobile-debug-${abi}/*.apk | head -n 1)" "out/orca-mobile-${abi}.apk"
           done
           ls -l out
-          git tag -f latest-build "${GITHUB_SHA}"
-          git push -f origin refs/tags/latest-build
-          notes="Latest build of main: ${GITHUB_SHA::7}, CI run #${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC').
+          git tag -f "${TAG}" "${GITHUB_SHA}"
+          git push -f origin "refs/tags/${TAG}"
+          notes="Latest build of ${GITHUB_REF_NAME}: ${GITHUB_SHA::7}, CI run #${GITHUB_RUN_NUMBER}, $(date -u '+%Y-%m-%d %H:%M UTC').
 
           Phones: install orca-mobile-arm64-v8a.apk. The x86_64 file is for emulators.
           This is a test build, signed with the project's debug key; later builds install over it."
-          if gh release view latest-build >/dev/null 2>&1; then
-            gh release edit latest-build --prerelease --title "Latest build" --notes "${notes}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            gh release edit "${TAG}" --prerelease --title "${TITLE}" --notes "${notes}"
           else
-            gh release create latest-build --prerelease --title "Latest build" --notes "${notes}" --verify-tag
+            gh release create "${TAG}" --prerelease --title "${TITLE}" --notes "${notes}" --verify-tag
           fi
           # What the app's update check reads (core/update): this build's versionCode is the
           # run number (app/build.gradle.kts), and the latest commits say what changed.
@@ -311,4 +316,4 @@ jobs:
           }, open("out/version.json", "w"), indent=2)
           PY
           cat out/version.json
-          gh release upload latest-build out/*.apk out/version.json --clobber
+          gh release upload "${TAG}" out/*.apk out/version.json --clobber

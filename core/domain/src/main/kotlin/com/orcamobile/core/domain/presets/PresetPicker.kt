@@ -2,6 +2,7 @@ package com.orcamobile.core.domain.presets
 
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.model.FilamentSlot
 import com.orcamobile.core.model.PresetChoices
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,8 +17,9 @@ import javax.inject.Singleton
  * The app's one preset selection, shared by every screen that shows it, so a
  * printer chosen on the plate is the one the start screen and the settings
  * show. Choices are remembered; picking a printer suggests its profile's
- * process and filament, as the desktop app does. Choices apply in the order
- * they were made.
+ * process and filament, as the desktop app does. Several filaments may be
+ * loaded (filament 1, 2, ...), each with its own colour over its preset's.
+ * Choices apply in the order they were made.
  */
 @Singleton
 class PresetPicker @Inject constructor(
@@ -43,16 +45,22 @@ class PresetPicker @Inject constructor(
         _choices.update { it.copy(vendor = saved.vendor, printers = printers) }
         if (saved.printer !in printers) return@withLock
         val compatible = catalog.compatiblePresets(saved.vendor, saved.printer).getOrElse { return@withLock fail(it) }
-        val filament = saved.filaments.firstOrNull()
+        // Saved filaments that no longer suit the printer give way to its default.
+        val fallback = compatible.defaultFilament ?: compatible.filaments.firstOrNull()
+        val slots = saved.filaments.mapIndexedNotNull { i, name ->
+            val preset = name.takeIf { it in compatible.filaments } ?: fallback ?: return@mapIndexedNotNull null
+            FilamentSlot(preset, saved.filamentColours.getOrNull(i)?.takeIf { it.isNotEmpty() })
+        }.ifEmpty { listOfNotNull(fallback?.let(::FilamentSlot)) }
         _choices.update {
             it.copy(
                 printer = saved.printer,
                 processes = compatible.processes,
                 process = saved.process.takeIf { p -> p in compatible.processes } ?: compatible.defaultProcess,
                 filaments = compatible.filaments,
-                filament = filament?.takeIf { f -> f in compatible.filaments } ?: compatible.defaultFilament,
+                slots = slots,
             )
         }
+        readColours()
     }
 
     suspend fun selectVendor(vendor: String) = mutex.withLock {
@@ -66,7 +74,10 @@ class PresetPicker @Inject constructor(
     suspend fun selectPrinter(printer: String) = mutex.withLock {
         val vendor = _choices.value.vendor ?: return@withLock
         _choices.update {
-            it.copy(loading = true, printer = printer, processes = emptyList(), process = null, filaments = emptyList(), filament = null, error = null)
+            it.copy(
+                loading = true, printer = printer, processes = emptyList(), process = null, filaments = emptyList(),
+                slots = emptyList(), slotColours = emptyList(), error = null,
+            )
         }
         catalog.compatiblePresets(vendor, printer).fold(
             { compatible ->
@@ -76,7 +87,7 @@ class PresetPicker @Inject constructor(
                         processes = compatible.processes,
                         process = compatible.defaultProcess,
                         filaments = compatible.filaments,
-                        filament = compatible.defaultFilament,
+                        slots = listOfNotNull((compatible.defaultFilament ?: compatible.filaments.firstOrNull())?.let(::FilamentSlot)),
                     )
                 }
                 remember()
@@ -90,13 +101,54 @@ class PresetPicker @Inject constructor(
         remember()
     }
 
-    suspend fun selectFilament(filament: String) = mutex.withLock {
-        _choices.update { it.copy(filament = filament) }
+    /** The first filament, for screens that show one. */
+    suspend fun selectFilament(filament: String) = selectFilament(0, filament)
+
+    /** Loads [filament] as filament [slot] + 1; its colour follows the new preset. */
+    suspend fun selectFilament(slot: Int, filament: String) = mutex.withLock {
+        _choices.update { choices ->
+            val slots = choices.slots.ifEmpty { listOf(FilamentSlot(filament)) }
+            if (slot !in slots.indices) return@update choices
+            choices.copy(slots = slots.toMutableList().also { it[slot] = FilamentSlot(filament) })
+        }
+        remember()
+    }
+
+    /** Adds a filament after the last, a copy of it, as the desktop's "+" does. */
+    suspend fun addFilament() = mutex.withLock {
+        val choices = _choices.value
+        val last = choices.slots.lastOrNull() ?: return@withLock
+        if (choices.slots.size >= PresetChoices.MAX_FILAMENTS) return@withLock
+        _choices.update { it.copy(slots = it.slots + last.copy(colour = null)) }
+        remember()
+    }
+
+    /** Takes filament [slot] + 1 away; the later ones move up. The last one stays. */
+    suspend fun removeFilament(slot: Int) = mutex.withLock {
+        val choices = _choices.value
+        if (choices.slots.size <= 1 || slot !in choices.slots.indices) return@withLock
+        _choices.update { it.copy(slots = it.slots.filterIndexed { i, _ -> i != slot }) }
+        remember()
+    }
+
+    /** Filament [slot] + 1 prints in [colour] ("#RRGGBB"), or its preset's colour when null. */
+    suspend fun setFilamentColour(slot: Int, colour: String?) = mutex.withLock {
+        if (slot !in _choices.value.slots.indices) return@withLock
+        _choices.update { it.copy(slots = it.slots.toMutableList().also { s -> s[slot] = s[slot].copy(colour = colour) }) }
         remember()
     }
 
     private suspend fun remember() {
         _choices.value.selection?.let { settings.savePresetSelection(it) }
+        readColours()
+    }
+
+    /** Each slot's colour as it will print, from its own or its preset's. */
+    private suspend fun readColours() {
+        val selection = _choices.value.selection ?: return
+        catalog.filamentColours(selection).onSuccess { colours ->
+            _choices.update { if (it.selection == selection) it.copy(slotColours = colours) else it }
+        }
     }
 
     private fun fail(error: Throwable) {

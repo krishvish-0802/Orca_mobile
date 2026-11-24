@@ -31,16 +31,24 @@ import java.util.Locale
 
 /**
  * The desktop's painting tools for the selected object: what to paint (support
- * or seam enforcers and blockers, fuzzy skin, filament colours), with what
- * (brush, ball, smart fill, fill) and how big.
+ * or seam enforcers and blockers, fuzzy skin, filament colours, a painted
+ * modifier's area, a texture's area), with what (brush, ball, smart fill, fill)
+ * and how big.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun PaintPanel(
     state: PrepareUiState,
     onIntent: (PrepareIntent) -> Unit,
+    list: ObjectListUiState = ObjectListUiState(),
+    onListIntent: (ObjectListIntent) -> Unit = {},
+    /** A painted modifier's settings (its volume index). */
+    onOpenSettings: (Int) -> Unit = {},
     fuzzySkinDisabled: Boolean = false,
     onEnableFuzzySkin: () -> Unit = {},
+    texture: TextureUiState = TextureUiState(),
+    onTexture: (TextureIntent) -> Unit = {},
+    onPickTexture: () -> Unit = {},
 ) {
     val brush = state.paint ?: return
     val set: (PaintBrush) -> Unit = { onIntent(PrepareIntent.SetBrush(it)) }
@@ -52,14 +60,36 @@ internal fun PaintPanel(
                 maxLines = 1,
             )
             val kinds = state.paintKinds
-            SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                kinds.forEachIndexed { index, kind ->
-                    SegmentedButton(
+            // The object's painted modifiers, by volume index: the last one is painted on when switching to them.
+            val modifiers = list.details?.volumes.orEmpty().withIndex()
+                .filter { it.value.kind == com.orcamobile.core.model.VolumeKind.PAINTED_MODIFIER }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (kind in kinds) {
+                    FilterChip(
                         selected = brush.kind == kind,
-                        onClick = { if (kind != brush.kind) set(brush.copy(kind = kind, state = PaintBrush.ENFORCE)) },
-                        shape = SegmentedButtonDefaults.itemShape(index, kinds.size),
-                        icon = {},
-                    ) { Text(stringResource(kindLabel(kind)), maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+                        onClick = {
+                            if (kind != brush.kind) {
+                                val modifier = modifiers.lastOrNull()?.index.takeIf { kind == PaintKind.PAINTED_MODIFIER }
+                                set(brush.copy(kind = kind, state = PaintBrush.ENFORCE, modifier = modifier, textureLayer = texture.active))
+                            }
+                        },
+                        label = { Text(stringResource(kindLabel(kind)), maxLines = 1) },
+                    )
+                }
+            }
+            if (brush.kind == PaintKind.PAINTED_MODIFIER) {
+                PaintedModifierSection(brush, modifiers.map { it.index to it.value }, list.busy, set, onListIntent, onOpenSettings)
+            }
+            if (brush.kind == PaintKind.TEXTURE) {
+                TextureSection(texture, onTexture, onPickTexture)
+                // No layer, nothing to paint with yet.
+                if (texture.activeLayer == null || texture.choosing == TextureChoice.NewLayer) {
+                    PrimaryPillButton(
+                        stringResource(R.string.prepare_paint_done),
+                        onClick = { onIntent(PrepareIntent.StopPainting) },
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                    return@Column
                 }
             }
 
@@ -71,7 +101,7 @@ internal fun PaintPanel(
                         onClick = { set(brush.copy(state = value)) },
                         label = { Text(label) },
                         leadingIcon = if (value == PaintBrush.ERASE) null else {
-                            { ColorDot(paletteFor(brush.kind).getOrElse(value) { Color.Gray }) }
+                            { ColorDot(paletteFor(brush.kind, state.choices.slotColoursOrDefault()).getOrElse(value) { Color.Gray }) }
                         },
                     )
                 }
@@ -184,16 +214,41 @@ private fun statesFor(kind: PaintKind, state: PrepareUiState): List<Pair<Int, St
         1 to stringResource(R.string.prepare_paint_fuzzy),
         PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase),
     )
+    PaintKind.PAINTED_MODIFIER -> listOf(
+        PaintBrush.ENFORCE to stringResource(R.string.prepare_paint_modifier_area),
+        PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase),
+    )
+    PaintKind.TEXTURE -> listOf(
+        PaintBrush.ENFORCE to stringResource(R.string.prepare_paint_texture_area),
+        PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase),
+    )
     PaintKind.COLOR -> (1..(state.presets?.filaments?.size ?: 1)).map { it to stringResource(R.string.prepare_paint_filament, it) } +
         (PaintBrush.ERASE to stringResource(R.string.prepare_paint_erase))
 }
 
-/** Colours by painted state (0 is unpainted), as the desktop draws them. */
-internal fun paletteFor(kind: PaintKind): List<Color> = when (kind) {
+/**
+ * Colours by painted state (0 is unpainted), as the desktop draws them; colour
+ * painting draws each filament in its own colour ([filaments], filament 1 first).
+ */
+internal fun paletteFor(kind: PaintKind, filaments: List<Color> = emptyList()): List<Color> = when (kind) {
     PaintKind.SUPPORTS -> listOf(Color.Transparent, Color(0xFF33CC4D), Color(0xFFE64040))
     PaintKind.SEAM -> listOf(Color.Transparent, Color(0xFF3380FF), Color(0xFFE64040))
     PaintKind.FUZZY_SKIN -> listOf(Color.Transparent, Color(0xFFFF9919))
-    PaintKind.COLOR -> listOf(Color.Transparent) + FILAMENT_COLORS
+    PaintKind.COLOR -> listOf(Color.Transparent) + filaments + FILAMENT_COLORS.drop(filaments.size)
+    PaintKind.PAINTED_MODIFIER -> listOf(Color.Transparent, Color(0xFFF2CC33))
+    PaintKind.TEXTURE -> listOf(Color.Transparent, Color(0xFF26C6DA))
+}
+
+/** The loaded filaments' colours, filament 1 first; a slot not yet known takes the stock colour. */
+internal fun com.orcamobile.core.model.PresetChoices.slotColoursOrDefault(): List<Color> =
+    slots.indices.map { i -> colourOf(i)?.let(::parseFilamentColour) ?: FILAMENT_COLORS[i % FILAMENT_COLORS.size] }
+
+/** "#RRGGBB" or "#RRGGBBAA" as profiles write it; null for anything else. */
+internal fun parseFilamentColour(hex: String): Color? {
+    val digits = hex.removePrefix("#")
+    if (digits.length != 6 && digits.length != 8) return null
+    val value = digits.toLongOrNull(16) ?: return null
+    return if (digits.length == 6) Color(0xFF000000 or value) else Color(((value and 0xFF) shl 24) or (value ushr 8))
 }
 
 private val FILAMENT_COLORS = listOf(
@@ -206,6 +261,71 @@ private fun kindLabel(kind: PaintKind): Int = when (kind) {
     PaintKind.SEAM -> R.string.prepare_paint_kind_seam
     PaintKind.FUZZY_SKIN -> R.string.prepare_paint_kind_fuzzy
     PaintKind.COLOR -> R.string.prepare_paint_kind_color
+    PaintKind.PAINTED_MODIFIER -> R.string.prepare_paint_kind_modifier
+    PaintKind.TEXTURE -> R.string.prepare_paint_kind_texture
+}
+
+/**
+ * The desktop's painted modifier tool: which modifier the strokes shape (or a
+ * new one), how deep it reaches into the part, and its settings.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PaintedModifierSection(
+    brush: PaintBrush,
+    modifiers: List<Pair<Int, com.orcamobile.core.model.VolumeInfo>>,
+    busy: Boolean,
+    set: (PaintBrush) -> Unit,
+    onListIntent: (ObjectListIntent) -> Unit,
+    onOpenSettings: (Int) -> Unit,
+) {
+    Text(stringResource(R.string.prepare_paint_modifier_which), style = MaterialTheme.typography.labelLarge)
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        for ((index, volume) in modifiers) {
+            FilterChip(
+                selected = brush.modifier == index,
+                onClick = { set(brush.copy(modifier = index)) },
+                label = { Text(volume.name, maxLines = 1) },
+            )
+        }
+        FilterChip(
+            selected = brush.modifier == null,
+            onClick = { set(brush.copy(modifier = null)) },
+            label = { Text(stringResource(R.string.prepare_paint_modifier_new)) },
+        )
+    }
+    val current = modifiers.firstOrNull { it.first == brush.modifier }
+    if (current == null) {
+        Text(
+            stringResource(R.string.prepare_paint_modifier_new_hint),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        return
+    }
+    val (index, volume) = current
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        com.orcamobile.core.designsystem.component.NumberField(
+            volume.paintedDepthMm,
+            { onListIntent(ObjectListIntent.SetPaintedDepth(index, it)) },
+            stringResource(R.string.prepare_paint_modifier_depth),
+            Modifier.weight(1f),
+            "mm",
+        )
+        val changed = volume.settings.userChanges()
+        TonalPillButton(
+            if (changed > 0) stringResource(R.string.prepare_parts_settings_changed, changed)
+            else stringResource(R.string.prepare_parts_settings),
+            onClick = { onOpenSettings(index) },
+            enabled = !busy,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    Text(
+        stringResource(R.string.prepare_paint_modifier_depth_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 private fun toolLabel(tool: PaintTool): Int = when (tool) {
@@ -220,4 +340,6 @@ private fun hintFor(kind: PaintKind): Int = when (kind) {
     PaintKind.SEAM -> R.string.prepare_paint_hint_seam
     PaintKind.FUZZY_SKIN -> R.string.prepare_paint_hint_fuzzy
     PaintKind.COLOR -> R.string.prepare_paint_hint_color
+    PaintKind.PAINTED_MODIFIER -> R.string.prepare_paint_hint_modifier
+    PaintKind.TEXTURE -> R.string.prepare_paint_hint_texture
 }

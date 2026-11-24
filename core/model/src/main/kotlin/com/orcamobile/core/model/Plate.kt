@@ -84,3 +84,22 @@ sealed interface TransformEdit {
 
 /** An instance's transform after reading or changing it, with the plate's objects. */
 data class TransformUpdate(val transform: InstanceTransform, val objects: List<ModelObjectInfo>)
+
+/** The desktop's Alignment tool on objects on the bed ([nativeValue] is its AlignType). */
+enum class AlignMode(val nativeValue: Int) {
+    LEFT(6),
+    CENTER_X(0),
+    RIGHT(5),
+    FRONT(4),
+    CENTER_Y(1),
+    BACK(3),
+
+    /** Centres evenly spaced from left to right; needs three objects. */
+    DISTRIBUTE_X(9),
+
+    /** Centres evenly spaced from front to back; needs three objects. */
+    DISTRIBUTE_Y(10),
+    ;
+
+    val distributes: Boolean get() = this == DISTRIBUTE_X || this == DISTRIBUTE_Y
+}

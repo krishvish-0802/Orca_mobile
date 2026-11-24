@@ -3,7 +3,9 @@
 // on any thread.
 #include <jni.h>
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <exception>
 #include <map>
@@ -13,6 +15,7 @@
 
 #include "JniRegistry.hpp"
 #include "JniUtils.hpp"
+#include "orca_engine/Emboss.hpp"
 #include "orca_engine/GCodePreview.hpp"
 #include "orca_engine/Project.hpp"
 #include "orca_viewport/Viewport.hpp"
@@ -103,6 +106,7 @@ void native_show_project(JNIEnv*, jclass, jlong handle, jlong project_handle)
                 orca::viewport::MeshPiece shown{static_cast<int>(piece.volume),
                                                 static_cast<orca::viewport::VolumeKind>(static_cast<int>(piece.kind)),
                                                 piece.first_triangle, piece.triangle_count};
+                shown.filament = piece.filament;
                 for (int i = 0; i < 16; ++i)
                     shown.transform[i] = static_cast<float>(piece.transform[i]);
                 part.pieces.push_back(shown);
@@ -146,6 +150,23 @@ void native_set_selection(JNIEnv*, jclass, jlong handle, jint object, jint insta
         v->set_selection(object < 0 ? std::nullopt : std::optional<PartRef>(PartRef{object, instance}));
 }
 
+// The instances selected with the selection: object, instance pairs.
+void native_set_group(JNIEnv* env, jclass, jlong handle, jintArray pairs)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return;
+    std::vector<PartRef> group;
+    if (pairs != nullptr) {
+        const jsize n = env->GetArrayLength(pairs);
+        std::vector<jint> values(static_cast<std::size_t>(n));
+        env->GetIntArrayRegion(pairs, 0, n, values.data());
+        for (jsize i = 0; i + 1 < n; i += 2)
+            group.push_back({values[std::size_t(i)], values[std::size_t(i) + 1]});
+    }
+    v->set_group(std::move(group));
+}
+
 // Slides the selected instance by the bed distance between two screen points.
 jboolean native_move_selection(JNIEnv*, jclass, jlong handle, jlong project_handle, jfloat x0, jfloat y0, jfloat x1,
                                jfloat y1)
@@ -160,9 +181,14 @@ jboolean native_move_selection(JNIEnv*, jclass, jlong handle, jlong project_hand
     if (!selection || !from || !to)
         return JNI_FALSE;
     try {
-        const orca::engine::InstanceRef ref = to_instance(*selection);
-        project->translate(ref, (*to)[0] - (*from)[0], (*to)[1] - (*from)[1]);
-        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        // The selection and the instances selected with it move together.
+        std::vector<PartRef> moved = v->group();
+        moved.insert(moved.begin(), *selection);
+        for (const PartRef& part : moved) {
+            const orca::engine::InstanceRef ref = to_instance(part);
+            project->translate(ref, (*to)[0] - (*from)[0], (*to)[1] - (*from)[1]);
+            v->set_part_transform(part, to_float_matrix(project->placement(ref)));
+        }
         return JNI_TRUE;
     } catch (const std::exception&) {
         return JNI_FALSE;
@@ -180,9 +206,22 @@ jboolean native_rotate_selection(JNIEnv*, jclass, jlong handle, jlong project_ha
     if (!selection)
         return JNI_FALSE;
     try {
-        const orca::engine::InstanceRef ref = to_instance(*selection);
-        project->rotate_z(ref, radians);
-        v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+        const std::vector<PartRef> group = v->group();
+        if (group.empty()) {
+            const orca::engine::InstanceRef ref = to_instance(*selection);
+            project->rotate_z(ref, radians);
+            v->set_part_transform(*selection, to_float_matrix(project->placement(ref)));
+            return JNI_TRUE;
+        }
+        // A multi-selection turns as one, about its middle.
+        std::vector<PartRef> turned = group;
+        turned.insert(turned.begin(), *selection);
+        std::vector<orca::engine::InstanceRef> refs;
+        for (const PartRef& part : turned)
+            refs.push_back(to_instance(part));
+        project->rotate_group_z(refs, radians);
+        for (std::size_t i = 0; i < turned.size(); ++i)
+            v->set_part_transform(turned[i], to_float_matrix(project->placement(refs[i])));
         return JNI_TRUE;
     } catch (const std::exception&) {
         return JNI_FALSE;
@@ -415,6 +454,128 @@ void native_fit(JNIEnv*, jclass, jlong handle)
         v->fit();
 }
 
+void native_frame_next_parts(JNIEnv*, jclass, jlong handle)
+{
+    if (auto* v = viewport(handle))
+        v->frame_next_parts();
+}
+
+// Whether the screen point is on the text (volume `volume` of the instance), or
+// within a few mm of it: where a drag moves it.
+jboolean native_emboss_hits(JNIEnv*, jclass, jlong handle, jint object, jint instance, jint volume, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    return v != nullptr && v->hits_volume(x, y, {object, instance}, volume, 2.0f) ? JNI_TRUE : JNI_FALSE;
+}
+
+// Moves the text onto the surface under the screen point (another part of its
+// object); whether it moved.
+jboolean native_emboss_drag(JNIEnv*, jclass, jlong handle, jlong project_handle, jint object, jint instance, jint volume,
+                            jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    const auto hit = v->pick_surface_of(x, y, object, volume);
+    if (!hit)
+        return JNI_FALSE;
+    orca::engine::FeaturePick at;
+    at.via = {std::size_t(hit->part.object), std::size_t(hit->part.instance)};
+    at.volume = std::size_t(hit->volume);
+    at.facet = int(hit->triangle);
+    at.hit = {hit->hit[0], hit->hit[1], hit->hit[2]};
+    try {
+        orca::engine::emboss_move(*project, std::size_t(volume), at);   // plain math: on the gesture's thread
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+    show_volume_change(*v, *project, {object, instance}, volume);
+    return JNI_TRUE;
+}
+
+// Turns the text about its normal by `radians`; whether it turned.
+jboolean native_emboss_rotate(JNIEnv*, jclass, jlong handle, jlong project_handle, jint object, jint instance, jint volume,
+                              jfloat radians)
+{
+    auto* v = viewport(handle);
+    auto* project = from_handle<orca::engine::Project>(project_handle);
+    if (v == nullptr || project == nullptr)
+        return JNI_FALSE;
+    try {
+        orca::engine::emboss_rotate(*project, std::size_t(object), std::size_t(volume), radians);
+    } catch (const std::exception&) {
+        return JNI_FALSE;
+    }
+    show_volume_change(*v, *project, {object, instance}, volume);
+    return JNI_TRUE;
+}
+
+// The prime tower on the plate: `tower` is x, y, width, depth, height, brim,
+// rotation (degrees), overlaps (0/1); empty hides it. A grey block on its brim's
+// outline, red when it meets an object.
+void native_show_wipe_tower(JNIEnv* env, jclass, jlong handle, jfloatArray tower)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return;
+    const std::vector<float> t = to_float_vector(env, tower);
+    if (t.size() < 8) {
+        v->set_scene_overlay(nullptr);
+        return;
+    }
+    const float x = t[0], y = t[1], w = t[2], d = t[3], h = std::max(t[4], 1.0f), brim = t[5];
+    const float angle = t[6] * 3.14159265f / 180.0f;
+    const bool overlaps = t[7] > 0.5f;
+    const float c = std::cos(angle), s = std::sin(angle);
+    // Corner (x, y), turned about it as the tower turns.
+    const auto at = [&](float u, float w_) { return std::array<float, 2>{x + u * c - w_ * s, y + u * s + w_ * c}; };
+    const std::array<std::array<float, 2>, 4> base{at(0, 0), at(w, 0), at(w, d), at(0, d)};
+    orca::viewport::Overlay::Shape body;
+    body.color = overlaps ? std::array<float, 4>{0.90f, 0.25f, 0.20f, 0.75f} : std::array<float, 4>{0.55f, 0.57f, 0.60f, 0.75f};
+    const auto tri = [&](const std::array<float, 3>& a, const std::array<float, 3>& b, const std::array<float, 3>& c3) {
+        body.positions.insert(body.positions.end(), {a[0], a[1], a[2], b[0], b[1], b[2], c3[0], c3[1], c3[2]});
+    };
+    for (int i = 0; i < 4; ++i) {
+        const auto& p = base[i];
+        const auto& q = base[(i + 1) % 4];
+        tri({p[0], p[1], 0}, {q[0], q[1], 0}, {q[0], q[1], h});
+        tri({p[0], p[1], 0}, {q[0], q[1], h}, {p[0], p[1], h});
+    }
+    tri({base[0][0], base[0][1], h}, {base[1][0], base[1][1], h}, {base[2][0], base[2][1], h});
+    tri({base[0][0], base[0][1], h}, {base[2][0], base[2][1], h}, {base[3][0], base[3][1], h});
+    orca::viewport::Overlay::Shape outline;
+    outline.lines = true;
+    outline.line_width = 2.f;
+    outline.color = body.color;
+    outline.color[3] = 1.0f;
+    const std::array<std::array<float, 2>, 4> rim{at(-brim, -brim), at(w + brim, -brim), at(w + brim, d + brim), at(-brim, d + brim)};
+    for (int i = 0; i < 4; ++i) {
+        const auto& p = rim[i];
+        const auto& q = rim[(i + 1) % 4];
+        outline.positions.insert(outline.positions.end(), {p[0], p[1], 0.05f, q[0], q[1], 0.05f});
+    }
+    auto overlay = std::make_shared<orca::viewport::Overlay>();
+    overlay->shapes.push_back(std::move(body));
+    overlay->shapes.push_back(std::move(outline));
+    v->set_scene_overlay(std::move(overlay));
+}
+
+// Where the screen point (x, y) meets the bed: {x, y} in mm, or null.
+jfloatArray native_bed_point(JNIEnv* env, jclass, jlong handle, jfloat x, jfloat y)
+{
+    auto* v = viewport(handle);
+    if (v == nullptr)
+        return nullptr;
+    const auto point = v->plane_point(x, y, {0, 0, 0}, {0, 0, 1});
+    if (!point)
+        return nullptr;
+    jfloatArray out = env->NewFloatArray(2);
+    const jfloat values[2] = {(*point)[0], (*point)[1]};
+    env->SetFloatArrayRegion(out, 0, 2, values);
+    return out;
+}
+
 const JNINativeMethod kMethods[] = {
     {"nativeCreate", "()J", reinterpret_cast<void*>(native_create)},
     {"nativeDestroy", "(J)V", reinterpret_cast<void*>(native_destroy)},
@@ -426,6 +587,7 @@ const JNINativeMethod kMethods[] = {
     {"nativeClearMesh", "(J)V", reinterpret_cast<void*>(native_clear_mesh)},
     {"nativePick", "(JFF)J", reinterpret_cast<void*>(native_pick)},
     {"nativeSetSelection", "(JII)V", reinterpret_cast<void*>(native_set_selection)},
+    {"nativeSetGroup", "(J[I)V", reinterpret_cast<void*>(native_set_group)},
     {"nativeMoveSelection", "(JJFFFF)Z", reinterpret_cast<void*>(native_move_selection)},
     {"nativeRotateSelection", "(JJF)Z", reinterpret_cast<void*>(native_rotate_selection)},
     {"nativeLayOnFace", "(JJFF)J", reinterpret_cast<void*>(native_lay_on_face)},
@@ -446,6 +608,12 @@ const JNINativeMethod kMethods[] = {
     {"nativePan", "(JFF)V", reinterpret_cast<void*>(native_pan)},
     {"nativeZoom", "(JFFF)V", reinterpret_cast<void*>(native_zoom)},
     {"nativeFit", "(J)V", reinterpret_cast<void*>(native_fit)},
+    {"nativeFrameNextParts", "(J)V", reinterpret_cast<void*>(native_frame_next_parts)},
+    {"nativeShowWipeTower", "(J[F)V", reinterpret_cast<void*>(native_show_wipe_tower)},
+    {"nativeEmbossHits", "(JIIIFF)Z", reinterpret_cast<void*>(native_emboss_hits)},
+    {"nativeEmbossDrag", "(JJIIIFF)Z", reinterpret_cast<void*>(native_emboss_drag)},
+    {"nativeEmbossRotate", "(JJIIIF)Z", reinterpret_cast<void*>(native_emboss_rotate)},
+    {"nativeBedPoint", "(JFF)[F", reinterpret_cast<void*>(native_bed_point)},
 };
 
 } // namespace
