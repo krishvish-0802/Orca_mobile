@@ -7,8 +7,12 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.ComparePresetsUseCase
 import com.orcamobile.core.domain.presets.InMemoryUserPresets
+import com.orcamobile.core.domain.presets.PresetDocuments
+import com.orcamobile.core.domain.presets.PresetFileContents
+import com.orcamobile.core.domain.presets.PresetFileFormat
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.TransferPresetsUseCase
 import com.orcamobile.core.domain.project.ObjectEditor
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
@@ -193,6 +197,13 @@ class SettingsViewModelTest {
             return Result.success(Unit)
         }
     }
+    /** No preset files here (importing is tested with the domain). */
+    private val noFiles = object : PresetFileFormat, PresetDocuments {
+        override suspend fun read(vendor: String, path: String) = Result.failure<PresetFileContents>(UnsupportedOperationException())
+        override suspend fun write(preset: UserPreset) = Result.success("{}")
+        override suspend fun open(uri: String) = Result.success(emptyList<String>())
+        override suspend fun saveZip(uri: String, files: Map<String, String>) = Result.success(Unit)
+    }
     private val userPresets = InMemoryUserPresets()
     private val picker = PresetPicker(presetCatalog, userSettings, userPresets)
 
@@ -203,6 +214,7 @@ class SettingsViewModelTest {
             SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker,
             PresetSwitcher(picker, printSettings, catalog),
             ComparePresetsUseCase(picker, catalog),
+            TransferPresetsUseCase(picker, noFiles, noFiles),
         )
     }
 

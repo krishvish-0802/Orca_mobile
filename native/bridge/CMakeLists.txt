@@ -10,6 +10,7 @@ add_library(orca_engine_core STATIC
     src/EmbossTool.cpp
     src/TextureTool.cpp
     src/OptionRules.cpp
+    src/PresetFiles.cpp
     src/SliceMessages.cpp
     src/SliceMessages.hpp
     src/Filaments.cpp

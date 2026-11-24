@@ -8,6 +8,7 @@ import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.presets.ComparePresetsUseCase
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.TransferPresetsUseCase
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
@@ -37,6 +38,7 @@ class SettingsViewModel @Inject constructor(
     private val picker: PresetPicker,
     private val switcher: PresetSwitcher,
     private val comparePresets: ComparePresetsUseCase,
+    private val transferPresets: TransferPresetsUseCase,
 ) : ViewModel() {
 
     private val args: SettingsArgs = settingsArgs(savedStateHandle)
@@ -108,6 +110,14 @@ class SettingsViewModel @Inject constructor(
                 _state.update { it.copy(comparison = ComparisonUi(intent.kind, names, first, null)) }
             }
             is SettingsIntent.Compare -> compare(intent.first, intent.second)
+            is SettingsIntent.ImportPresets -> transfer {
+                transferPresets.import(intent.uri).map { result ->
+                    if (result.added.isNotEmpty()) reload()
+                    TransferUi.Imported(result.added.map { it.name }, result.problems)
+                }
+            }
+            is SettingsIntent.ExportPresets -> transfer { transferPresets.exportAll(intent.uri).map { TransferUi.Exported(it) } }
+            SettingsIntent.DismissTransfer -> _state.update { it.copy(transfer = null) }
             SettingsIntent.CloseComparison -> {
                 compareJob?.cancel()
                 _state.update { it.copy(comparison = null) }
@@ -124,6 +134,14 @@ class SettingsViewModel @Inject constructor(
             SettingsIntent.DismissProblem -> _state.update { it.copy(problem = null) }
             is SettingsIntent.ApplyFix -> change { write(source, intent.fix.changes) }
             SettingsIntent.DismissNotices -> _state.update { it.copy(notices = emptyList()) }
+        }
+    }
+
+    private fun transfer(block: suspend () -> Result<TransferUi>) {
+        _state.update { it.copy(transfer = TransferUi.Working) }
+        viewModelScope.launch {
+            val done = block().getOrElse { e -> TransferUi.Failed(e.message ?: e.javaClass.simpleName) }
+            _state.update { it.copy(transfer = done) }
         }
     }
 

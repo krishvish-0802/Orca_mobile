@@ -57,4 +57,15 @@
     <string name="settings_compare_choose">Choose a preset</string>
     <string name="settings_compare_pick">Choose two presets to see the settings they set differently.</string>
     <string name="settings_compare_same">These presets set everything the same way.</string>
+    <string name="settings_presets_import">Import</string>
+    <string name="settings_presets_export">Export</string>
+    <string name="settings_presets_imported_none">No presets were added.</string>
+    <plurals name="settings_presets_imported">
+        <item quantity="one">Added %1$d preset: %2$s</item>
+        <item quantity="other">Added %1$d presets: %2$s</item>
+    </plurals>
+    <plurals name="settings_presets_exported">
+        <item quantity="one">Exported %1$d preset. OrcaSlicer on a computer takes the file in File › Import › Import Configs.</item>
+        <item quantity="other">Exported %1$d presets. OrcaSlicer on a computer takes the file in File › Import › Import Configs.</item>
+    </plurals>
 </resources>

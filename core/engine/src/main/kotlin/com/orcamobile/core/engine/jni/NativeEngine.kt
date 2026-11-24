@@ -209,6 +209,12 @@ internal object NativeEngine {
     /** The user's presets (see PresetCatalog::set_user_presets): `[{"kind","name","inherits","values"}]`. `{}` or `{"error"}`. */
     @JvmStatic external fun nativeSetUserPresets(presetsJson: String): String
 
+    /** The user presets in the desktop preset file at [path], over [vendor]'s (PresetFiles.hpp): `{"presets": [..], "problems": [..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeReadPresetFile(vendor: String, path: String): String
+
+    /** A user preset `{"kind","name","inherits","values"}` as the desktop saves one: `{"json": text}` or `{"error"}`. */
+    @JvmStatic external fun nativeUserPresetJson(presetJson: String): String
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)

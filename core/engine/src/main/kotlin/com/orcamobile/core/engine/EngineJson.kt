@@ -68,6 +68,9 @@ internal object EngineJson {
         }
     }
 
+    /** A JSON object the engine returned. */
+    fun parse(payload: String): JsonObject = json.parseToJsonElement(payload) as? JsonObject ?: throw EngineException("Unexpected engine response")
+
     /** A JSON array of strings, or a failure carrying the engine's `{"error": ...}` message. */
     fun stringList(payload: String): Result<List<String>> = runCatching {
         when (val element = json.parseToJsonElement(payload)) {

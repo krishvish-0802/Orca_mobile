@@ -46,6 +46,8 @@ data class SettingsUiState(
     val userPresets: List<UserPreset> = emptyList(),
     /** Two presets being compared, while the comparison is open. */
     val comparison: ComparisonUi? = null,
+    /** The last import or export of presets, until dismissed. */
+    val transfer: TransferUi? = null,
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()
@@ -92,6 +94,18 @@ data class ComparisonUi(
     val differences: List<PresetDifference> = emptyList(),
     val error: String? = null,
 )
+
+/** How importing or exporting presets went. */
+sealed interface TransferUi {
+    data object Working : TransferUi
+
+    /** [added] presets (their names), and why others were left out. */
+    data class Imported(val added: List<String>, val problems: List<String>) : TransferUi
+
+    data class Exported(val count: Int) : TransferUi
+
+    data class Failed(val message: String) : TransferUi
+}
 
 /** A kind of preset whose changes can be saved as one of the user's presets. */
 data class SaveTarget(
@@ -142,4 +156,12 @@ sealed interface SettingsIntent {
     data class Compare(val first: String?, val second: String?) : SettingsIntent
 
     data object CloseComparison : SettingsIntent
+
+    /** Adds the presets in the document at [uri] (a desktop preset, bundle or project). */
+    data class ImportPresets(val uri: String) : SettingsIntent
+
+    /** Writes the user's presets to [uri] as a .zip the desktop imports. */
+    data class ExportPresets(val uri: String) : SettingsIntent
+
+    data object DismissTransfer : SettingsIntent
 }

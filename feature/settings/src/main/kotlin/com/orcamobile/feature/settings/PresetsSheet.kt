@@ -1,5 +1,7 @@
 package com.orcamobile.feature.settings
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -11,10 +13,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -40,6 +44,12 @@ import com.orcamobile.core.model.UserPreset
 @Composable
 internal fun PresetsSheet(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, onDismiss: () -> Unit) {
     var renaming by remember { mutableStateOf<UserPreset?>(null) }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { onIntent(SettingsIntent.ImportPresets(it.toString())) }
+    }
+    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+        uri?.let { onIntent(SettingsIntent.ExportPresets(it.toString())) }
+    }
     var deleting by remember { mutableStateOf<UserPreset?>(null) }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -59,6 +69,17 @@ internal fun PresetsSheet(state: SettingsUiState, onIntent: (SettingsIntent) -> 
                 }
             }
             Text(stringResource(R.string.settings_presets_mine), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { importer.launch(arrayOf("*/*")) }, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.settings_presets_import))
+                }
+                OutlinedButton(
+                    onClick = { exporter.launch(EXPORT_NAME) },
+                    enabled = state.userPresets.isNotEmpty(),
+                    modifier = Modifier.weight(1f),
+                ) { Text(stringResource(R.string.settings_presets_export)) }
+            }
+            state.transfer?.let { TransferStatus(it) { onIntent(SettingsIntent.DismissTransfer) } }
             if (state.userPresets.isEmpty()) {
                 Text(stringResource(R.string.settings_presets_none), color = MaterialTheme.colorScheme.onSurfaceVariant)
             } else {
@@ -106,6 +127,37 @@ internal fun PresetsSheet(state: SettingsUiState, onIntent: (SettingsIntent) -> 
         )
     }
 }
+
+/** How the last import or export went. */
+@Composable
+private fun TransferStatus(transfer: TransferUi, onDismiss: () -> Unit) {
+    if (transfer is TransferUi.Working) {
+        LinearProgressIndicator(Modifier.fillMaxWidth())
+        return
+    }
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, shape = MaterialTheme.shapes.medium) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            when (transfer) {
+                is TransferUi.Imported -> {
+                    Text(
+                        if (transfer.added.isEmpty()) {
+                            stringResource(R.string.settings_presets_imported_none)
+                        } else {
+                            pluralStringResource(R.plurals.settings_presets_imported, transfer.added.size, transfer.added.size, transfer.added.joinToString())
+                        },
+                    )
+                    transfer.problems.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                }
+                is TransferUi.Exported -> Text(pluralStringResource(R.plurals.settings_presets_exported, transfer.count, transfer.count))
+                is TransferUi.Failed -> Text(transfer.message, color = MaterialTheme.colorScheme.error)
+                TransferUi.Working -> Unit
+            }
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.settings_problem_ok)) }
+        }
+    }
+}
+
+private const val EXPORT_NAME = "Orca Mobile presets.zip"
 
 /** One kind's changes: a name to save them under (the user's own preset's, to overwrite it) and Save. */
 @Composable

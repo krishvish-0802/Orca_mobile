@@ -172,6 +172,23 @@ class PresetPicker @Inject constructor(
         Result.success(Unit)
     }
 
+    /**
+     * Adds [presets] to the user's, replacing any of the same kind and name.
+     * One named as a system preset is added as "<name> - Imported". Returns
+     * them as added.
+     */
+    suspend fun addUserPresets(presets: List<UserPreset>): Result<List<UserPreset>> = mutex.withLock {
+        val choices = _choices.value
+        val added = presets.map { preset ->
+            val clashes = choices.userPreset(preset.kind, preset.name) == null && preset.name in systemNames(choices, preset.kind)
+            if (clashes) preset.copy(name = "${preset.name} - Imported") else preset
+        }
+        runCatching { added.forEach { userPresets.save(it) } }.onFailure { return@withLock Result.failure(it) }
+        publish(choices.userPresets.filterNot { old -> added.any { it.kind == old.kind && it.name == old.name } } + added)
+        refreshLists()
+        Result.success(added)
+    }
+
     /** Renames the user's preset; where it is chosen, the new name is. */
     suspend fun renameUserPreset(kind: PresetKind, name: String, newName: String): Result<Unit> = mutex.withLock {
         val choices = _choices.value

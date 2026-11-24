@@ -3,7 +3,11 @@ package com.orcamobile.core.domain
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.InMemoryUserPresets
+import com.orcamobile.core.domain.presets.PresetDocuments
+import com.orcamobile.core.domain.presets.PresetFileContents
+import com.orcamobile.core.domain.presets.PresetFileFormat
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.TransferPresetsUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.FilamentSlot
@@ -59,6 +63,48 @@ class PresetPickerTest {
     }
 
     private val start = PresetSelection("Elegoo", "Centauri Carbon", "0.20mm Standard", listOf("PLA"))
+
+    /** Desktop preset files, as the engine would read them: each path holds the presets listed for it. */
+    private class Files(val contents: Map<String, PresetFileContents>) : PresetFileFormat, PresetDocuments {
+        var zipped: Map<String, String> = emptyMap()
+        override suspend fun read(vendor: String, path: String) =
+            contents[path]?.let { Result.success(it) } ?: Result.failure(IllegalArgumentException("$path is not a preset"))
+        override suspend fun write(preset: UserPreset) = Result.success("{\"name\": \"${preset.name}\"}")
+        override suspend fun open(uri: String) = Result.success(contents.keys.toList() + "notes.json")
+        override suspend fun saveZip(uri: String, files: Map<String, String>): Result<Unit> {
+            zipped = files
+            return Result.success(Unit)
+        }
+    }
+
+    @Test
+    fun `presets are imported from the desktop's files and exported as a bundle of them`() = runTest {
+        val fine = UserPreset(PresetKind.PROCESS, "Fine", "0.20mm Standard", mapOf("layer_height" to "0.1"))
+        // A project's filament named as the system preset it changes.
+        val pla = UserPreset(PresetKind.FILAMENT, "PLA", "PLA", mapOf("nozzle_temperature" to "215"))
+        val files = Files(
+            mapOf(
+                "fine.json" to PresetFileContents(listOf(fine), emptyList()),
+                "project_settings.config" to PresetFileContents(listOf(pla), listOf("The printer preset is based on another maker's.")),
+            ),
+        )
+        val picker = PresetPicker(Catalog(), Settings(start))
+        picker.load()
+        val transfer = TransferPresetsUseCase(picker, files, files)
+
+        val result = transfer.import("content://presets").getOrThrow()
+        assertEquals(listOf("Fine", "PLA - Imported"), result.added.map { it.name })
+        assertEquals(listOf("The printer preset is based on another maker's.", "notes.json is not a preset"), result.problems)
+        assertTrue("Fine" in picker.choices.value.processes)
+        assertTrue("PLA - Imported" in picker.choices.value.filaments)
+
+        // Imported again: replaced, not doubled.
+        transfer.import("content://presets").getOrThrow()
+        assertEquals(2, picker.choices.value.userPresets.size)
+
+        assertEquals(2, transfer.exportAll("content://out.zip").getOrThrow())
+        assertEquals(setOf("process/Fine.json", "filament/PLA - Imported.json"), files.zipped.keys)
+    }
 
     @Test
     fun `filaments are added, coloured, changed and taken away, and remembered`() = runTest {

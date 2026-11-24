@@ -2,6 +2,8 @@ package com.orcamobile.core.engine
 
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.PresetCatalog
+import com.orcamobile.core.domain.presets.PresetFileContents
+import com.orcamobile.core.domain.presets.PresetFileFormat
 import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
@@ -12,16 +14,23 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import javax.inject.Inject
 import javax.inject.Singleton
 
-/** [PresetCatalog] over the engine's PresetCatalog (native/bridge/src/PresetCatalog.cpp). */
+/**
+ * [PresetCatalog] over the engine's PresetCatalog (native/bridge/src/PresetCatalog.cpp),
+ * and the desktop's preset files read and written by its code (PresetFiles.cpp).
+ */
 @Singleton
 class NativePresetCatalog @Inject constructor(
     private val environment: EngineEnvironment,
     private val dispatchers: CoroutineDispatchers,
-) : PresetCatalog {
+) : PresetCatalog, PresetFileFormat {
 
     override suspend fun vendors(): Result<List<String>> =
         call { EngineJson.stringList(NativeEngine.nativeListVendors()) }
@@ -59,6 +68,39 @@ class NativePresetCatalog @Inject constructor(
         }
     }
 
+    override suspend fun read(vendor: String, path: String): Result<PresetFileContents> = call {
+        runCatching {
+            val result = EngineJson.parse(NativeEngine.nativeReadPresetFile(vendor, path))
+            result["error"]?.jsonPrimitive?.content?.let { throw EngineException(it) }
+            PresetFileContents(
+                presets = result["presets"]?.jsonArray.orEmpty().map { item ->
+                    val p = item.jsonObject
+                    UserPreset(
+                        kind = kindOf(p["kind"]?.jsonPrimitive?.int ?: 1),
+                        name = p["name"]?.jsonPrimitive?.content.orEmpty(),
+                        inherits = p["inherits"]?.jsonPrimitive?.content.orEmpty(),
+                        values = p["values"]?.jsonObject.orEmpty().mapValues { (_, v) -> v.jsonPrimitive.content },
+                    )
+                },
+                problems = result["problems"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content },
+            )
+        }
+    }
+
+    override suspend fun write(preset: UserPreset): Result<String> = call {
+        runCatching {
+            val payload = buildJsonObject {
+                put("kind", preset.kind.nativeKind)
+                put("name", preset.name)
+                put("inherits", preset.inherits)
+                put("values", buildJsonObject { preset.values.forEach { (k, v) -> put(k, v) } })
+            }
+            val result = EngineJson.parse(NativeEngine.nativeUserPresetJson(payload.toString()))
+            result["error"]?.jsonPrimitive?.content?.let { throw EngineException(it) }
+            result["json"]?.jsonPrimitive?.content ?: throw EngineException("The engine wrote no preset")
+        }
+    }
+
     private suspend fun <T> call(query: () -> Result<T>): Result<T> = withContext(dispatchers.io) {
         if (!BuildConfig.NATIVE_ENGINE_BUNDLED) {
             return@withContext Result.failure(EngineException("This build does not include the native engine."))
@@ -77,5 +119,11 @@ class NativePresetCatalog @Inject constructor(
             }
 
         const val FILAMENT_COLOUR = "filament_colour"
+
+        fun kindOf(native: Int) = when (native) {
+            0 -> PresetKind.PRINTER
+            2 -> PresetKind.FILAMENT
+            else -> PresetKind.PROCESS
+        }
     }
 }
