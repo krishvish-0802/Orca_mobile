@@ -1,5 +1,6 @@
 package com.orcamobile.feature.settings
 
+import com.orcamobile.core.domain.presets.PresetDifference
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
@@ -43,6 +44,8 @@ data class SettingsUiState(
     /** What can be saved as the user's presets (the presets' settings only). */
     val saveTargets: List<SaveTarget> = emptyList(),
     val userPresets: List<UserPreset> = emptyList(),
+    /** Two presets being compared, while the comparison is open. */
+    val comparison: ComparisonUi? = null,
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()
@@ -77,6 +80,18 @@ data class SettingRow(
             value != presetValue
         }
 }
+
+/** Two presets of [kind] side by side: the settings they set differently. */
+data class ComparisonUi(
+    val kind: PresetKind,
+    /** The presets of [kind] that can be compared. */
+    val choices: List<String>,
+    val first: String?,
+    val second: String?,
+    val loading: Boolean = false,
+    val differences: List<PresetDifference> = emptyList(),
+    val error: String? = null,
+)
 
 /** A kind of preset whose changes can be saved as one of the user's presets. */
 data class SaveTarget(
@@ -119,4 +134,12 @@ sealed interface SettingsIntent {
     data class RenamePreset(val kind: PresetKind, val name: String, val newName: String) : SettingsIntent
 
     data class DeletePreset(val kind: PresetKind, val name: String) : SettingsIntent
+
+    /** Opens the comparison on presets of [kind], starting from the one chosen. */
+    data class OpenComparison(val kind: PresetKind) : SettingsIntent
+
+    /** Compares presets [first] and [second] (either null while not picked). */
+    data class Compare(val first: String?, val second: String?) : SettingsIntent
+
+    data object CloseComparison : SettingsIntent
 }

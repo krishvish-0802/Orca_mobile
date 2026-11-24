@@ -5,6 +5,7 @@ import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.ComparePresetsUseCase
 import com.orcamobile.core.domain.presets.InMemoryUserPresets
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
@@ -47,6 +48,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
@@ -75,7 +77,7 @@ class SettingsViewModelTest {
         override suspend fun describe(keys: List<String>) = Result.success(keys.mapNotNull { options[it] })
         override suspend fun values(selection: PresetSelection?, keys: List<String>) = Result.success(
             mapOf(
-                "layer_height" to "0.2", "sparse_infill_density" to "15%", "ironing_expansion" to "0",
+                "layer_height" to if (selection?.process == FINE) "0.12" else "0.2", "sparse_infill_density" to "15%", "ironing_expansion" to "0",
                 "nozzle_temperature" to "220,220", "machine_start_gcode" to "G28\\nG1 Z5",
             ).filterKeys { it in keys },
         )
@@ -200,6 +202,7 @@ class SettingsViewModelTest {
         return SettingsViewModel(
             SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker,
             PresetSwitcher(picker, printSettings, catalog),
+            ComparePresetsUseCase(picker, catalog),
         )
     }
 
@@ -289,6 +292,22 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun `two processes compare by the settings they set differently`() {
+        val vm = viewModel()
+        vm.onIntent(SettingsIntent.OpenComparison(PresetKind.PROCESS))
+        assertEquals(presets.process, vm.state.value.comparison?.first)
+
+        vm.onIntent(SettingsIntent.Compare(presets.process, FINE))
+        val differences = vm.state.value.comparison?.differences.orEmpty()
+        assertEquals(listOf(Triple("layer_height", "0.2", "0.12")), differences.map { Triple(it.option.key, it.first, it.second) })
+
+        vm.onIntent(SettingsIntent.Compare(presets.process, presets.process))
+        assertEquals(emptyList(), vm.state.value.comparison?.differences)
+        vm.onIntent(SettingsIntent.CloseComparison)
+        assertNull(vm.state.value.comparison)
+    }
+
+    @Test
     fun `simple mode hides advanced and expert options`() {
         val vm = viewModel()
         vm.onIntent(SettingsIntent.SetMode(OptionMode.SIMPLE))
@@ -374,3 +393,5 @@ class SettingsViewModelTest {
         assertEquals(ObjectEdit.SetSetting(SettingTarget(range = 0), "layer_height", "0.2"), objects.edits.single())
     }
 }
+
+private const val FINE = "0.12mm Fine"

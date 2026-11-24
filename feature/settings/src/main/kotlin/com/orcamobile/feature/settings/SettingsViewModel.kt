@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
+import com.orcamobile.core.domain.presets.ComparePresetsUseCase
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
 import com.orcamobile.core.model.ConfigOption
@@ -35,6 +36,7 @@ class SettingsViewModel @Inject constructor(
     private val dispatchers: CoroutineDispatchers,
     private val picker: PresetPicker,
     private val switcher: PresetSwitcher,
+    private val comparePresets: ComparePresetsUseCase,
 ) : ViewModel() {
 
     private val args: SettingsArgs = settingsArgs(savedStateHandle)
@@ -95,6 +97,21 @@ class SettingsViewModel @Inject constructor(
                 }
             }
             is SettingsIntent.SavePreset -> change { savePreset(intent.kind, intent.name) }
+            is SettingsIntent.OpenComparison -> {
+                val choices = picker.choices.value
+                val names = when (intent.kind) {
+                    PresetKind.PRINTER -> choices.printers
+                    PresetKind.PROCESS -> choices.processes
+                    PresetKind.FILAMENT -> choices.filaments
+                }
+                val first = choices.chosen(intent.kind, if (intent.kind == PresetKind.FILAMENT) _state.value.filamentSlot else 0)
+                _state.update { it.copy(comparison = ComparisonUi(intent.kind, names, first, null)) }
+            }
+            is SettingsIntent.Compare -> compare(intent.first, intent.second)
+            SettingsIntent.CloseComparison -> {
+                compareJob?.cancel()
+                _state.update { it.copy(comparison = null) }
+            }
             is SettingsIntent.RenamePreset -> change {
                 picker.renameUserPreset(intent.kind, intent.name, intent.newName).getOrThrow()
                 carryOver(changes)
@@ -107,6 +124,32 @@ class SettingsViewModel @Inject constructor(
             SettingsIntent.DismissProblem -> _state.update { it.copy(problem = null) }
             is SettingsIntent.ApplyFix -> change { write(source, intent.fix.changes) }
             SettingsIntent.DismissNotices -> _state.update { it.copy(notices = emptyList()) }
+        }
+    }
+
+    private var compareJob: Job? = null
+
+    private fun compare(first: String?, second: String?) {
+        val open = _state.value.comparison ?: return
+        compareJob?.cancel()
+        val picked = open.copy(first = first, second = second, differences = emptyList(), error = null)
+        if (first == null || second == null) {
+            _state.update { it.copy(comparison = picked) }
+            return
+        }
+        _state.update { it.copy(comparison = picked.copy(loading = true)) }
+        compareJob = viewModelScope.launch {
+            val result = comparePresets(open.kind, first, second)
+            _state.update { state ->
+                val now = state.comparison?.takeIf { it.first == first && it.second == second } ?: return@update state
+                state.copy(
+                    comparison = now.copy(
+                        loading = false,
+                        differences = result.getOrDefault(emptyList()),
+                        error = result.exceptionOrNull()?.let { e -> e.message ?: e.javaClass.simpleName },
+                    ),
+                )
+            }
         }
     }
 

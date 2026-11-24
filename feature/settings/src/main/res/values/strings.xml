@@ -53,4 +53,8 @@
         <item quantity="one">%1$d change</item>
         <item quantity="other">%1$d changes</item>
     </plurals>
+    <string name="settings_compare_title">Compare presets</string>
+    <string name="settings_compare_choose">Choose a preset</string>
+    <string name="settings_compare_pick">Choose two presets to see the settings they set differently.</string>
+    <string name="settings_compare_same">These presets set everything the same way.</string>
 </resources>

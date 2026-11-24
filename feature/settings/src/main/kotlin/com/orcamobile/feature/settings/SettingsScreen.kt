@@ -142,7 +142,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                             IconButton(onClick = { searchOpen = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.settings_search))
                             }
-                            if (state.saveTargets.isNotEmpty() || state.userPresets.isNotEmpty()) {
+                            if (state.presets != null && state.subject == null) {
                                 TextButton(onClick = { presetsOpen = true }) { Text(stringResource(R.string.settings_presets)) }
                             }
                             if (state.changedCount > 0) {
@@ -215,6 +215,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
     val open = editing?.let { key -> (state.pages.flatMap { it.groups } + state.results).flatMap { it.rows }.firstOrNull { it.option.key == key } }
     if (open != null) SettingSheet(row = open, onIntent = onIntent, onDismiss = { editing = null })
     if (presetsOpen) PresetsSheet(state, onIntent, onDismiss = { presetsOpen = false })
+    state.comparison?.let { ComparePresetsSheet(it, onIntent) }
 }
 
 /** Process / Filament / Printer, the pages of the chosen one, and the level of detail. */

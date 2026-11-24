@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -48,6 +49,14 @@ internal fun PresetsSheet(state: SettingsUiState, onIntent: (SettingsIntent) -> 
             if (state.saveTargets.isNotEmpty()) {
                 Text(stringResource(R.string.settings_presets_save_title), style = MaterialTheme.typography.titleMedium)
                 state.saveTargets.forEach { target -> SaveTargetRow(target, state.userPresets, onIntent) }
+            }
+            Text(stringResource(R.string.settings_compare_title), style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PresetKind.entries.forEach { kind ->
+                    OutlinedButton(onClick = { onIntent(SettingsIntent.OpenComparison(kind)) }, modifier = Modifier.weight(1f)) {
+                        Text(stringResource(kindName(kind)), maxLines = 1)
+                    }
+                }
             }
             Text(stringResource(R.string.settings_presets_mine), style = MaterialTheme.typography.titleMedium)
             if (state.userPresets.isEmpty()) {
