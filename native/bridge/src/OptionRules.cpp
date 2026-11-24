@@ -497,7 +497,8 @@ void update_rules(DynamicPrintConfig& config, SettingsScope scope, std::size_t f
 SettingsReview review_settings(const std::optional<PresetSelection>& presets, const std::map<std::string, std::string>& overrides,
                                SettingsScope scope, int filament, PresetCatalog* catalog)
 {
-    const DynamicPrintConfig original = ConfigBuilder::resolve(presets, overrides, catalog);
+    // As given: the desktop reviews the settings before a slice forces anything.
+    const DynamicPrintConfig original = ConfigBuilder::resolve(presets, overrides, catalog, /*normalize=*/false);
     DynamicPrintConfig working = original;
     const bool is_bbl = presets && presets->vendor == "BBL";
     const std::size_t filaments = presets ? std::max<std::size_t>(presets->filaments.size(), 1) : 1;

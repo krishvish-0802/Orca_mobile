@@ -22,9 +22,11 @@ public:
     // Throws std::runtime_error on an unknown key, or Slic3r::BadOptionValueException
     // on a value that does not parse for that key.
     // `used_filaments` is the number of filament presets the job uses.
+    // Unless `normalize` is false, the values a slice forces follow (spiral vase
+    // mode's single wall, for one); the settings review wants them as given.
     static Slic3r::DynamicPrintConfig build(Slic3r::DynamicPrintConfig base,
                                             const std::map<std::string, std::string>& overrides,
-                                            int used_filaments = 1);
+                                            int used_filaments = 1, bool normalize = true);
 
     // The config a slice with `presets` (composed from `catalog`) or, without
     // them, the defaults, and `overrides` uses. Plate tools use it too, so they
@@ -32,7 +34,7 @@ public:
     // Throws std::runtime_error when presets are given without a catalog.
     static Slic3r::DynamicPrintConfig resolve(const std::optional<PresetSelection>& presets,
                                               const std::map<std::string, std::string>& overrides,
-                                              PresetCatalog* catalog);
+                                              PresetCatalog* catalog, bool normalize = true);
 };
 
 } // namespace orca::engine
