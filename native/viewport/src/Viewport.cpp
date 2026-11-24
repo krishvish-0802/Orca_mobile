@@ -569,10 +569,11 @@ void Viewport::draw()
                 const Eigen::Matrix4f placed = state.transform * piece_state.transform;
                 glUniformMatrix4fv(model_matrix, 1, GL_FALSE, placed.data());
                 Color c = piece.kind == VolumeKind::ModelPart ? (selected ? kSelected : kModel) : volume_color(piece.kind);
-                // Several filaments: a part in its filament's colour, the selection tinted.
-                if (piece.kind == VolumeKind::ModelPart && piece.filament >= 1 &&
-                    std::size_t(piece.filament) <= filament_colours.size()) {
-                    const auto& f = filament_colours[std::size_t(piece.filament) - 1];
+                // A part in its filament's colour, the selection tinted; a part on the
+                // default filament (0) prints with the first.
+                const int filament = piece.filament >= 1 ? piece.filament : 1;
+                if (piece.kind == VolumeKind::ModelPart && std::size_t(filament) <= filament_colours.size()) {
+                    const auto& f = filament_colours[std::size_t(filament) - 1];
                     const float t = selected ? 0.45f : 0.0f;
                     c = Color{f[0] + (kSelected.r - f[0]) * t, f[1] + (kSelected.g - f[1]) * t, f[2] + (kSelected.b - f[2]) * t, 1.0f};
                 }
