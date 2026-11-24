@@ -529,4 +529,5 @@
     <string name="prepare_slice_fix_lay_flat">Lay it flat</string>
     <string name="prepare_slice_fix_show">Show it</string>
     <string name="prepare_slice_fix_setting">Go to the setting</string>
+    <string name="prepare_preset_yours">Yours</string>
 </resources>

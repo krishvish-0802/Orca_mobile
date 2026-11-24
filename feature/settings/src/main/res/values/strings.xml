@@ -32,4 +32,25 @@
     <string name="settings_problem_min">At least %1$s</string>
     <string name="settings_problem_max">At most %1$s</string>
     <string name="settings_notices_title">Changed to fit your other settings</string>
+    <string name="settings_cancel">Cancel</string>
+    <string name="settings_presets">Presets</string>
+    <string name="settings_presets_save_title">Save changes as your preset</string>
+    <string name="settings_presets_mine">Your presets</string>
+    <string name="settings_presets_none">None yet. Change some settings and save them here to use them again.</string>
+    <string name="settings_presets_based_on">based on %1$s</string>
+    <string name="settings_presets_copy_name">%1$s - Copy</string>
+    <string name="settings_presets_name">Name</string>
+    <string name="settings_presets_save">Save</string>
+    <string name="settings_presets_overwrites">Replaces your preset with this name</string>
+    <string name="settings_presets_rename">Rename</string>
+    <string name="settings_presets_rename_title">Rename preset</string>
+    <string name="settings_presets_taken">You already have a preset with this name</string>
+    <string name="settings_presets_delete">Delete</string>
+    <string name="settings_presets_delete_title">Delete %1$s?</string>
+    <string name="settings_presets_delete_body">Anything using it goes back to the preset it was based on.</string>
+    <string name="settings_filament_slot">Filament %1$d</string>
+    <plurals name="settings_presets_changes">
+        <item quantity="one">%1$d change</item>
+        <item quantity="other">%1$d changes</item>
+    </plurals>
 </resources>

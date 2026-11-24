@@ -19,6 +19,19 @@ struct PresetSelection {
     std::vector<std::string> filament_colours;
 };
 
+// The three kinds of preset.
+enum class PresetKind : int { Printer = 0, Process = 1, Filament = 2 };
+
+// A preset the user saved, as the desktop keeps one (user/<id>/<kind>/<name>.json):
+// a system preset (`inherits`) with the user's values over it, serialized as in
+// profiles. It shows wherever its system preset would, under its own name.
+struct UserPreset {
+    PresetKind kind = PresetKind::Process;
+    std::string name;
+    std::string inherits;
+    std::map<std::string, std::string> values;
+};
+
 // Presets that suit one printer, with the defaults its profile recommends.
 struct CompatiblePresets {
     std::vector<std::string> processes;
@@ -66,6 +79,11 @@ public:
     // Unknown keys are left out. Throws std::runtime_error for unknown presets.
     std::map<std::string, std::string> config_values(const PresetSelection& selection,
                                                      const std::vector<std::string>& keys);
+
+    // The user's presets, replacing those given before. A selection may name them
+    // like system presets; printers() and compatible_presets() list them (after
+    // the system ones) wherever the preset they inherit is listed.
+    void set_user_presets(std::vector<UserPreset> presets);
 
     // Internal: implementation shared with the config builder.
     struct Impl;

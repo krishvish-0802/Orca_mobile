@@ -6,6 +6,7 @@ import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.SettingsCheck
 import com.orcamobile.core.model.SettingsFix
+import com.orcamobile.core.model.UserPreset
 
 /** Everything the settings screen renders. Produced only by [SettingsViewModel]. */
 data class SettingsUiState(
@@ -35,6 +36,13 @@ data class SettingsUiState(
     val checks: List<SettingsCheck> = emptyList(),
     /** The setting the screen was opened on (its key): its editor opens. */
     val focus: String? = null,
+    /** The filaments loaded (their presets), when the Filament tab shows one of several. */
+    val filamentSlots: List<String> = emptyList(),
+    /** The filament whose settings the Filament tab shows. */
+    val filamentSlot: Int = 0,
+    /** What can be saved as the user's presets (the presets' settings only). */
+    val saveTargets: List<SaveTarget> = emptyList(),
+    val userPresets: List<UserPreset> = emptyList(),
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
     val searching: Boolean get() = query.isNotBlank()
@@ -59,9 +67,25 @@ data class SettingRow(
     val reason: String? = null,
     /** The name the rules give it for these values (brim width as ear radius); null for its own. */
     val label: String? = null,
+    /** Which value of a per-filament setting is shown and edited (the filament slot). */
+    val slot: Int = 0,
 ) {
-    val changed: Boolean get() = value != presetValue
+    val changed: Boolean
+        get() = if (option.type.isVector) {
+            SettingValues.element(option, value, slot) != SettingValues.element(option, presetValue, slot)
+        } else {
+            value != presetValue
+        }
 }
+
+/** A kind of preset whose changes can be saved as one of the user's presets. */
+data class SaveTarget(
+    val kind: PresetKind,
+    /** The preset the changes are to; saved under its own name when it is one of the user's. */
+    val current: String,
+    val currentIsUsers: Boolean,
+    val changes: Int,
+)
 
 sealed interface SettingsIntent {
     data class SelectKind(val kind: PresetKind) : SettingsIntent
@@ -85,4 +109,14 @@ sealed interface SettingsIntent {
     data class ApplyFix(val fix: SettingsFix) : SettingsIntent
 
     data object DismissNotices : SettingsIntent
+
+    /** Shows (and edits) filament [slot]'s settings on the Filament tab. */
+    data class SelectFilamentSlot(val slot: Int) : SettingsIntent
+
+    /** Saves the changes to [kind]'s settings as the user's preset [name], and chooses it. */
+    data class SavePreset(val kind: PresetKind, val name: String) : SettingsIntent
+
+    data class RenamePreset(val kind: PresetKind, val name: String, val newName: String) : SettingsIntent
+
+    data class DeletePreset(val kind: PresetKind, val name: String) : SettingsIntent
 }

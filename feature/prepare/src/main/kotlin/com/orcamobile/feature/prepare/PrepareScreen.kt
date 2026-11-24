@@ -1,7 +1,5 @@
 package com.orcamobile.feature.prepare
 
-import com.orcamobile.core.designsystem.icon.OrcaIcons
-import androidx.compose.material3.FilledTonalIconButton
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -27,6 +25,7 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,7 +65,9 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.designsystem.icon.OrcaIcons
 import com.orcamobile.core.model.BuildPlateSide
+import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.SimplifyTarget
@@ -589,7 +590,12 @@ private fun PlateModeToggle(showingPreview: Boolean, onShowPreview: (Boolean) ->
 }
 
 /** Which preset list a choice sheet is open for. */
-private enum class PresetField { VENDOR, PRINTER, PROCESS, FILAMENT }
+private enum class PresetField(val kind: PresetKind?) {
+    VENDOR(null),
+    PRINTER(PresetKind.PRINTER),
+    PROCESS(PresetKind.PROCESS),
+    FILAMENT(PresetKind.FILAMENT),
+}
 
 /**
  * The presets the plate slices with, changeable right here: printer, process and
@@ -647,6 +653,8 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             },
             onDismiss = { if (choosing == field) choosing = null },
             searchHint = stringResource(R.string.prepare_search),
+            marked = field.kind?.let(choices::userNames).orEmpty(),
+            markLabel = stringResource(R.string.prepare_preset_yours),
         )
     }
 }

@@ -20,7 +20,22 @@ data class PresetChoices(
     /** Each slot's colour as it will print: its own, or its preset's ("#RRGGBB"); may lag a change briefly. */
     val slotColours: List<String> = emptyList(),
     val error: String? = null,
+    /** The user's own presets (the lists name them after the system ones). */
+    val userPresets: List<UserPreset> = emptyList(),
 ) {
+    /** The user's preset of [kind] called [name], or null for a system preset. */
+    fun userPreset(kind: PresetKind, name: String?): UserPreset? = userPresets.firstOrNull { it.kind == kind && it.name == name }
+
+    /** The names of the user's presets of [kind]. */
+    fun userNames(kind: PresetKind): Set<String> = userPresets.filter { it.kind == kind }.mapTo(mutableSetOf()) { it.name }
+
+    /** The preset of [kind] chosen (for a filament, slot [slot]'s). */
+    fun chosen(kind: PresetKind, slot: Int = 0): String? = when (kind) {
+        PresetKind.PRINTER -> printer
+        PresetKind.PROCESS -> process
+        PresetKind.FILAMENT -> slots.getOrNull(slot)?.preset
+    }
+
     /** The first filament, which single-filament screens show. */
     val filament: String?
         get() = slots.firstOrNull()?.preset

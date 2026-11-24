@@ -20,9 +20,18 @@ struct PresetCatalog::Impl {
     // printer + process + filaments (PresetBundle::construct_full_config).
     Slic3r::DynamicPrintConfig compose(const PresetSelection& selection);
 
+    // `name` of `kind` from the bundle: a system preset, or a user preset
+    // composed onto a copy of the one it inherits. Throws std::runtime_error
+    // for an unknown name. Caller holds `mutex`.
+    Slic3r::Preset resolve(Slic3r::PresetBundle& bundle, PresetKind kind, const std::string& name);
+
+    // The user's presets of `kind` that inherit `system` (a system preset's name).
+    std::vector<std::string> user_children(PresetKind kind, const std::string& system) const;
+
     std::string profiles_dir;
     std::mutex mutex;
     std::map<std::string, std::unique_ptr<Slic3r::PresetBundle>> bundles;
+    std::map<std::pair<PresetKind, std::string>, UserPreset> user_presets;
 };
 
 } // namespace orca::engine

@@ -42,6 +42,7 @@ import com.orcamobile.core.designsystem.component.SectionHeader
 import com.orcamobile.core.designsystem.component.TonalPillButton
 import com.orcamobile.core.designsystem.theme.OrcaTheme
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.PresetKind
 
 @Composable
 fun HomeRoute(
@@ -75,7 +76,12 @@ fun HomeRoute(
 }
 
 /** Which preset list a choice sheet is open for. */
-private enum class PresetField { VENDOR, PRINTER, PROCESS, FILAMENT }
+private enum class PresetField(val kind: PresetKind?) {
+    VENDOR(null),
+    PRINTER(PresetKind.PRINTER),
+    PROCESS(PresetKind.PROCESS),
+    FILAMENT(PresetKind.FILAMENT),
+}
 
 @Composable
 fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: () -> Unit, onOpenSettings: () -> Unit) {
@@ -121,6 +127,8 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             },
             onDismiss = { choosing = null },
             searchHint = stringResource(R.string.home_search),
+            marked = field.kind?.let(setup::userNames).orEmpty(),
+            markLabel = stringResource(R.string.home_preset_yours),
         )
     }
 }

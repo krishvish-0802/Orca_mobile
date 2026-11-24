@@ -21,4 +21,10 @@ interface PrintSettingsRepository {
     suspend fun reset(selection: PresetSelection?, key: String)
 
     suspend fun resetAll()
+
+    /** [values] become the changes, made for [selection] (other changes go). */
+    suspend fun replace(selection: PresetSelection?, values: Map<String, String>) {
+        resetAll()
+        for ((key, value) in values) set(selection, key, value)
+    }
 }

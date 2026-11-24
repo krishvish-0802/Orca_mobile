@@ -44,6 +44,7 @@ import com.orcamobile.core.designsystem.component.ChoiceSheet
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.TonalPillButton
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetKind
 
 /**
  * The filaments loaded, as the desktop sidebar's filament list: one chip per
@@ -203,6 +204,8 @@ private fun FilamentSheet(choices: PresetChoices, index: Int, onIntent: (Prepare
             onSelect = { onIntent(PrepareIntent.SelectFilament(it, index)) },
             onDismiss = { choosingPreset = false },
             searchHint = stringResource(R.string.prepare_search),
+            marked = choices.userNames(PresetKind.FILAMENT),
+            markLabel = stringResource(R.string.prepare_preset_yours),
         )
     }
 }

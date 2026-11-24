@@ -1,37 +1,43 @@
 package com.orcamobile.feature.settings
 
+import androidx.lifecycle.SavedStateHandle
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
+import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.InMemoryUserPresets
+import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.project.ObjectEditor
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
-import androidx.lifecycle.SavedStateHandle
 import com.orcamobile.core.model.Axes
+import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ObjectDetails
 import com.orcamobile.core.model.ObjectEdit
 import com.orcamobile.core.model.ObjectUpdate
-import com.orcamobile.core.model.ProjectId
-import com.orcamobile.core.model.SettingScope
-import com.orcamobile.core.model.SettingTarget
-import com.orcamobile.core.model.VolumeInfo
-import com.orcamobile.core.model.VolumeKind
 import com.orcamobile.core.model.OptionMode
+import com.orcamobile.core.model.OptionRuleState
 import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
-import com.orcamobile.core.model.SettingsEdits
-import com.orcamobile.core.model.OptionRuleState
+import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.RulesScope
+import com.orcamobile.core.model.SettingScope
+import com.orcamobile.core.model.SettingTarget
 import com.orcamobile.core.model.SettingsCheck
+import com.orcamobile.core.model.SettingsEdits
 import com.orcamobile.core.model.SettingsFix
 import com.orcamobile.core.model.SettingsReview
+import com.orcamobile.core.model.UserPreset
+import com.orcamobile.core.model.VolumeInfo
+import com.orcamobile.core.model.VolumeKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -39,11 +45,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlin.test.assertEquals
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
@@ -92,8 +98,11 @@ class SettingsViewModelTest {
     }
 
     private val userSettings = object : UserSettingsRepository {
-        override suspend fun presetSelection() = presets
-        override suspend fun savePresetSelection(selection: PresetSelection) = Unit
+        var saved: PresetSelection = presets
+        override suspend fun presetSelection() = saved
+        override suspend fun savePresetSelection(selection: PresetSelection) {
+            saved = selection
+        }
         override suspend fun printHost(): PrintHostConfig? = null
         override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
@@ -162,10 +171,34 @@ class SettingsViewModelTest {
 
     private val objects = FakeObjects()
 
+    /** The presets the selection names, with the user's listed after the system ones they inherit. */
+    private val presetCatalog = object : PresetCatalog {
+        var users: List<UserPreset> = emptyList()
+        override suspend fun vendors() = Result.success(listOf(presets.vendor))
+        override suspend fun printers(vendor: String) = Result.success(listOf(presets.printer))
+        override suspend fun compatiblePresets(vendor: String, printer: String) = Result.success(
+            CompatiblePresets(
+                listOf(presets.process) + users.filter { it.kind == PresetKind.PROCESS }.map { it.name },
+                presets.filaments + users.filter { it.kind == PresetKind.FILAMENT }.map { it.name },
+                presets.process,
+                presets.filaments.first(),
+            ),
+        )
+        override suspend fun bedShape(vendor: String, printer: String) = Result.success(BedShape(emptyList(), 250.0))
+        override suspend fun setUserPresets(presets: List<UserPreset>): Result<Unit> {
+            users = presets
+            return Result.success(Unit)
+        }
+    }
+    private val userPresets = InMemoryUserPresets()
+    private val picker = PresetPicker(presetCatalog, userSettings, userPresets)
+
     private fun viewModel(args: Map<String, Any> = emptyMap()): SettingsViewModel {
         val dispatcher = UnconfinedTestDispatcher()
         val sources = SettingsSourceFactory(catalog, userSettings, printSettings, objects, PlateConfigResolver(printSettings))
-        return SettingsViewModel(SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher))
+        return SettingsViewModel(
+            SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker, printSettings,
+        )
     }
 
     private fun objectArgs(volume: Int = -1, range: Int = -1) = mapOf(
@@ -231,6 +264,26 @@ class SettingsViewModelTest {
         assertEquals(PresetKind.FILAMENT, vm.state.value.kind)
         assertEquals("nozzle_temperature", vm.state.value.focus)
         assertTrue(vm.rows().containsKey("nozzle_temperature"))
+    }
+
+    @Test
+    fun `changes are saved as the user's preset, which is then chosen`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel()
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0.12"))
+        vm.onIntent(SettingsIntent.Edit("nozzle_temperature", "215"))
+        assertEquals(listOf(PresetKind.PROCESS, PresetKind.FILAMENT), vm.state.value.saveTargets.map { it.kind })
+
+        vm.onIntent(SettingsIntent.SavePreset(PresetKind.PROCESS, "Fine PLA"))
+        assertEquals(listOf(UserPreset(PresetKind.PROCESS, "Fine PLA", presets.process, mapOf("layer_height" to "0.12"))), userPresets.all())
+        assertEquals("Fine PLA", picker.choices.value.process)
+        // The filament change stays, over the new presets.
+        assertEquals(mapOf("nozzle_temperature" to "215,220"), printSettings.state.value.values)
+        assertEquals("Fine PLA", printSettings.state.value.selection?.process)
+        assertEquals(listOf(PresetKind.FILAMENT), vm.state.value.saveTargets.map { it.kind })
+
+        vm.onIntent(SettingsIntent.DeletePreset(PresetKind.PROCESS, "Fine PLA"))
+        assertEquals(presets.process, picker.choices.value.process)
+        assertEquals(emptyList(), userPresets.all())
     }
 
     @Test

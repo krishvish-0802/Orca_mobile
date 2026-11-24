@@ -5,9 +5,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
+import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.SettingsReview
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -30,6 +33,8 @@ class SettingsViewModel @Inject constructor(
     private val catalog: ConfigOptionCatalog,
     private val layoutSource: SettingsLayoutSource,
     private val dispatchers: CoroutineDispatchers,
+    private val picker: PresetPicker,
+    private val printSettings: PrintSettingsRepository,
 ) : ViewModel() {
 
     private val args: SettingsArgs = settingsArgs(savedStateHandle)
@@ -45,12 +50,18 @@ class SettingsViewModel @Inject constructor(
     private var changes: Map<String, String> = emptyMap()
     private var review: SettingsReview = SettingsReview.NONE
     private var reviewJob: Job? = null
+    private var loadJob: Job? = null
+    private var presetKeys = PresetOptionKeys(emptyList(), emptyList(), emptyList())
+    private var filamentKeys: Set<String> = emptySet()
+
+    /** The filament slot the rows being built show. */
+    private var shownSlot = 0
 
     /** Changes the rules made in a row: rules that keep changing the same thing stop being followed. */
     private var ruleRounds = 0
 
     init {
-        viewModelScope.launch { load() }
+        loadJob = viewModelScope.launch { load() }
     }
 
     fun onIntent(intent: SettingsIntent) {
@@ -63,15 +74,80 @@ class SettingsViewModel @Inject constructor(
             is SettingsIntent.Edit -> {
                 val option = options[intent.key] ?: return
                 if (SettingValues.problem(option, intent.edited) != null) return
-                val written = SettingValues.write(option, currentValue(intent.key), intent.edited)
+                val written = SettingValues.write(option, currentValue(intent.key), intent.edited, slotOf(intent.key))
                 change { if (written == presetValues[intent.key]) source.reset(intent.key) else source.set(intent.key, written) }
             }
-            is SettingsIntent.Reset -> change { source.reset(intent.key) }
+            is SettingsIntent.Reset -> {
+                val option = options[intent.key] ?: return
+                val slot = slotOf(intent.key)
+                val preset = presetValues[intent.key].orEmpty()
+                // One filament's value back to its preset's; the other filaments' stay.
+                val perFilament = key in filamentKeys && option.type.isVector && _state.value.filamentSlots.size > 1
+                val written = if (!perFilament) preset
+                else SettingValues.write(option, currentValue(intent.key), SettingValues.editable(option, preset, slot), slot)
+                change { if (written == preset) source.reset(intent.key) else source.set(intent.key, written) }
+            }
+            is SettingsIntent.SelectFilamentSlot -> {
+                val active = source ?: return
+                refresh {
+                    val slot = intent.slot.coerceIn(0, (filamentSlots.size - 1).coerceAtLeast(0))
+                    copy(filamentSlot = slot, saveTargets = saveTargets(active, slot))
+                }
+            }
+            is SettingsIntent.SavePreset -> change { savePreset(intent.kind, intent.name) }
+            is SettingsIntent.RenamePreset -> change {
+                picker.renameUserPreset(intent.kind, intent.name, intent.newName).getOrThrow()
+                carryOver(changes)
+            }
+            is SettingsIntent.DeletePreset -> change {
+                picker.deleteUserPreset(intent.kind, intent.name).getOrThrow()
+                carryOver(changes)
+            }
             SettingsIntent.ResetAll -> change { source.resetAll() }
             SettingsIntent.DismissProblem -> _state.update { it.copy(problem = null) }
             is SettingsIntent.ApplyFix -> change { write(source, intent.fix.changes) }
             SettingsIntent.DismissNotices -> _state.update { it.copy(notices = emptyList()) }
         }
+    }
+
+    /** The filament slot a setting's row shows: the Filament tab's for a per-filament setting. */
+    private fun slotOf(key: String): Int {
+        val option = options[key] ?: return 0
+        return if (key in filamentKeys && option.type.isVector) _state.value.filamentSlot else 0
+    }
+
+    /**
+     * Saves the changes to [kind]'s settings (for a filament, the shown slot's
+     * values) as the user's preset [name], chooses it, and keeps the other
+     * changes over the new presets.
+     */
+    private suspend fun savePreset(kind: PresetKind, name: String) {
+        val keys = presetKeys.of(kind).toSet()
+        val slot = if (kind == PresetKind.FILAMENT) _state.value.filamentSlot else 0
+        val mine = changes.filterKeys { it in keys }
+        val values = mine.mapNotNull { (key, value) ->
+            val option = options[key] ?: return@mapNotNull null
+            key to if (kind == PresetKind.FILAMENT) SettingValues.element(option, value, slot) else value
+        }.toMap()
+        picker.saveUserPreset(kind, name, values, slot).getOrThrow()
+        // A filament's changes stay for the other filaments; whatever now matches the presets goes.
+        val kept = if (kind == PresetKind.FILAMENT && _state.value.filamentSlots.size > 1) changes else changes - mine.keys
+        carryOver(kept)
+    }
+
+    /** Keeps [kept] over the presets now chosen (dropping what they already give), and shows them. */
+    private suspend fun carryOver(kept: Map<String, String>) {
+        val selection = picker.choices.value.selection
+        val now = if (kept.isEmpty()) emptyMap() else catalog.values(selection, kept.keys.toList()).getOrDefault(emptyMap())
+        printSettings.replace(selection, kept.filter { (key, value) -> now[key] != value })
+        reload()
+    }
+
+    /** The screen again, from the presets now chosen. */
+    private fun reload() {
+        loadJob?.cancel()
+        reviewJob?.cancel()
+        loadJob = viewModelScope.launch { load() }
     }
 
     /** Writes [values] here: a value equal to the presets' is a reset, not a change. Settings this level can't take are left out. */
@@ -118,12 +194,15 @@ class SettingsViewModel @Inject constructor(
 
     private suspend fun load() {
         val loaded = runCatching {
+            picker.load()
             val source = sources.create(args)
             this.source = source
             allowed = source.allowedKeys()
             _state.update { it.copy(presets = source.presets, subject = source.subject, kinds = source.kinds, kind = source.kinds.first()) }
             val layout = withContext(dispatchers.io) { layoutSource.load() }
             val presetKeys = catalog.presetOptionKeys().getOrThrow()
+            this.presetKeys = presetKeys
+            filamentKeys = presetKeys.filament.toSet()
             val allKeys = (layout.keys + presetKeys.process + presetKeys.filament + presetKeys.printer).distinct()
             val described = catalog.describe(allKeys).getOrThrow().associateBy { it.key }
             val completed = layout.completedWith(presetKeys, described, OTHER_PAGE)
@@ -140,9 +219,17 @@ class SettingsViewModel @Inject constructor(
         presetValues = values
         args.focus?.let(::focusOn)
         val active = checkNotNull(source)
+        val choices = picker.choices.value
+        _state.update {
+            it.copy(
+                filamentSlots = if (active.presets != null && active.kinds.contains(PresetKind.FILAMENT)) choices.slots.map { s -> s.preset } else emptyList(),
+                filamentSlot = it.filamentSlot.coerceIn(0, (choices.slots.size - 1).coerceAtLeast(0)),
+                userPresets = choices.userPresets,
+            )
+        }
         active.changes.collect { edits ->
             changes = edits
-            refresh { copy(loading = false, error = null) }
+            refresh { copy(loading = false, error = null, saveTargets = saveTargets(active, filamentSlot)) }
             reviewChanges(active)
         }
     }
@@ -151,6 +238,7 @@ class SettingsViewModel @Inject constructor(
     private fun refresh(change: SettingsUiState.() -> SettingsUiState) {
         _state.update { old ->
             val state = old.change()
+            shownSlot = state.filamentSlot
             val pages = tabs.of(state.kind).mapNotNull { page -> pageUi(page, state.mode) }
             state.copy(
                 pages = pages,
@@ -186,6 +274,7 @@ class SettingsViewModel @Inject constructor(
             enabled = rule.enabled,
             reason = rule.reason.takeIf { !rule.enabled && it.isNotEmpty() },
             label = review.labels[key],
+            slot = if (key in filamentKeys && option.type.isVector) shownSlot else 0,
         )
     }
 
@@ -212,6 +301,18 @@ class SettingsViewModel @Inject constructor(
         refresh { copy(kind = kind, mode = OptionMode.EXPERT) }
         val page = _state.value.pages.indexOfFirst { p -> p.groups.any { g -> g.rows.any { it.option.key == key } } }
         _state.update { it.copy(pageIndex = page.coerceAtLeast(0), focus = key) }
+    }
+
+    /** What the changes can be saved as: each kind with changes, to the preset chosen for it. */
+    private fun saveTargets(source: SettingsSource, filamentSlot: Int): List<SaveTarget> {
+        if (source.presets == null || source.kinds.size < PresetKind.entries.size) return emptyList()
+        val choices = picker.choices.value
+        return PresetKind.entries.mapNotNull { kind ->
+            val count = presetKeys.of(kind).count { it in changes }
+            val slot = if (kind == PresetKind.FILAMENT) filamentSlot else 0
+            val current = choices.chosen(kind, slot) ?: return@mapNotNull null
+            SaveTarget(kind, current, choices.userPreset(kind, current) != null, count).takeIf { count > 0 }
+        }
     }
 
     private fun kindKeys(kind: PresetKind): List<String> = tabs.of(kind).flatMap { page -> page.groups.flatMap { it.keys } }

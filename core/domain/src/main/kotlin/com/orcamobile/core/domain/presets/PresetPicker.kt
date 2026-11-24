@@ -4,6 +4,8 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.model.FilamentSlot
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetKind
+import com.orcamobile.core.model.UserPreset
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,12 +21,15 @@ import javax.inject.Singleton
  * show. Choices are remembered; picking a printer suggests its profile's
  * process and filament, as the desktop app does. Several filaments may be
  * loaded (filament 1, 2, ...), each with its own colour over its preset's.
- * Choices apply in the order they were made.
+ * Choices apply in the order they were made. The user's own presets are kept
+ * here too: saved, renamed and deleted, and given to the engine, which lists
+ * them with the system presets they inherit.
  */
 @Singleton
 class PresetPicker @Inject constructor(
     private val catalog: PresetCatalog,
     private val settings: UserSettingsRepository,
+    private val userPresets: UserPresetRepository = InMemoryUserPresets(),
 ) {
     private val _choices = MutableStateFlow(PresetChoices())
     val choices: StateFlow<PresetChoices> = _choices.asStateFlow()
@@ -36,6 +41,9 @@ class PresetPicker @Inject constructor(
     suspend fun load() = mutex.withLock {
         if (loaded) return@withLock
         _choices.update { it.copy(loading = true, error = null) }
+        val users = userPresets.all()
+        catalog.setUserPresets(users)
+        _choices.update { it.copy(userPresets = users) }
         val vendors = catalog.vendors().getOrElse { return@withLock fail(it) }
         _choices.update { it.copy(loading = false, vendors = vendors) }
         loaded = true
@@ -136,6 +144,113 @@ class PresetPicker @Inject constructor(
         if (slot !in _choices.value.slots.indices) return@withLock
         _choices.update { it.copy(slots = it.slots.toMutableList().also { s -> s[slot] = s[slot].copy(colour = colour) }) }
         remember()
+    }
+
+    /**
+     * Saves [values] (serialized as in profiles) over the chosen preset of [kind]
+     * (for a filament, slot [slot]'s) as the user's preset [name], and chooses it.
+     * Saving over one of the user's presets keeps its other values; one of
+     * their presets saved under its own name is overwritten.
+     */
+    suspend fun saveUserPreset(kind: PresetKind, name: String, values: Map<String, String>, slot: Int = 0): Result<Unit> = mutex.withLock {
+        val choices = _choices.value
+        val trimmed = name.trim()
+        val current = choices.chosen(kind, slot) ?: return@withLock Result.failure(IllegalStateException("Choose a preset first"))
+        val currentUser = choices.userPreset(kind, current)
+        val inherits = currentUser?.inherits ?: current
+        when {
+            trimmed.isEmpty() -> return@withLock Result.failure(IllegalArgumentException("Give the preset a name"))
+            choices.userPreset(kind, trimmed) == null && trimmed in systemNames(choices, kind) ->
+                return@withLock Result.failure(IllegalArgumentException("\"$trimmed\" is a system preset's name"))
+        }
+        val preset = UserPreset(kind, trimmed, inherits, currentUser?.values.orEmpty() + values)
+        runCatching { userPresets.save(preset) }.onFailure { return@withLock Result.failure(it) }
+        publish(choices.userPresets.filterNot { it.kind == kind && it.name == trimmed } + preset)
+        choose(kind, trimmed, slot)
+        refreshLists()
+        remember()
+        Result.success(Unit)
+    }
+
+    /** Renames the user's preset; where it is chosen, the new name is. */
+    suspend fun renameUserPreset(kind: PresetKind, name: String, newName: String): Result<Unit> = mutex.withLock {
+        val choices = _choices.value
+        val preset = choices.userPreset(kind, name) ?: return@withLock Result.failure(IllegalArgumentException("No such preset"))
+        val trimmed = newName.trim()
+        if (trimmed.isEmpty() || trimmed == name) return@withLock Result.success(Unit)
+        if (choices.userPreset(kind, trimmed) != null || trimmed in systemNames(choices, kind)) {
+            return@withLock Result.failure(IllegalArgumentException("A preset is already called \"$trimmed\""))
+        }
+        runCatching {
+            userPresets.save(preset.copy(name = trimmed))
+            userPresets.delete(kind, name)
+        }.onFailure { return@withLock Result.failure(it) }
+        publish(choices.userPresets.map { if (it == preset) it.copy(name = trimmed) else it })
+        replaceChosen(kind, name, trimmed)
+        refreshLists()
+        remember()
+        Result.success(Unit)
+    }
+
+    /** Deletes the user's preset; where it is chosen, the system preset it inherits is. */
+    suspend fun deleteUserPreset(kind: PresetKind, name: String): Result<Unit> = mutex.withLock {
+        val choices = _choices.value
+        val preset = choices.userPreset(kind, name) ?: return@withLock Result.success(Unit)
+        runCatching { userPresets.delete(kind, name) }.onFailure { return@withLock Result.failure(it) }
+        publish(choices.userPresets - preset)
+        replaceChosen(kind, name, preset.inherits)
+        refreshLists()
+        remember()
+        Result.success(Unit)
+    }
+
+    private suspend fun publish(users: List<UserPreset>) {
+        val sorted = users.sortedBy { it.name.lowercase() }
+        catalog.setUserPresets(sorted)
+        _choices.update { it.copy(userPresets = sorted) }
+    }
+
+    private fun choose(kind: PresetKind, name: String, slot: Int) {
+        _choices.update { c ->
+            when (kind) {
+                PresetKind.PRINTER -> c.copy(printer = name)
+                PresetKind.PROCESS -> c.copy(process = name)
+                PresetKind.FILAMENT -> c.copy(slots = c.slots.mapIndexed { i, s -> if (i == slot) s.copy(preset = name) else s })
+            }
+        }
+    }
+
+    private fun replaceChosen(kind: PresetKind, from: String, to: String) {
+        _choices.update { c ->
+            when (kind) {
+                PresetKind.PRINTER -> if (c.printer == from) c.copy(printer = to) else c
+                PresetKind.PROCESS -> if (c.process == from) c.copy(process = to) else c
+                PresetKind.FILAMENT -> c.copy(slots = c.slots.map { s -> if (s.preset == from) s.copy(preset = to) else s })
+            }
+        }
+    }
+
+    /** The lists again (they name the user's presets), keeping what is chosen. */
+    private suspend fun refreshLists() {
+        val choices = _choices.value
+        val vendor = choices.vendor ?: return
+        val printers = catalog.printers(vendor).getOrElse { return fail(it) }
+        _choices.update { it.copy(printers = printers) }
+        val printer = choices.printer?.takeIf { it in printers } ?: return
+        val compatible = catalog.compatiblePresets(vendor, printer).getOrElse { return fail(it) }
+        _choices.update {
+            it.copy(
+                processes = compatible.processes,
+                process = it.process?.takeIf { p -> p in compatible.processes } ?: compatible.defaultProcess,
+                filaments = compatible.filaments,
+            )
+        }
+    }
+
+    private fun systemNames(choices: PresetChoices, kind: PresetKind): List<String> = when (kind) {
+        PresetKind.PRINTER -> choices.printers
+        PresetKind.PROCESS -> choices.processes
+        PresetKind.FILAMENT -> choices.filaments
     }
 
     private suspend fun remember() {

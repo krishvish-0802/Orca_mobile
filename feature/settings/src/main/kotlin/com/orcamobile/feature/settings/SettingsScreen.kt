@@ -1,6 +1,7 @@
 package com.orcamobile.feature.settings
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -90,6 +92,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
     // Opened on a setting: its editor.
     LaunchedEffect(state.focus) { state.focus?.let { editing = it } }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var presetsOpen by rememberSaveable { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -138,6 +141,9 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                         } else {
                             IconButton(onClick = { searchOpen = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.settings_search))
+                            }
+                            if (state.saveTargets.isNotEmpty() || state.userPresets.isNotEmpty()) {
+                                TextButton(onClick = { presetsOpen = true }) { Text(stringResource(R.string.settings_presets)) }
                             }
                             if (state.changedCount > 0) {
                                 TextButton(onClick = { onIntent(SettingsIntent.ResetAll) }) { Text(stringResource(R.string.settings_reset_all)) }
@@ -208,6 +214,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
 
     val open = editing?.let { key -> (state.pages.flatMap { it.groups } + state.results).flatMap { it.rows }.firstOrNull { it.option.key == key } }
     if (open != null) SettingSheet(row = open, onIntent = onIntent, onDismiss = { editing = null })
+    if (presetsOpen) PresetsSheet(state, onIntent, onDismiss = { presetsOpen = false })
 }
 
 /** Process / Filament / Printer, the pages of the chosen one, and the level of detail. */
@@ -226,6 +233,21 @@ private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Uni
                     ) {
                         Text(stringResource(kindLabel(kind)) + if (changed > 0) " · $changed" else "", maxLines = 1)
                     }
+                }
+            }
+        }
+        if (state.kind == PresetKind.FILAMENT && state.filamentSlots.size > 1) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                state.filamentSlots.forEachIndexed { index, preset ->
+                    FilterChip(
+                        selected = state.filamentSlot == index,
+                        onClick = { onIntent(SettingsIntent.SelectFilamentSlot(index)) },
+                        label = { Text(stringResource(R.string.settings_filament_slot, index + 1) + " · " + preset, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.widthIn(max = 240.dp),
+                    )
                 }
             }
         }
@@ -279,7 +301,7 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
         enabled = row.enabled,
         onClick = if (!row.enabled) {
             null
-        } else if (isSwitch && !SettingValues.isUnset(option, row.value)) {
+        } else if (isSwitch && !SettingValues.isUnset(option, row.value, row.slot)) {
             { onIntent(SettingsIntent.Edit(option.key, if (checked(row)) "0" else "1")) }
         } else {
             onOpen
@@ -290,7 +312,7 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
                     Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.settings_reset), modifier = Modifier.size(20.dp))
                 }
             }
-            if (isSwitch && !SettingValues.isUnset(option, row.value)) {
+            if (isSwitch && !SettingValues.isUnset(option, row.value, row.slot)) {
                 Switch(
                     checked = checked(row),
                     onCheckedChange = { onIntent(SettingsIntent.Edit(option.key, if (it) "1" else "0")) },
@@ -310,7 +332,7 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
     )
 }
 
-private fun checked(row: SettingRow) = SettingValues.editable(row.option, row.value) == "1"
+private fun checked(row: SettingRow) = SettingValues.editable(row.option, row.value, row.slot) == "1"
 
 /** What the rules changed on their own, and why. */
 @Composable
@@ -348,11 +370,11 @@ private fun CheckCard(check: com.orcamobile.core.model.SettingsCheck, onIntent: 
 @Composable
 private fun displayValue(serialized: String, row: SettingRow): String {
     val option = row.option
-    if (SettingValues.isUnset(option, serialized)) return stringResource(R.string.settings_unset)
+    if (SettingValues.isUnset(option, serialized, row.slot)) return stringResource(R.string.settings_unset)
     if (option.type == OptionType.BOOL || option.type == OptionType.BOOLS) {
-        return stringResource(if (SettingValues.editable(option, serialized) == "1") R.string.settings_on else R.string.settings_off)
+        return stringResource(if (SettingValues.editable(option, serialized, row.slot) == "1") R.string.settings_on else R.string.settings_off)
     }
-    val text = SettingValues.display(option, serialized)
+    val text = SettingValues.display(option, serialized, row.slot)
     return text.ifEmpty { stringResource(R.string.settings_empty) }
 }
 
@@ -392,7 +414,7 @@ private fun SettingSheet(row: SettingRow, onIntent: (SettingsIntent) -> Unit, on
 @Composable
 private fun SwitchEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onDismiss: () -> Unit) {
     val choices = listOf("1" to stringResource(R.string.settings_on), "0" to stringResource(R.string.settings_off))
-    val current = if (SettingValues.isUnset(row.option, row.value)) SettingValues.UNSET else SettingValues.editable(row.option, row.value)
+    val current = if (SettingValues.isUnset(row.option, row.value, row.slot)) SettingValues.UNSET else SettingValues.editable(row.option, row.value, row.slot)
     ListGroup(items = choices + if (row.option.nullable) listOf(SettingValues.UNSET to stringResource(R.string.settings_unset)) else emptyList()) { (value, label) ->
         RadioRow(label, selected = value == current) {
             onIntent(SettingsIntent.Edit(row.option.key, value))
@@ -403,8 +425,8 @@ private fun SwitchEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, on
 
 @Composable
 private fun ChoiceList(row: SettingRow, onChoose: (String) -> Unit) {
-    val current = SettingValues.editable(row.option, row.value)
-    val preset = SettingValues.editable(row.option, row.presetValue)
+    val current = SettingValues.editable(row.option, row.value, row.slot)
+    val preset = SettingValues.editable(row.option, row.presetValue, row.slot)
     ListGroup(items = row.option.choices) { choice ->
         RadioRow(choice.label, selected = choice.value == current, note = stringResource(R.string.settings_preset_choice).takeIf { choice.value == preset && preset != current }) {
             onChoose(choice.value)
@@ -433,8 +455,8 @@ private fun RadioRow(label: String, selected: Boolean, note: String? = null, onC
 @Composable
 private fun ValueEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onDismiss: () -> Unit) {
     val option = row.option
-    val unset = SettingValues.isUnset(option, row.value)
-    var text by remember(option.key) { mutableStateOf(if (unset) "" else SettingValues.editable(option, row.value)) }
+    val unset = SettingValues.isUnset(option, row.value, row.slot)
+    var text by remember(option.key) { mutableStateOf(if (unset) "" else SettingValues.editable(option, row.value, row.slot)) }
     val problem = SettingValues.problem(option, text)
     val multiline = option.multiline || text.contains('\n')
     val keyboard = when (option.type) {

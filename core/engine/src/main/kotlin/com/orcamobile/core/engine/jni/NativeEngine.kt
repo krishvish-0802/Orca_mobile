@@ -206,6 +206,9 @@ internal object NativeEngine {
         filament: Int,
     ): String
 
+    /** The user's presets (see PresetCatalog::set_user_presets): `[{"kind","name","inherits","values"}]`. `{}` or `{"error"}`. */
+    @JvmStatic external fun nativeSetUserPresets(presetsJson: String): String
+
     @JvmStatic external fun nativeCreateCancelToken(): Long
 
     @JvmStatic external fun nativeRequestCancel(token: Long)

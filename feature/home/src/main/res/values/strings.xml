@@ -26,4 +26,5 @@
     <string name="home_update_install">Install</string>
     <string name="home_update_permission">Allow Orca Mobile to install apps in the screen that opened, then come back and tap Install.</string>
     <string name="home_update_retry">Try again</string>
+    <string name="home_preset_yours">Yours</string>
 </resources>

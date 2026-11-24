@@ -1,9 +1,12 @@
 // Settings natives, on com.orcamobile.core.engine.jni.NativeEngine: how settings
-// depend on each other (OptionRules.hpp).
+// depend on each other (OptionRules.hpp), and the user's own presets.
 #include <jni.h>
 
+#include <algorithm>
 #include <exception>
+#include <map>
 #include <string>
+#include <vector>
 
 #include "EngineState.hpp"
 #include "JniRegistry.hpp"
@@ -11,6 +14,7 @@
 #include "nlohmann/json.hpp"
 #include "orca_engine/Json.hpp"
 #include "orca_engine/OptionRules.hpp"
+#include "orca_engine/PresetCatalog.hpp"
 
 namespace orca::jni {
 
@@ -59,9 +63,35 @@ jstring native_review_settings(JNIEnv* env, jclass, jstring preset_selection_jso
     }
 }
 
+// The user's presets, replacing those given before: `presets_json` is
+// [{"kind": 0 printer | 1 process | 2 filament, "name", "inherits", "values": {key: value}}].
+// Returns {} or {"error"}.
+jstring native_set_user_presets(JNIEnv* env, jclass, jstring presets_json)
+{
+    engine::PresetCatalog* presets = catalog();
+    if (presets == nullptr)
+        return to_jstring(env, json::error_json("The engine is not initialized"));
+    try {
+        std::vector<engine::UserPreset> list;
+        for (const auto& p : nlohmann::json::parse(to_std_string(env, presets_json))) {
+            engine::UserPreset preset;
+            preset.kind = static_cast<engine::PresetKind>(std::clamp(p.value("kind", 1), 0, 2));
+            preset.name = p.value("name", "");
+            preset.inherits = p.value("inherits", "");
+            preset.values = p.value("values", std::map<std::string, std::string>());
+            list.push_back(std::move(preset));
+        }
+        presets->set_user_presets(std::move(list));
+        return to_jstring(env, "{}");
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 #define STR "Ljava/lang/String;"
 const JNINativeMethod kMethods[] = {
     {"nativeReviewSettings", "(" STR "[" STR "[" STR "II)" STR, reinterpret_cast<void*>(native_review_settings)},
+    {"nativeSetUserPresets", "(" STR ")" STR, reinterpret_cast<void*>(native_set_user_presets)},
 };
 #undef STR
 

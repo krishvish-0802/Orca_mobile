@@ -35,6 +35,12 @@ class DataStorePrintSettingsRepository @Inject constructor(
         store.edit { it.remove(EDITS) }
     }
 
+    override suspend fun replace(selection: PresetSelection?, values: Map<String, String>) {
+        store.edit { prefs ->
+            if (values.isEmpty()) prefs.remove(EDITS) else prefs[EDITS] = encode(SettingsEdits(selection, values))
+        }
+    }
+
     /** Changes [selection]'s edits; edits made for another selection are dropped first. */
     private suspend fun update(selection: PresetSelection?, change: (Map<String, String>) -> Map<String, String>) {
         store.edit { prefs ->

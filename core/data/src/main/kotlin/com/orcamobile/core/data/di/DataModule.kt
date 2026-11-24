@@ -8,6 +8,8 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import com.orcamobile.core.data.AssetSampleModelRepository
 import com.orcamobile.core.data.ContentModelImportRepository
 import com.orcamobile.core.data.ContentTextureImageRepository
+import com.orcamobile.core.data.FileUserPresetRepository
+import com.orcamobile.core.domain.presets.UserPresetRepository
 import com.orcamobile.core.data.DataStorePrintSettingsRepository
 import com.orcamobile.core.data.DataStoreUserSettingsRepository
 import com.orcamobile.core.data.FileWorkspaceRepository
@@ -50,6 +52,9 @@ internal interface DataModule {
 
     @Binds
     fun textureImages(impl: ContentTextureImageRepository): TextureImageRepository
+
+    @Binds
+    fun userPresets(impl: FileUserPresetRepository): UserPresetRepository
 }
 
 @Module
