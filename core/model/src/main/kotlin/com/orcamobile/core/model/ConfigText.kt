@@ -1,4 +1,4 @@
-package com.orcamobile.feature.settings
+package com.orcamobile.core.model
 
 /**
  * OrcaSlicer's text serialization (libslic3r/Config.cpp), so edited text options
@@ -6,7 +6,7 @@ package com.orcamobile.feature.settings
  * strings is separated by ';' with any element containing spaces, tabs, ';',
  * '\', '"' or line breaks quoted.
  */
-internal object ConfigText {
+object ConfigText {
 
     /** escape_string_cstyle */
     fun escape(text: String): String = buildString {
@@ -96,4 +96,26 @@ internal object ConfigText {
             }
         }
     }
+}
+
+/**
+ * The values of a per-extruder (vector) option as serialized, one per extruder
+ * or filament; any other option is its one value. Points stay whole (a bed
+ * outline is one value).
+ */
+fun ConfigOption.elements(serialized: String): List<String> = when {
+    type == OptionType.STRINGS -> ConfigText.splitStrings(serialized).ifEmpty { listOf("") }
+    type.isVector && type != OptionType.POINTS -> serialized.split(',')
+    else -> listOf(serialized)
+}
+
+/** [values] serialized as this option's list. */
+fun ConfigOption.joinElements(values: List<String>): String =
+    if (type == OptionType.STRINGS) ConfigText.joinStrings(values) else values.joinToString(",")
+
+/** Element [index] (or the last of a shorter list), as the value of a one-element list: what one filament's preset holds. */
+fun ConfigOption.element(serialized: String, index: Int): String {
+    if (!type.isVector || type == OptionType.POINTS) return serialized
+    val all = elements(serialized)
+    return joinElements(listOf(all.getOrNull(index) ?: all.lastOrNull().orEmpty()))
 }

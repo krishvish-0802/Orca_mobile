@@ -7,6 +7,7 @@ import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.InMemoryUserPresets
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
 import com.orcamobile.core.domain.project.ObjectEditor
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
@@ -197,7 +198,8 @@ class SettingsViewModelTest {
         val dispatcher = UnconfinedTestDispatcher()
         val sources = SettingsSourceFactory(catalog, userSettings, printSettings, objects, PlateConfigResolver(printSettings))
         return SettingsViewModel(
-            SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker, printSettings,
+            SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker,
+            PresetSwitcher(picker, printSettings, catalog),
         )
     }
 

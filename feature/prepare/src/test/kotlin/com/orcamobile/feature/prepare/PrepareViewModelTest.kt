@@ -1,11 +1,14 @@
 package com.orcamobile.feature.prepare
 
 import androidx.lifecycle.SavedStateHandle
+import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
@@ -19,22 +22,22 @@ import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.Axes
-import com.orcamobile.core.model.InstanceTransform
-import com.orcamobile.core.model.TransformEdit
-import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.PlateSettingKeys
-import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.Plates
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.PrintHostConfig
@@ -50,11 +53,8 @@ import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceSource
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -64,6 +64,12 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -279,19 +285,32 @@ class PrepareViewModelTest {
         }
     }
 
-    private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
-        SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
-        projects,
-        printSettings,
-        previews,
-        FakePresets(),
-        PresetPicker(FakePresets(), settings),
-        settings,
-        SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
-        PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
-        TestPrintHostUseCase(hosts),
-        SendGcodeUseCase(hosts),
-    )
+
+    /** Which settings each kind of preset holds; the presets give the defaults. */
+    private val optionCatalog = object : ConfigOptionCatalog {
+        override suspend fun describe(keys: List<String>) = Result.success(emptyList<ConfigOption>())
+        override suspend fun values(selection: PresetSelection?, keys: List<String>) =
+            Result.success(mapOf("layer_height" to "0.2").filterKeys { it in keys })
+        override suspend fun presetOptionKeys() = Result.success(PresetOptionKeys(listOf("layer_height"), emptyList(), emptyList()))
+    }
+
+    private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository): PrepareViewModel {
+        val picker = PresetPicker(FakePresets(), settings)
+        return PrepareViewModel(
+            SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
+            projects,
+            printSettings,
+            previews,
+            FakePresets(),
+            picker,
+            settings,
+            SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
+            PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
+            TestPrintHostUseCase(hosts),
+            SendGcodeUseCase(hosts),
+            PresetSwitcher(picker, printSettings, optionCatalog),
+        )
+    }
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -448,6 +467,28 @@ class PrepareViewModelTest {
         assertEquals(150.0 to 150.0, projects.centers.last())
         assertEquals(1, state.plateRevision)
         assertEquals(SliceUiState.Idle, state.slice)
+    }
+
+    @Test
+    fun `another process asks about the changes to the one left, and keeps or drops them`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        kotlinx.coroutines.runBlocking { printSettings.set(selection, "layer_height", "0.12") }
+
+        vm.onIntent(PrepareIntent.SelectProcess("0.12mm Fine"))
+        val prompt = assertNotNull(vm.state.value.unsaved)
+        assertEquals(1, prompt.changes)
+        assertEquals(selection.process, vm.state.value.presets?.process)
+
+        vm.onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Keep))
+        assertNull(vm.state.value.unsaved)
+        assertEquals("0.12mm Fine", vm.state.value.presets?.process)
+        assertEquals(mapOf("layer_height" to "0.12"), printSettings.state.value.values)
+        assertEquals("0.12mm Fine", printSettings.state.value.selection?.process)
+
+        vm.onIntent(PrepareIntent.SelectProcess(selection.process))
+        vm.onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Discard))
+        assertEquals(selection.process, vm.state.value.presets?.process)
+        assertEquals(emptyMap(), printSettings.state.value.values)
     }
 
     @Test

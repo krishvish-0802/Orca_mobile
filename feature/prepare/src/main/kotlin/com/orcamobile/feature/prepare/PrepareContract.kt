@@ -1,19 +1,18 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.domain.presets.UnsavedChoice
+import com.orcamobile.core.domain.presets.UnsavedPrompt
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
-import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.PlateInfo
-import com.orcamobile.core.model.WipeTower
-import com.orcamobile.core.model.ModelObjectInfo
-import com.orcamobile.core.model.TransformEdit
-import com.orcamobile.core.viewport.HandleMode
 import com.orcamobile.core.model.PresetChoices
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
@@ -24,6 +23,9 @@ import com.orcamobile.core.model.SimplifyCounts
 import com.orcamobile.core.model.SimplifySettings
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.WipeTower
+import com.orcamobile.core.viewport.HandleMode
 
 /** Everything the Prepare screen renders. Produced only by [PrepareViewModel]. */
 data class PrepareUiState(
@@ -43,6 +45,8 @@ data class PrepareUiState(
     val group: List<InstanceRef> = emptyList(),
     /** How many settings the user changed from the presets (see the settings screen). */
     val changedSettings: Int = 0,
+    /** A preset change waiting on what to do with the changed settings. */
+    val unsaved: UnsavedPrompt? = null,
     /** The app-wide preset choice, changed from the chips under the plate. */
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
@@ -293,6 +297,9 @@ sealed interface PrepareIntent {
 
     /** Loads [filament] as filament [slot] + 1. */
     data class SelectFilament(val filament: String, val slot: Int = 0) : PrepareIntent
+
+    /** The answer to [PrepareUiState.unsaved]; null cancels the change. */
+    data class ResolveUnsaved(val choice: UnsavedChoice?) : PrepareIntent
 
     /** Adds a filament, a copy of the last. */
     data object AddFilament : PrepareIntent

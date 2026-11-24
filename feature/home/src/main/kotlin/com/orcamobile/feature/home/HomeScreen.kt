@@ -24,6 +24,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -40,7 +41,9 @@ import com.orcamobile.core.designsystem.component.ListRow
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.SectionHeader
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.designsystem.component.UnsavedChangesDialog
 import com.orcamobile.core.designsystem.theme.OrcaTheme
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetKind
 
@@ -130,6 +133,21 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             marked = field.kind?.let(setup::userNames).orEmpty(),
             markLabel = stringResource(R.string.home_preset_yours),
         )
+    }
+    state.unsaved?.let { prompt ->
+        key(prompt) {
+            UnsavedChangesDialog(
+                changes = prompt.changes,
+                from = prompt.from,
+                to = prompt.to,
+                canSave = true,
+                error = prompt.error,
+                onKeep = { onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Keep)) },
+                onDiscard = { onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Discard)) },
+                onSave = { name -> onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Save(name))) },
+                onDismiss = { onIntent(HomeIntent.ResolveUnsaved(null)) },
+            )
+        }
     }
 }
 

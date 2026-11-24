@@ -45,6 +45,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -65,7 +66,9 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.designsystem.component.UnsavedChangesDialog
 import com.orcamobile.core.designsystem.icon.OrcaIcons
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PrintHostType
@@ -656,6 +659,21 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             marked = field.kind?.let(choices::userNames).orEmpty(),
             markLabel = stringResource(R.string.prepare_preset_yours),
         )
+    }
+    state.unsaved?.let { prompt ->
+        key(prompt) {
+            UnsavedChangesDialog(
+                changes = prompt.changes,
+                from = prompt.from,
+                to = prompt.to,
+                canSave = true,
+                error = prompt.error,
+                onKeep = { onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Keep)) },
+                onDiscard = { onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Discard)) },
+                onSave = { name -> onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Save(name))) },
+                onDismiss = { onIntent(PrepareIntent.ResolveUnsaved(null)) },
+            )
+        }
     }
 }
 

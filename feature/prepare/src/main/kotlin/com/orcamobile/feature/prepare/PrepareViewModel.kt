@@ -5,7 +5,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.PresetChange
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
@@ -21,15 +24,15 @@ import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateSettingKeys
-import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
-import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.ProjectId
-import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceResult
+import com.orcamobile.core.model.TransformEdit
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +58,7 @@ class PrepareViewModel @Inject constructor(
     private val plateTools: PlateToolsUseCase,
     private val testPrintHost: TestPrintHostUseCase,
     private val sendGcode: SendGcodeUseCase,
+    private val switcher: PresetSwitcher,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PrepareUiState())
@@ -91,6 +95,24 @@ class PrepareViewModel @Inject constructor(
         viewModelScope.launch { followWipeTower() }
     }
 
+    private fun changePreset(change: PresetChange) {
+        viewModelScope.launch {
+            runCatching { switcher.request(change) }.onSuccess { prompt -> _state.update { it.copy(unsaved = prompt) } }
+        }
+    }
+
+    /** Makes the waiting preset change with [choice]; a save that fails asks again, saying why. */
+    private fun resolveUnsaved(choice: UnsavedChoice?) {
+        val prompt = _state.value.unsaved ?: return
+        _state.update { it.copy(unsaved = null) }
+        if (choice == null) return
+        viewModelScope.launch {
+            switcher.switch(prompt.change, choice).onFailure { error ->
+                _state.update { it.copy(unsaved = prompt.copy(error = error.message ?: error.javaClass.simpleName)) }
+            }
+        }
+    }
+
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
@@ -119,9 +141,10 @@ class PrepareViewModel @Inject constructor(
                 plateTools.arrangeAllPlates(project, presets, _state.value.arrangeOptions)
             }
             is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
-            is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
-            is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
-            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.slot, intent.filament) }
+            is PrepareIntent.SelectPrinter -> changePreset(PresetChange.Printer(intent.printer))
+            is PrepareIntent.SelectProcess -> changePreset(PresetChange.Process(intent.process))
+            is PrepareIntent.SelectFilament -> changePreset(PresetChange.Filament(intent.slot, intent.filament))
+            is PrepareIntent.ResolveUnsaved -> resolveUnsaved(intent.choice)
             PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }
             is PrepareIntent.RemoveFilament -> removeFilament(intent.slot)
             is PrepareIntent.SetFilamentColour -> viewModelScope.launch { picker.setFilamentColour(intent.slot, intent.colour) }

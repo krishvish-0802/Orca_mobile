@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.presets.PresetPicker
-import com.orcamobile.core.domain.settings.PrintSettingsRepository
+import com.orcamobile.core.domain.presets.PresetSwitcher
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.OptionMode
 import com.orcamobile.core.model.PresetKind
@@ -34,7 +34,7 @@ class SettingsViewModel @Inject constructor(
     private val layoutSource: SettingsLayoutSource,
     private val dispatchers: CoroutineDispatchers,
     private val picker: PresetPicker,
-    private val printSettings: PrintSettingsRepository,
+    private val switcher: PresetSwitcher,
 ) : ViewModel() {
 
     private val args: SettingsArgs = settingsArgs(savedStateHandle)
@@ -122,24 +122,17 @@ class SettingsViewModel @Inject constructor(
      * changes over the new presets.
      */
     private suspend fun savePreset(kind: PresetKind, name: String) {
-        val keys = presetKeys.of(kind).toSet()
         val slot = if (kind == PresetKind.FILAMENT) _state.value.filamentSlot else 0
-        val mine = changes.filterKeys { it in keys }
-        val values = mine.mapNotNull { (key, value) ->
-            val option = options[key] ?: return@mapNotNull null
-            key to if (kind == PresetKind.FILAMENT) SettingValues.element(option, value, slot) else value
-        }.toMap()
+        val values = switcher.presetValues(kind, changes, slot)
         picker.saveUserPreset(kind, name, values, slot).getOrThrow()
         // A filament's changes stay for the other filaments; whatever now matches the presets goes.
-        val kept = if (kind == PresetKind.FILAMENT && _state.value.filamentSlots.size > 1) changes else changes - mine.keys
+        val kept = if (kind == PresetKind.FILAMENT && _state.value.filamentSlots.size > 1) changes else changes - values.keys
         carryOver(kept)
     }
 
     /** Keeps [kept] over the presets now chosen (dropping what they already give), and shows them. */
     private suspend fun carryOver(kept: Map<String, String>) {
-        val selection = picker.choices.value.selection
-        val now = if (kept.isEmpty()) emptyMap() else catalog.values(selection, kept.keys.toList()).getOrDefault(emptyMap())
-        printSettings.replace(selection, kept.filter { (key, value) -> now[key] != value })
+        switcher.carryOver(kept)
         reload()
     }
 

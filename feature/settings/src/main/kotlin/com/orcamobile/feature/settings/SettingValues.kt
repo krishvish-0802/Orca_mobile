@@ -1,7 +1,11 @@
 package com.orcamobile.feature.settings
 
 import com.orcamobile.core.model.ConfigOption
+import com.orcamobile.core.model.ConfigText
 import com.orcamobile.core.model.OptionType
+import com.orcamobile.core.model.element
+import com.orcamobile.core.model.elements
+import com.orcamobile.core.model.joinElements
 
 /**
  * Reading and writing option values as profiles serialize them. Per-extruder
@@ -46,11 +50,9 @@ object SettingValues {
     }
 
     /** Element [index] of a per-extruder value alone, serialized as a one-value list; a single value as it is. */
-    fun element(option: ConfigOption, serialized: String, index: Int): String =
-        if (!option.type.isVector || option.type == OptionType.POINTS) serialized else join(option, listOf(at(elements(option, serialized), index)))
+    fun element(option: ConfigOption, serialized: String, index: Int): String = option.element(serialized, index)
 
-    private fun join(option: ConfigOption, all: List<String>) =
-        if (option.type == OptionType.STRINGS) ConfigText.joinStrings(all) else all.joinToString(",")
+    private fun join(option: ConfigOption, all: List<String>) = option.joinElements(all)
 
     /** Element [index], or the last for a shorter list. */
     private fun at(elements: List<String>, index: Int): String = elements.getOrNull(index) ?: elements.lastOrNull().orEmpty()
@@ -89,11 +91,7 @@ object SettingValues {
     }
 
     /** The elements of a per-extruder value; the whole value for a single one. */
-    private fun elements(option: ConfigOption, serialized: String): List<String> = when {
-        option.type == OptionType.STRINGS -> ConfigText.splitStrings(serialized).ifEmpty { listOf("") }
-        option.type.isVector && option.type != OptionType.POINTS -> serialized.split(',')
-        else -> listOf(serialized)
-    }
+    private fun elements(option: ConfigOption, serialized: String): List<String> = option.elements(serialized)
 
     sealed interface Problem {
         data object Empty : Problem

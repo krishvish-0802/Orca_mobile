@@ -4,14 +4,16 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.model.ModelImportRepository
 import com.orcamobile.core.domain.model.SampleModelRepository
+import com.orcamobile.core.domain.presets.PresetChange
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.update.AppUpdates
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.model.AppUpdate
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.InstallStart
 import dagger.hilt.android.lifecycle.HiltViewModel
-import javax.inject.Inject
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import javax.inject.Inject
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
@@ -29,6 +32,7 @@ class HomeViewModel @Inject constructor(
     private val imports: ModelImportRepository,
     private val samples: SampleModelRepository,
     private val updates: AppUpdates,
+    private val switcher: PresetSwitcher,
 ) : ViewModel() {
 
     private var lastCheck = 0L
@@ -50,12 +54,31 @@ class HomeViewModel @Inject constructor(
         }
     }
 
+    private fun changePreset(change: PresetChange) {
+        viewModelScope.launch {
+            runCatching { switcher.request(change) }.onSuccess { prompt -> _state.update { it.copy(unsaved = prompt) } }
+        }
+    }
+
+    /** Makes the waiting preset change with [choice]; a save that fails asks again, saying why. */
+    private fun resolveUnsaved(choice: UnsavedChoice?) {
+        val prompt = _state.value.unsaved ?: return
+        _state.update { it.copy(unsaved = null) }
+        if (choice == null) return
+        viewModelScope.launch {
+            switcher.switch(prompt.change, choice).onFailure { error ->
+                _state.update { it.copy(unsaved = prompt.copy(error = error.message ?: error.javaClass.simpleName)) }
+            }
+        }
+    }
+
     fun onIntent(intent: HomeIntent) {
         when (intent) {
             is HomeIntent.SelectVendor -> viewModelScope.launch { presets.selectVendor(intent.vendor) }
-            is HomeIntent.SelectPrinter -> viewModelScope.launch { presets.selectPrinter(intent.printer) }
-            is HomeIntent.SelectProcess -> viewModelScope.launch { presets.selectProcess(intent.process) }
-            is HomeIntent.SelectFilament -> viewModelScope.launch { presets.selectFilament(intent.filament) }
+            is HomeIntent.SelectPrinter -> changePreset(PresetChange.Printer(intent.printer))
+            is HomeIntent.SelectProcess -> changePreset(PresetChange.Process(intent.process))
+            is HomeIntent.SelectFilament -> changePreset(PresetChange.Filament(0, intent.filament))
+            is HomeIntent.ResolveUnsaved -> resolveUnsaved(intent.choice)
             is HomeIntent.ImportModel -> importModel(intent.uri)
             HomeIntent.OpenSample -> viewModelScope.launch { _events.send(HomeEvent.OpenModel(samples.calibrationCubePath())) }
             HomeIntent.CheckForUpdate -> checkForUpdate()
