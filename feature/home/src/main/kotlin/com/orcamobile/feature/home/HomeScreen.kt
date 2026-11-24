@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,6 +52,7 @@ import com.orcamobile.core.model.PresetKind
 fun HomeRoute(
     onOpenModel: (path: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSetup: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -63,6 +65,7 @@ fun HomeRoute(
         viewModel.events.collect { event ->
             when (event) {
                 is HomeEvent.OpenModel -> onOpenModel(event.path)
+                HomeEvent.OpenSetup -> onOpenSetup()
             }
         }
     }
@@ -75,6 +78,7 @@ fun HomeRoute(
         onIntent = viewModel::onIntent,
         onPickModel = { picker.launch(arrayOf("*/*")) },
         onOpenSettings = onOpenSettings,
+        onOpenSetup = onOpenSetup,
     )
 }
 
@@ -87,7 +91,13 @@ private enum class PresetField(val kind: PresetKind?) {
 }
 
 @Composable
-fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: () -> Unit, onOpenSettings: () -> Unit) {
+fun HomeScreen(
+    state: HomeUiState,
+    onIntent: (HomeIntent) -> Unit,
+    onPickModel: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSetup: () -> Unit = {},
+) {
     var choosing by rememberSaveable { mutableStateOf<PresetField?>(null) }
     Scaffold { padding ->
         Column(
@@ -102,7 +112,7 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             UpdateCard(state.update, onIntent)
             if (state.engine is EngineUiState.Ready) {
                 StartCard(state, onIntent, onPickModel)
-                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings)
+                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings, onOpenSetup = onOpenSetup)
             }
         }
     }
@@ -207,7 +217,7 @@ private fun StartCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPick
 }
 
 @Composable
-private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -> Unit, onOpenSettings: () -> Unit) {
+private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -> Unit, onOpenSettings: () -> Unit, onOpenSetup: () -> Unit) {
     SectionHeader(stringResource(R.string.home_printer_title))
     val notChosen = stringResource(R.string.home_not_chosen)
     val chevron: @Composable RowScope.() -> Unit = {
@@ -248,6 +258,7 @@ private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -
             trailing = chevron,
         )
     }
+    TextButton(onClick = onOpenSetup) { Text(stringResource(R.string.home_run_setup)) }
 }
 
 @Preview

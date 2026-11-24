@@ -74,4 +74,7 @@ sealed interface HomeIntent {
 /** One-off effects the screen acts on. */
 sealed interface HomeEvent {
     data class OpenModel(val path: String) : HomeEvent
+
+    /** The first-run setup is due. */
+    data object OpenSetup : HomeEvent
 }

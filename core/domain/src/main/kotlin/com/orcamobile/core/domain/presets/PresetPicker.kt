@@ -59,12 +59,13 @@ class PresetPicker @Inject constructor(
             val preset = name.takeIf { it in compatible.filaments } ?: fallback ?: return@mapIndexedNotNull null
             FilamentSlot(preset, saved.filamentColours.getOrNull(i)?.takeIf { it.isNotEmpty() })
         }.ifEmpty { listOfNotNull(fallback?.let(::FilamentSlot)) }
+        val listed = listed(saved.printer, compatible.filaments, slots)
         _choices.update {
             it.copy(
                 printer = saved.printer,
                 processes = compatible.processes,
                 process = saved.process.takeIf { p -> p in compatible.processes } ?: compatible.defaultProcess,
-                filaments = compatible.filaments,
+                filaments = listed,
                 slots = slots,
             )
         }
@@ -89,13 +90,15 @@ class PresetPicker @Inject constructor(
         }
         catalog.compatiblePresets(vendor, printer).fold(
             { compatible ->
+                val listed = listed(printer, compatible.filaments, emptyList())
+                val first = compatible.defaultFilament?.takeIf { it in listed } ?: listed.firstOrNull()
                 _choices.update {
                     it.copy(
                         loading = false,
                         processes = compatible.processes,
                         process = compatible.defaultProcess,
-                        filaments = compatible.filaments,
-                        slots = listOfNotNull((compatible.defaultFilament ?: compatible.filaments.firstOrNull())?.let(::FilamentSlot)),
+                        filaments = listed,
+                        slots = listOfNotNull(first?.let(::FilamentSlot)),
                     )
                 }
                 remember()
@@ -255,13 +258,32 @@ class PresetPicker @Inject constructor(
         _choices.update { it.copy(printers = printers) }
         val printer = choices.printer?.takeIf { it in printers } ?: return
         val compatible = catalog.compatiblePresets(vendor, printer).getOrElse { return fail(it) }
+        val listed = listed(printer, compatible.filaments, choices.slots)
         _choices.update {
             it.copy(
                 processes = compatible.processes,
                 process = it.process?.takeIf { p -> p in compatible.processes } ?: compatible.defaultProcess,
-                filaments = compatible.filaments,
+                filaments = listed,
             )
         }
+    }
+
+    /**
+     * The filaments [printer] lists of [all] it suits: those the user chose to
+     * show (all when none were chosen), their own, and any loaded in [slots].
+     */
+    private suspend fun listed(printer: String, all: List<String>, slots: List<FilamentSlot>): List<String> {
+        val shown = settings.shownFilaments(printer)
+        if (shown.isEmpty()) return all
+        val users = _choices.value.userNames(PresetKind.FILAMENT)
+        val loaded = slots.map { it.preset }.toSet()
+        return all.filter { it in shown || it in users || it in loaded }
+    }
+
+    /** Lists only [names] of the filaments [printer] suits (all of them when empty), as the desktop's filament selection. */
+    suspend fun setShownFilaments(printer: String, names: Set<String>) = mutex.withLock {
+        settings.saveShownFilaments(printer, names)
+        if (_choices.value.printer == printer) refreshLists()
     }
 
     private fun systemNames(choices: PresetChoices, kind: PresetKind): List<String> = when (kind) {

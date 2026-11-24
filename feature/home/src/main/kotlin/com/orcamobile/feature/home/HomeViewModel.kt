@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.model.ModelImportRepository
 import com.orcamobile.core.domain.model.SampleModelRepository
+import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.PresetChange
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
@@ -33,6 +34,7 @@ class HomeViewModel @Inject constructor(
     private val samples: SampleModelRepository,
     private val updates: AppUpdates,
     private val switcher: PresetSwitcher,
+    private val settings: UserSettingsRepository,
 ) : ViewModel() {
 
     private var lastCheck = 0L
@@ -49,7 +51,10 @@ class HomeViewModel @Inject constructor(
         val engine = getEngineStatus().toUiState()
         _state.update { it.copy(engine = engine) }
         if (engine is EngineUiState.Ready) {
-            viewModelScope.launch { presets.load() }
+            viewModelScope.launch {
+                if (!settings.setupDone()) _events.send(HomeEvent.OpenSetup)
+                presets.load()
+            }
             viewModelScope.launch { presets.choices.collect { choices -> _state.update { it.copy(printerSetup = choices) } } }
         }
     }

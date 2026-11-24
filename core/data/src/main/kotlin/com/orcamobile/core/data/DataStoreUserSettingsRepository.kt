@@ -81,7 +81,29 @@ class DataStoreUserSettingsRepository @Inject constructor(
         }
     }
 
+    /** Finished, or never needed: a selection saved before the setup existed. */
+    override suspend fun setupDone(): Boolean {
+        val prefs = store.data.first()
+        return prefs[SETUP_DONE] ?: (prefs[VENDOR] != null)
+    }
+
+    override suspend fun saveSetupDone() {
+        store.edit { it[SETUP_DONE] = true }
+    }
+
+    override suspend fun shownFilaments(printer: String): Set<String> =
+        store.data.first()[shownFilamentsKey(printer)]?.split(LIST_SEPARATOR)?.filter { it.isNotEmpty() }?.toSet().orEmpty()
+
+    override suspend fun saveShownFilaments(printer: String, names: Set<String>) {
+        store.edit {
+            if (names.isEmpty()) it.remove(shownFilamentsKey(printer)) else it[shownFilamentsKey(printer)] = names.joinToString(LIST_SEPARATOR)
+        }
+    }
+
     private companion object {
+        val SETUP_DONE = booleanPreferencesKey("setup_done")
+        fun shownFilamentsKey(printer: String) = stringPreferencesKey("shown_filaments/$printer")
+
         // Preset names may contain commas and spaces, never this control character.
         const val LIST_SEPARATOR = "\u001F"
         val VENDOR = stringPreferencesKey("preset_vendor")

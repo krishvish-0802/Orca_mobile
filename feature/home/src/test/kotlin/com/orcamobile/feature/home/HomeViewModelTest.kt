@@ -64,6 +64,8 @@ class HomeViewModelTest {
         override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
         override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
+        var done = true
+        override suspend fun setupDone() = done
     }
 
     private class FakeImports(private val result: Result<String>) : ModelImportRepository {
@@ -81,7 +83,7 @@ class HomeViewModelTest {
         imports: ModelImportRepository = FakeImports(Result.success("/models/benchy.stl")),
     ): HomeViewModel {
         val picker = PresetPicker(FakePresets(), settings)
-        return HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), picker, imports, samples, updates, PresetSwitcher(picker, printSettings, optionCatalog))
+        return HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), picker, imports, samples, updates, PresetSwitcher(picker, printSettings, optionCatalog), settings)
     }
 
     /** No changed settings: preset changes never ask. */
@@ -136,6 +138,13 @@ class HomeViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun `the first launch opens the setup`() = kotlinx.coroutines.test.runTest {
+        settings.done = false
+        val vm = viewModel()
+        assertEquals(HomeEvent.OpenSetup, vm.events.first())
+    }
 
     @Test
     fun `reports an unavailable engine`() {

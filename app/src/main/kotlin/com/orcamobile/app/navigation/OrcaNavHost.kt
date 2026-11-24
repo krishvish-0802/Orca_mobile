@@ -16,12 +16,14 @@ import com.orcamobile.feature.settings.SETTINGS_PROJECT_ARG
 import com.orcamobile.feature.settings.SETTINGS_RANGE_ARG
 import com.orcamobile.feature.settings.SETTINGS_VOLUME_ARG
 import com.orcamobile.feature.settings.SettingsRoute
+import com.orcamobile.feature.setup.SetupRoute
 
 /** The app's screens. Features know nothing of each other; routes are wired here. */
 private object Routes {
     const val HOME = "home"
     const val PREPARE = "prepare/{$PREPARE_MODEL_PATH_ARG}"
     const val SETTINGS = "settings"
+    const val SETUP = "setup"
 
     /** The settings screen; with the optional arguments, for one object, part or height range. */
     const val SETTINGS_PATTERN = "settings?$SETTINGS_PROJECT_ARG={$SETTINGS_PROJECT_ARG}&$SETTINGS_OBJECT_ARG={$SETTINGS_OBJECT_ARG}" +
@@ -45,7 +47,11 @@ fun OrcaNavHost() {
             HomeRoute(
                 onOpenModel = { path -> navController.navigate(Routes.prepare(path)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
+                onOpenSetup = { navController.navigate(Routes.SETUP) { launchSingleTop = true } },
             )
+        }
+        composable(Routes.SETUP) {
+            SetupRoute(onFinished = { navController.popBackStack() })
         }
         composable(
             route = Routes.PREPARE,

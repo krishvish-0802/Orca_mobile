@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="setup_title">Set up</string>
+    <string name="setup_step">Step %1$d of %2$d</string>
+    <string name="setup_skip">Skip</string>
+    <string name="setup_back">Back</string>
+    <string name="setup_next">Next</string>
+    <string name="setup_finish">Finish</string>
+    <string name="setup_search">Search</string>
+    <string name="setup_not_chosen">Not chosen</string>
+    <string name="setup_printer_title">Your printer</string>
+    <string name="setup_printer_body">Choose its maker and model (with the nozzle it has). Its presets come with OrcaSlicer, ready to print.</string>
+    <string name="setup_vendor">Maker</string>
+    <string name="setup_printer">Printer</string>
+    <string name="setup_filaments_title">Your filaments</string>
+    <string name="setup_filaments_body">The filament lists will show the %1$d you tick, of %2$d this printer suits. You can change this again any time from setup.</string>
+    <string name="setup_filaments_all">All</string>
+    <string name="setup_filaments_none">None</string>
+    <string name="setup_connection_title">Sending prints</string>
+    <string name="setup_connection_body">To send prints straight to the printer over your Wi-Fi, give its address. The phone and the printer need to be on the same network.</string>
+    <string name="setup_connection_address">Printer address</string>
+    <string name="setup_connection_api_key">API key (if it asks for one)</string>
+    <string name="setup_connection_test">Test</string>
+    <string name="setup_connection_later">You can leave this empty and add it later on the slice screen.</string>
+</resources>
