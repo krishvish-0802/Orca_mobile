@@ -11,7 +11,7 @@ android {
         applicationId = "com.orcamobile.app"
         // CI passes its run number, so each published build installs as an update.
         versionCode = providers.gradleProperty("orca.versionCode").orNull?.toInt() ?: 1
-        versionName = "0.3.0-m3"
+        versionName = "0.3.0"
     }
 
     signingConfigs {
