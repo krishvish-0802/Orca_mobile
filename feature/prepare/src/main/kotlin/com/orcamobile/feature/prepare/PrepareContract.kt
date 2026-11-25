@@ -50,6 +50,8 @@ data class PrepareUiState(
     val unsaved: UnsavedPrompt? = null,
     /** The kinds of preset with changed settings: their chips say so. */
     val modifiedKinds: Set<PresetKind> = emptySet(),
+    /** Leaving with unsaved settings changes: how many, while the screen asks what to do with them. */
+    val leaving: Int? = null,
     /** The app-wide preset choice, changed from the chips under the plate. */
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
@@ -304,6 +306,12 @@ sealed interface PrepareIntent {
     /** The answer to [PrepareUiState.unsaved]; null cancels the change. */
     data class ResolveUnsaved(val choice: UnsavedChoice?) : PrepareIntent
 
+    /** Back: asks first when the presets have unsaved changes. */
+    data object Leave : PrepareIntent
+
+    /** The answer to [PrepareUiState.leaving]; null stays. */
+    data class ConfirmLeave(val choice: LeaveChoice?) : PrepareIntent
+
     /** Adds a filament, a copy of the last. */
     data object AddFilament : PrepareIntent
 
@@ -450,3 +458,22 @@ sealed interface PrepareIntent {
 
 /** Navigation argument: the model file to open. */
 const val PREPARE_MODEL_PATH_ARG = "modelPath"
+
+/** What to do with unsaved settings changes on leaving. */
+enum class LeaveChoice {
+    /** Leave; the changes stay for the next slice. */
+    KEEP,
+
+    /** Take the presets back to how they are saved, then leave. */
+    DISCARD,
+
+    /** Save them as the user's presets first (on the settings screen). */
+    SAVE,
+}
+
+sealed interface PrepareEvent {
+    data object Left : PrepareEvent
+
+    /** The settings screen, to save the changes as the user's presets. */
+    data object SaveChanges : PrepareEvent
+}

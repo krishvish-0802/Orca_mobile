@@ -105,6 +105,7 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
     LaunchedEffect(state.focus) { state.focus?.let { editing = it } }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
     var presetsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.openSaving) { if (state.openSaving) presetsOpen = true }
 
     Scaffold(
         topBar = {

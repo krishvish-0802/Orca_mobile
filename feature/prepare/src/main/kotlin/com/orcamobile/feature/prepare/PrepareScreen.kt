@@ -1,5 +1,6 @@
 package com.orcamobile.feature.prepare
 
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -20,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
@@ -41,6 +43,7 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -91,6 +94,8 @@ fun PrepareRoute(
     onOpenSetting: (String) -> Unit = { onOpenSettings() },
     /** The settings of an object (project id, object), or of one of its parts or height ranges. */
     onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
+    /** The settings with the Presets sheet up, to save the changes before leaving. */
+    onSavePresets: () -> Unit = onOpenSettings,
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
     cutTool: CutViewModel = hiltViewModel(),
@@ -102,6 +107,16 @@ fun PrepareRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                PrepareEvent.Left -> onBack()
+                PrepareEvent.SaveChanges -> onSavePresets()
+            }
+        }
+    }
+    // The back gesture and the arrow both ask first when the presets have unsaved changes.
+    BackHandler { viewModel.onIntent(PrepareIntent.Leave) }
     val cut by cutTool.state.collectAsStateWithLifecycle()
 
     // The cut tool works on the selected object while the Prepare screen has it open.
@@ -301,9 +316,27 @@ fun PrepareRoute(
             val selection = state.selection ?: return@PrepareScreen
             onOpenObjectSettings(project.id.value, selection.objectIndex, volume, range)
         },
-        onBack = onBack,
+        onBack = { viewModel.onIntent(PrepareIntent.Leave) },
         onOpenSettings = onOpenSettings,
         onOpenSetting = onOpenSetting,
+    )
+    state.leaving?.let { count -> LeaveDialog(count) { viewModel.onIntent(PrepareIntent.ConfirmLeave(it)) } }
+}
+
+/** Unsaved settings changes on leaving: keep them, discard them, or save them as presets first. */
+@Composable
+private fun LeaveDialog(changes: Int, onChoice: (LeaveChoice?) -> Unit) {
+    AlertDialog(
+        onDismissRequest = { onChoice(null) },
+        title = { Text(stringResource(R.string.prepare_leave_title)) },
+        text = { Text(pluralStringResource(R.plurals.prepare_leave_body, changes, changes)) },
+        confirmButton = {
+            Column {
+                TextButton(onClick = { onChoice(LeaveChoice.SAVE) }) { Text(stringResource(R.string.prepare_leave_save)) }
+                TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_keep)) }
+                TextButton(onClick = { onChoice(LeaveChoice.DISCARD) }) { Text(stringResource(R.string.prepare_leave_discard)) }
+            }
+        },
     )
 }
 

@@ -61,7 +61,8 @@ sealed interface SettingsArgs {
     /** The setting (its key) to open on; null for none. */
     val focus: String? get() = null
 
-    data class Presets(override val focus: String? = null) : SettingsArgs
+    /** [save]: opened to save the changes (the Presets sheet up). */
+    data class Presets(override val focus: String? = null, val save: Boolean = false) : SettingsArgs
 
     data class Object(val project: ProjectId, val objectIndex: Int, val target: SettingTarget) : SettingsArgs
 }

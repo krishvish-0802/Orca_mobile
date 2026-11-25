@@ -14,6 +14,7 @@ import com.orcamobile.feature.settings.SETTINGS_FOCUS_ARG
 import com.orcamobile.feature.settings.SETTINGS_OBJECT_ARG
 import com.orcamobile.feature.settings.SETTINGS_PROJECT_ARG
 import com.orcamobile.feature.settings.SETTINGS_RANGE_ARG
+import com.orcamobile.feature.settings.SETTINGS_SAVE_ARG
 import com.orcamobile.feature.settings.SETTINGS_VOLUME_ARG
 import com.orcamobile.feature.settings.SettingsRoute
 import com.orcamobile.feature.setup.SetupRoute
@@ -27,12 +28,15 @@ private object Routes {
 
     /** The settings screen; with the optional arguments, for one object, part or height range. */
     const val SETTINGS_PATTERN = "settings?$SETTINGS_PROJECT_ARG={$SETTINGS_PROJECT_ARG}&$SETTINGS_OBJECT_ARG={$SETTINGS_OBJECT_ARG}" +
-        "&$SETTINGS_VOLUME_ARG={$SETTINGS_VOLUME_ARG}&$SETTINGS_RANGE_ARG={$SETTINGS_RANGE_ARG}&$SETTINGS_FOCUS_ARG={$SETTINGS_FOCUS_ARG}"
+        "&$SETTINGS_VOLUME_ARG={$SETTINGS_VOLUME_ARG}&$SETTINGS_RANGE_ARG={$SETTINGS_RANGE_ARG}&$SETTINGS_FOCUS_ARG={$SETTINGS_FOCUS_ARG}&$SETTINGS_SAVE_ARG={$SETTINGS_SAVE_ARG}"
 
     fun prepare(modelPath: String) = "prepare/${Uri.encode(modelPath)}"
 
     /** The presets' settings, opened on one of them. */
     fun setting(key: String) = "settings?$SETTINGS_FOCUS_ARG=${Uri.encode(key)}"
+
+    /** The presets' settings with the Presets sheet up, to save the changes. */
+    const val SAVE_PRESETS = "settings?$SETTINGS_SAVE_ARG=true"
 
     fun objectSettings(project: String, objectIndex: Int, volume: Int?, range: Int?) =
         "settings?$SETTINGS_PROJECT_ARG=${Uri.encode(project)}&$SETTINGS_OBJECT_ARG=$objectIndex" +
@@ -61,6 +65,7 @@ fun OrcaNavHost() {
                 onBack = { navController.popBackStack() },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenSetting = { key -> navController.navigate(Routes.setting(key)) },
+                onSavePresets = { navController.navigate(Routes.SAVE_PRESETS) },
                 onOpenObjectSettings = { project, objectIndex, volume, range ->
                     navController.navigate(Routes.objectSettings(project, objectIndex, volume, range))
                 },
@@ -88,6 +93,10 @@ fun OrcaNavHost() {
                 navArgument(SETTINGS_FOCUS_ARG) {
                     type = NavType.StringType
                     defaultValue = ""
+                },
+                navArgument(SETTINGS_SAVE_ARG) {
+                    type = NavType.BoolType
+                    defaultValue = false
                 },
             ),
         ) {

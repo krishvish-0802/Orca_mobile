@@ -60,6 +60,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
@@ -488,6 +489,25 @@ class PrepareViewModelTest {
         vm.onIntent(PrepareIntent.SelectProcess(selection.process))
         vm.onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Discard))
         assertEquals(selection.process, vm.state.value.presets?.process)
+        assertEquals(emptyMap(), printSettings.state.value.values)
+    }
+
+    @Test
+    fun `leaving with unsaved settings changes asks, and discarding drops them`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(PrepareEvent.Left, vm.events.first())
+
+        printSettings.set(selection, "layer_height", "0.12")
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(1, vm.state.value.leaving)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.SAVE))
+        assertEquals(PrepareEvent.SaveChanges, vm.events.first())
+        assertNull(vm.state.value.leaving)
+
+        vm.onIntent(PrepareIntent.Leave)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.DISCARD))
+        assertEquals(PrepareEvent.Left, vm.events.first())
         assertEquals(emptyMap(), printSettings.state.value.values)
     }
 

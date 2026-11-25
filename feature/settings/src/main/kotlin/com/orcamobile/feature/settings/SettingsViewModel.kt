@@ -317,6 +317,7 @@ class SettingsViewModel @Inject constructor(
         options = described
         presetValues = values
         args.focus?.let(::focusOn)
+        if ((args as? SettingsArgs.Presets)?.save == true) _state.update { it.copy(openSaving = true) }
         val active = checkNotNull(source)
         val choices = picker.choices.value
         _state.update {
@@ -440,10 +441,14 @@ const val SETTINGS_RANGE_ARG = "range"
 /** The setting (its key) the presets' settings open on. */
 const val SETTINGS_FOCUS_ARG = "focus"
 
+/** True: the presets' settings open with the Presets sheet up, to save the changes. */
+const val SETTINGS_SAVE_ARG = "save"
+
 internal fun settingsArgs(handle: SavedStateHandle): SettingsArgs {
     val focus = handle.get<String>(SETTINGS_FOCUS_ARG)?.takeIf { it.isNotEmpty() }
-    val project = handle.get<String>(SETTINGS_PROJECT_ARG)?.takeIf { it.isNotEmpty() } ?: return SettingsArgs.Presets(focus)
-    val objectIndex = handle.get<Int>(SETTINGS_OBJECT_ARG)?.takeIf { it >= 0 } ?: return SettingsArgs.Presets(focus)
+    val save = handle.get<Boolean>(SETTINGS_SAVE_ARG) == true
+    val project = handle.get<String>(SETTINGS_PROJECT_ARG)?.takeIf { it.isNotEmpty() } ?: return SettingsArgs.Presets(focus, save)
+    val objectIndex = handle.get<Int>(SETTINGS_OBJECT_ARG)?.takeIf { it >= 0 } ?: return SettingsArgs.Presets(focus, save)
     val volume = handle.get<Int>(SETTINGS_VOLUME_ARG)?.takeIf { it >= 0 }
     val range = handle.get<Int>(SETTINGS_RANGE_ARG)?.takeIf { it >= 0 }
     return SettingsArgs.Object(

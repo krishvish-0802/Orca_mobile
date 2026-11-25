@@ -35,12 +35,15 @@ import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.TransformEdit
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -63,6 +66,9 @@ class PrepareViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(PrepareUiState())
     val state: StateFlow<PrepareUiState> = _state.asStateFlow()
+
+    private val _events = Channel<PrepareEvent>(Channel.BUFFERED)
+    val events: Flow<PrepareEvent> = _events.receiveAsFlow()
 
     private var sliceJob: Job? = null
     private var hostJob: Job? = null
@@ -93,6 +99,21 @@ class PrepareViewModel @Inject constructor(
         }
         viewModelScope.launch { followSettingsChanges() }
         viewModelScope.launch { followWipeTower() }
+    }
+
+    private fun confirmLeave(choice: LeaveChoice?) {
+        _state.update { it.copy(leaving = null) }
+        viewModelScope.launch {
+            when (choice) {
+                null -> Unit
+                LeaveChoice.KEEP -> _events.send(PrepareEvent.Left)
+                LeaveChoice.DISCARD -> {
+                    printSettings.resetAll()
+                    _events.send(PrepareEvent.Left)
+                }
+                LeaveChoice.SAVE -> _events.send(PrepareEvent.SaveChanges)
+            }
+        }
     }
 
     private fun changePreset(change: PresetChange) {
@@ -145,6 +166,11 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectProcess -> changePreset(PresetChange.Process(intent.process))
             is PrepareIntent.SelectFilament -> changePreset(PresetChange.Filament(intent.slot, intent.filament))
             is PrepareIntent.ResolveUnsaved -> resolveUnsaved(intent.choice)
+            PrepareIntent.Leave -> {
+                val changed = _state.value.changedSettings
+                if (changed > 0) _state.update { it.copy(leaving = changed) } else viewModelScope.launch { _events.send(PrepareEvent.Left) }
+            }
+            is PrepareIntent.ConfirmLeave -> confirmLeave(intent.choice)
             PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }
             is PrepareIntent.RemoveFilament -> removeFilament(intent.slot)
             is PrepareIntent.SetFilamentColour -> viewModelScope.launch { picker.setFilamentColour(intent.slot, intent.colour) }

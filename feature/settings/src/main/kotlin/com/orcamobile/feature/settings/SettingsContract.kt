@@ -48,6 +48,8 @@ data class SettingsUiState(
     val comparison: ComparisonUi? = null,
     /** The last import or export of presets, until dismissed. */
     val transfer: TransferUi? = null,
+    /** Opened to save the changes: the Presets sheet comes up. */
+    val openSaving: Boolean = false,
     /** Leaving after changing settings: how many are unsaved in all, while the screen asks what to do with them. */
     val leaving: Int? = null,
 ) {
