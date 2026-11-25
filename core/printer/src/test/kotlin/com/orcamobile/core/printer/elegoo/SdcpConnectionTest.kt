@@ -60,6 +60,11 @@ class SdcpConnectionTest {
         }
 
         override fun onOpen(webSocket: WebSocket, response: Response) = Unit
+
+        // Finish the close handshake, as the printer does, so the server can shut down.
+        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+            webSocket.close(code, null)
+        }
     }
 
     @Before
