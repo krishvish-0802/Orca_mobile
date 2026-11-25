@@ -540,7 +540,20 @@
     <string name="prepare_leave_keep">Keep without saving</string>
     <string name="prepare_leave_discard">Discard</string>
     <string name="prepare_leave_plate_title">Leave this plate?</string>
-    <string name="prepare_leave_plate_body">Your changes to the models on the plate (moves, turns, cuts, paint) will be lost. The app can\'t save projects yet.</string>
-    <string name="prepare_leave_go">Leave</string>
+    <string name="prepare_leave_plate_body">The plate has changes that aren\'t saved (moves, turns, cuts, paint). Save the project to keep them, or they\'re lost when you leave.</string>
+    <string name="prepare_leave_go">Leave without saving</string>
+    <string name="prepare_leave_save_project">Save project</string>
+    <string name="prepare_project_menu">Project</string>
+    <string name="prepare_project_save">Save project</string>
+    <string name="prepare_project_save_as">Save project as…</string>
+    <string name="prepare_project_saved">Project saved</string>
+    <string name="prepare_project_presets_title">Use the project\'s settings?</string>
+    <string name="prepare_project_presets_body">This project was saved with the printer %1$s, the process %2$s and %3$s.</string>
+    <plurals name="prepare_project_presets_changes">
+        <item quantity="one">It also changes %1$d setting of those presets.</item>
+        <item quantity="other">It also changes %1$d settings of those presets.</item>
+    </plurals>
+    <string name="prepare_project_presets_use">Use them</string>
+    <string name="prepare_project_presets_keep">Keep mine</string>
     <string name="prepare_leave_stay">Stay</string>
 </resources>

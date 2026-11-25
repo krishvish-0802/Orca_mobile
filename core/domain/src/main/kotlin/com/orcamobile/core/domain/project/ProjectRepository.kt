@@ -2,7 +2,9 @@ package com.orcamobile.core.domain.project
 
 import com.orcamobile.core.model.HistoryAction
 import com.orcamobile.core.model.HistoryState
+import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.ProjectSummary
 
 /** Models loaded into the engine. A loaded project holds memory until [release]. */
@@ -26,6 +28,16 @@ interface ProjectRepository {
      */
     suspend fun history(id: ProjectId, action: HistoryAction): Result<HistoryState> =
         Result.success(HistoryState(emptyList(), changed = false, canUndo = false, canRedo = false))
+
+    /**
+     * Saves the project as the desktop's project file (.3mf) at [path], with the
+     * settings of [config] (presets and changes) so it opens with them.
+     */
+    suspend fun save(id: ProjectId, path: String, config: PlateConfig): Result<Unit> =
+        Result.failure(UnsupportedOperationException("Saving projects needs the engine"))
+
+    /** The presets the project file was saved with, over [vendor]'s; null for a file without them. */
+    suspend fun savedPresets(id: ProjectId, vendor: String): Result<ProjectPresets?> = Result.success(null)
 
     fun release(id: ProjectId)
 }

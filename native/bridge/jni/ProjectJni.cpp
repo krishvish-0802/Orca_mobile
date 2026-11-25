@@ -12,6 +12,8 @@
 #include "JniUtils.hpp"
 #include "nlohmann/json.hpp"
 #include "orca_engine/Json.hpp"
+#include "libslic3r/PrintConfig.hpp"
+#include "orca_engine/PresetFiles.hpp"
 #include "orca_engine/Project.hpp"
 
 namespace orca::jni {
@@ -127,6 +129,53 @@ jstring native_instance_transform(JNIEnv* env, jclass, jlong handle, jint object
     }
 }
 
+// Saves the project as the desktop's project file at `path`, with the settings of
+// `presets` ({} for the defaults) and `keys` = `values` over them. Returns {} or {"error"}.
+jstring native_project_save(JNIEnv* env, jclass, jlong handle, jstring path, jstring presets, jobjectArray keys, jobjectArray values)
+{
+    auto* project = from_handle<orca::engine::Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        const std::string file = to_std_string(env, path);
+        const auto selection = json::preset_selection_from_json(to_std_string(env, presets));
+        const auto overrides = to_string_map(env, keys, values);
+        run_on_engine_thread([&] {
+            const Slic3r::DynamicPrintConfig config = orca::engine::project_settings(catalog(), selection, overrides);
+            project->save(file, config);
+        });
+        return to_jstring(env, "{}");
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
+// The presets the project file was saved with, over `vendor`'s: {"selection": {..} | null,
+// "changes": {key: value}, "problems": [..]}; {"selection": null} for a file without them; or {"error"}.
+jstring native_project_presets(JNIEnv* env, jclass, jlong handle, jstring vendor)
+{
+    auto* project = from_handle<orca::engine::Project>(handle);
+    if (project == nullptr)
+        return to_jstring(env, json::error_json("The project is no longer loaded"));
+    try {
+        Slic3r::DynamicPrintConfig settings;
+        if (!project->loaded_settings(settings) || catalog() == nullptr)
+            return to_jstring(env, R"({"selection":null})");
+        orca::engine::ProjectPresets presets;
+        const std::string v = to_std_string(env, vendor);
+        run_on_engine_thread([&] { presets = orca::engine::project_presets(*catalog(), v, settings); });
+        const auto& s = presets.selection;
+        const bool complete = !s.printer.empty() && !s.process.empty() && !s.filaments.empty();
+        nlohmann::json selection = nullptr;
+        if (complete)
+            selection = {{"vendor", s.vendor}, {"printer", s.printer}, {"process", s.process}, {"filaments", s.filaments},
+                         {"filamentColours", s.filament_colours}};
+        return to_jstring(env, nlohmann::json{{"selection", selection}, {"changes", presets.changes}, {"problems", presets.problems}}.dump());
+    } catch (const std::exception& e) {
+        return to_jstring(env, json::error_json(e.what()));
+    }
+}
+
 void native_project_release(JNIEnv*, jclass, jlong handle)
 {
     delete from_handle<orca::engine::Project>(handle);
@@ -137,6 +186,9 @@ const JNINativeMethod kMethods[] = {
     {"nativeProjectObjects", "(J)Ljava/lang/String;", reinterpret_cast<void*>(native_project_objects)},
     {"nativeProjectCenterOn", "(JDD)V", reinterpret_cast<void*>(native_project_center_on)},
     {"nativeProjectRelease", "(J)V", reinterpret_cast<void*>(native_project_release)},
+    {"nativeProjectPresets", "(JLjava/lang/String;)Ljava/lang/String;", reinterpret_cast<void*>(native_project_presets)},
+    {"nativeProjectSave", "(JLjava/lang/String;Ljava/lang/String;[Ljava/lang/String;[Ljava/lang/String;)Ljava/lang/String;",
+     reinterpret_cast<void*>(native_project_save)},
     {"nativeProjectFilaments", "(JII)V", reinterpret_cast<void*>(native_project_filaments)},
     {"nativeProjectHistory", "(JI)Ljava/lang/String;", reinterpret_cast<void*>(native_project_history)},
     {"nativeInstanceTransform", "(JIILjava/lang/String;)Ljava/lang/String;",

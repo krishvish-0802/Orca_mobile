@@ -19,6 +19,7 @@ import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SimplifyCounts
 import com.orcamobile.core.model.SimplifySettings
@@ -48,6 +49,13 @@ data class PrepareUiState(
     val changedSettings: Int = 0,
     /** A preset change waiting on what to do with the changed settings. */
     val unsaved: UnsavedPrompt? = null,
+    /** The plate differs from when it was opened or last saved (the desktop's modified project). */
+    val plateEdited: Boolean = false,
+    val saving: Boolean = false,
+    /** How the last save went, until dismissed. */
+    val saveResult: SaveResult? = null,
+    /** A project file's presets, offered when they aren't the ones in use. */
+    val projectPresets: ProjectPresets? = null,
     /** The kinds of preset with changed settings: their chips say so. */
     val modifiedKinds: Set<PresetKind> = emptySet(),
     /** Leaving with unsaved changes, while the screen asks. */
@@ -306,6 +314,22 @@ sealed interface PrepareIntent {
     /** The answer to [PrepareUiState.unsaved]; null cancels the change. */
     data class ResolveUnsaved(val choice: UnsavedChoice?) : PrepareIntent
 
+    /**
+     * Saves the project as a desktop .3mf: to the document [uri], or (null) where
+     * it was saved before, asking where when it never was.
+     */
+    data class SaveProject(val uri: String? = null) : PrepareIntent
+
+    data object SaveCancelled : PrepareIntent
+
+    /** Saves the project to a new document (asks where). */
+    data object SaveProjectAs : PrepareIntent
+
+    data object DismissSaveResult : PrepareIntent
+
+    /** The answer to [PrepareUiState.projectPresets]: use the project's presets and settings, or keep these. */
+    data class UseProjectPresets(val use: Boolean) : PrepareIntent
+
     /** Back: asks first when the presets have unsaved changes. */
     data object Leave : PrepareIntent
 
@@ -472,6 +496,9 @@ enum class LeaveChoice {
 
     /** Save them as the user's presets first (on the settings screen). */
     SAVE,
+
+    /** Save the project (plate and settings) first, then leave. */
+    SAVE_PROJECT,
 }
 
 sealed interface PrepareEvent {
@@ -479,4 +506,14 @@ sealed interface PrepareEvent {
 
     /** The settings screen, to save the changes as the user's presets. */
     data object SaveChanges : PrepareEvent
+
+    /** Where to save the project: a new document, named [suggestedName] to start with. */
+    data class AskWhereToSave(val suggestedName: String) : PrepareEvent
+}
+
+sealed interface SaveResult {
+    /** Saved, as the document [name] when known. */
+    data class Saved(val name: String?) : SaveResult
+
+    data class Failed(val message: String) : SaveResult
 }

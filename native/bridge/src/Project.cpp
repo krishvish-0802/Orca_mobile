@@ -1,6 +1,7 @@
 #include "orca_engine/Project.hpp"
 #include "ProjectImpl.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <map>
 #include <mutex>
@@ -49,6 +50,27 @@ int column_count(int count)
     return int(value > rounded ? rounded + 1 : rounded);
 }
 
+} // namespace
+
+std::optional<DesktopPlateGrid> desktop_plate_grid(int count, const Slic3r::DynamicPrintConfig& config)
+{
+    const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area");
+    if (area == nullptr || area->values.size() < 3)
+        return std::nullopt;
+    DesktopPlateGrid grid;
+    for (const Slic3r::Vec2d& p : area->values)
+        grid.bed.merge(p);
+    // PartPlateList keeps whole-mm plate sizes, less the bed axes' tip (Bed3D::Axes::DefaultTipRadius).
+    grid.width = int(grid.bed.size().x() - 1.25);
+    grid.depth = int(grid.bed.size().y() - 1.25);
+    if (grid.width <= 0 || grid.depth <= 0)
+        return std::nullopt;
+    grid.columns = column_count(std::max(count, 1));
+    return grid;
+}
+
+namespace {
+
 // A desktop project's plates (bbs_3mf's plate data): the desktop lays plates
 // out side by side (PartPlateList::compute_origin), each a bed and a fifth
 // apart, and an instance is on the plate whose area holds it. Here every plate
@@ -57,19 +79,13 @@ void take_plates(Project::Impl& impl, const Slic3r::PlateDataPtrs& plate_data, c
 {
     if (plate_data.size() <= 1)
         return;
-    const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area");
-    if (area == nullptr || area->values.size() < 3)
-        return;
-    Slic3r::BoundingBoxf bed;
-    for (const Slic3r::Vec2d& p : area->values)
-        bed.merge(p);
-    // PartPlateList keeps whole-mm plate sizes, less the bed axes' tip (Bed3D::Axes::DefaultTipRadius).
-    const int width = int(bed.size().x() - 1.25);
-    const int depth = int(bed.size().y() - 1.25);
-    if (width <= 0 || depth <= 0)
-        return;
     const int count = int(plate_data.size());
-    const int columns = column_count(count);
+    const auto grid = desktop_plate_grid(count, config);
+    if (!grid)
+        return;
+    const Slic3r::BoundingBoxf& bed = grid->bed;
+    const int width = grid->width;
+    const int depth = grid->depth;
     impl.plates.assign(std::size_t(count), Project::Impl::Plate{});
     for (int i = 0; i < count; ++i) {
         impl.plates[i].name = plate_data[i]->plate_name;
@@ -77,9 +93,7 @@ void take_plates(Project::Impl& impl, const Slic3r::PlateDataPtrs& plate_data, c
             if (plate_data[i]->config.has(key))
                 impl.plates[i].settings[key] = plate_data[i]->config.opt_serialize(key);
     }
-    const auto origin_of = [&](int i) {
-        return Slic3r::Vec2d(double(i % columns) * width * 1.2, -double(i / columns) * depth * 1.2);
-    };
+    const auto origin_of = [&](int i) { return grid->origin(i); };
     // The plates' own lists of (object, instance), as the desktop loads them; where
     // an instance is in none, the plate whose area holds it.
     std::map<std::pair<int, int>, int> listed;
@@ -130,6 +144,8 @@ std::unique_ptr<Project> Project::load(const std::string& path)
                 path, &config, &substitutions, LoadStrategy::AddDefaultInstances | LoadStrategy::LoadModel | LoadStrategy::LoadConfig,
                 &plate_data);
             take_plates(*project->m_impl, plate_data, config);
+            if (config.has("print_settings_id") || config.has("printer_settings_id"))
+                project->m_impl->loaded_settings = config;
             Slic3r::release_PlateData_list(plate_data);
             loaded = true;
         } catch (const std::exception&) {
@@ -150,6 +166,15 @@ std::unique_ptr<Project> Project::load(const std::string& path)
 }
 
 const std::string& Project::source_path() const { return m_impl->source_path; }
+
+bool Project::loaded_settings(Slic3r::DynamicPrintConfig& out) const
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    if (!m_impl->loaded_settings)
+        return false;
+    out = *m_impl->loaded_settings;
+    return true;
+}
 
 void Project::edit(const std::function<void(Slic3r::Model&)>& change)
 {

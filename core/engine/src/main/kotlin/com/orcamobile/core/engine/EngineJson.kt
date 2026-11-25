@@ -1,7 +1,6 @@
 package com.orcamobile.core.engine
 
 import com.orcamobile.core.model.ArrangeOptions
-import com.orcamobile.core.model.SliceMessage
 import com.orcamobile.core.model.Axes
 import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.BedShape
@@ -26,7 +25,9 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.SettingTarget
+import com.orcamobile.core.model.SliceMessage
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.TransformEdit
@@ -39,10 +40,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -66,6 +70,21 @@ internal object EngineJson {
             "canceled" -> SliceResult.Canceled
             else -> SliceResult.Failed(dto.error ?: "Slicing failed", messages)
         }
+    }
+
+    /** The presets a project file was saved with; null for a file without them. */
+    fun projectPresets(payload: String): ProjectPresets? {
+        val result = parse(payload)
+        if ("error" in result) throw EngineException(result.errorMessage())
+        val selection = result["selection"]?.takeIf { it !is JsonNull }?.let { json.decodeFromJsonElement(PresetSelectionDto.serializer(), it) }
+        val changes = result["changes"]?.jsonObject.orEmpty().mapValues { it.value.jsonPrimitive.content }
+        val problems = result["problems"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }
+        if (selection == null && changes.isEmpty() && problems.isEmpty()) return null
+        return ProjectPresets(
+            selection?.let { PresetSelection(it.vendor, it.printer, it.process, it.filaments, it.filamentColours) },
+            changes,
+            problems,
+        )
     }
 
     /** A JSON object the engine returned. */

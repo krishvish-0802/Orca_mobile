@@ -10,10 +10,32 @@
 #include <stdexcept>
 #include <string>
 
+#include <optional>
+
+#include "libslic3r/BoundingBox.hpp"
 #include "libslic3r/Model.hpp"
+#include "libslic3r/PrintConfig.hpp"
 #include "orca_engine/Project.hpp"
 
 namespace orca::engine {
+
+// How the desktop lays a project's plates out (PartPlateList::compute_origin):
+// side by side in a near-square grid, each a bed and a fifth apart. Here every
+// plate shares the bed; a desktop project file has them apart.
+struct DesktopPlateGrid {
+    Slic3r::BoundingBoxf bed;
+    int width = 0;   // whole-mm plate size, as PartPlateList keeps it
+    int depth = 0;
+    int columns = 1;
+
+    Slic3r::Vec2d origin(int plate) const
+    {
+        return Slic3r::Vec2d(double(plate % columns) * width * 1.2, -double(plate / columns) * depth * 1.2);
+    }
+};
+
+// The grid for `count` plates of the bed in `config` (printable_area); none without a bed.
+std::optional<DesktopPlateGrid> desktop_plate_grid(int count, const Slic3r::DynamicPrintConfig& config);
 
 struct Project::Impl {
     mutable std::mutex mutex;
@@ -41,6 +63,9 @@ struct Project::Impl {
     };
     std::vector<State> history;
     std::size_t at = 0;
+
+    // The settings a desktop project file was saved with (its project_settings.config), when it had them.
+    std::optional<Slic3r::DynamicPrintConfig> loaded_settings;
 
     std::size_t plate_of(const Slic3r::ModelInstance& instance) const
     {

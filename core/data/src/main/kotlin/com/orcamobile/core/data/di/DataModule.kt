@@ -8,6 +8,7 @@ import androidx.datastore.preferences.preferencesDataStoreFile
 import com.orcamobile.core.data.AssetSampleModelRepository
 import com.orcamobile.core.data.ContentModelImportRepository
 import com.orcamobile.core.data.ContentPresetDocuments
+import com.orcamobile.core.data.ContentProjectDocuments
 import com.orcamobile.core.data.ContentTextureImageRepository
 import com.orcamobile.core.data.DataStorePrintSettingsRepository
 import com.orcamobile.core.data.DataStoreUserSettingsRepository
@@ -22,6 +23,7 @@ import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.presets.PresetDocuments
 import com.orcamobile.core.domain.presets.UserPresetRepository
+import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import dagger.Binds
 import dagger.Module
@@ -60,6 +62,9 @@ internal interface DataModule {
 
     @Binds
     fun presetDocuments(impl: ContentPresetDocuments): PresetDocuments
+
+    @Binds
+    fun projectDocuments(impl: ContentProjectDocuments): ProjectDocuments
 }
 
 @Module

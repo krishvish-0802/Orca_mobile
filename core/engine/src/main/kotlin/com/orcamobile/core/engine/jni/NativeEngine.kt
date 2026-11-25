@@ -50,6 +50,12 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
 
+    /** Saves the project as a desktop .3mf at [path] with the settings of [presetsJson] and [keys] = [values]: `{}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectSave(handle: Long, path: String, presetsJson: String, keys: Array<String>, values: Array<String>): String
+
+    /** The presets the project file was saved with, over [vendor]'s: `{"selection": {..} | null, "changes": {..}, "problems": [..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectPresets(handle: Long, vendor: String): String
+
     /**
      * Reads an instance's transform, after the change in [editJson] when not empty
      * (see native/bridge/jni/ProjectJni.cpp): `{"transform":{..},"objects":[..]}` or `{"error": ...}`.

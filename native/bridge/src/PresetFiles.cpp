@@ -8,6 +8,7 @@
 #include <sstream>
 #include <stdexcept>
 
+#include "ConfigBuilder.hpp"
 #include "PresetCatalogImpl.hpp"
 #include "libslic3r/Config.hpp"
 #include "libslic3r/Preset.hpp"
@@ -179,6 +180,118 @@ PresetFileContents read_preset_file(PresetCatalog& catalog, const std::string& v
         return out;
     }
     throw std::runtime_error("This file holds no printer, process or filament preset");
+}
+
+Slic3r::DynamicPrintConfig project_settings(PresetCatalog* catalog, const std::optional<PresetSelection>& presets,
+                                            const std::map<std::string, std::string>& overrides)
+{
+    // As the settings stand, not as a slice forces them (the desktop saves the presets as edited).
+    DynamicPrintConfig config = ConfigBuilder::resolve(presets, overrides, catalog, /*normalize=*/false);
+    if (!presets || catalog == nullptr)
+        return config;
+
+    PresetCatalog::Impl& impl = catalog->impl();
+    std::lock_guard<std::mutex> lock(impl.mutex);
+    PresetBundle& bundle = impl.bundle_for(presets->vendor);
+    const auto user_of = [&](PresetKind kind, const std::string& name) -> const UserPreset* {
+        const auto it = impl.user_presets.find({kind, name});
+        return it == impl.user_presets.end() ? nullptr : &it->second;
+    };
+    std::vector<std::string> inherits;
+    std::vector<std::string> different;
+    // One preset: the system preset it is (or is based on), and what the project's settings change from it.
+    const auto add = [&](PresetKind kind, const std::string& name, std::size_t index) {
+        const UserPreset* user = user_of(kind, name);
+        inherits.push_back(user != nullptr ? user->inherits : std::string());
+        const Preset* system = collection_of(bundle, kind).find_preset(user != nullptr ? user->inherits : name, false);
+        std::vector<std::string> changed;
+        if (system != nullptr) {
+            for (const std::string& key : keys_of(kind)) {
+                const ConfigOption* option = config.option(key);
+                const ConfigOption* base = system->config.option(key);
+                if (option == nullptr || base == nullptr || is_bookkeeping(key))
+                    continue;
+                const auto value = kind == PresetKind::Filament ? element_of(*option, index) : std::unique_ptr<ConfigOption>(option->clone());
+                if (!(*base == *value))
+                    changed.push_back(key);
+            }
+        }
+        different.push_back(Slic3r::escape_strings_cstyle(changed));
+    };
+    add(PresetKind::Process, presets->process, 0);
+    for (std::size_t i = 0; i < presets->filaments.size(); ++i)
+        add(PresetKind::Filament, presets->filaments[i], i);
+    add(PresetKind::Printer, presets->printer, 0);
+    config.option<Slic3r::ConfigOptionStrings>("inherits_group", true)->values = inherits;
+    config.option<Slic3r::ConfigOptionStrings>("different_settings_to_system", true)->values = different;
+    return config;
+}
+
+ProjectPresets project_presets(PresetCatalog& catalog, const std::string& vendor, const DynamicPrintConfig& settings)
+{
+    ProjectPresets out;
+    out.selection.vendor = vendor;
+    const auto* groups = settings.option<Slic3r::ConfigOptionStrings>("inherits_group");
+    const auto* differing = settings.option<Slic3r::ConfigOptionStrings>("different_settings_to_system");
+    const auto* filament_names = settings.option<Slic3r::ConfigOptionStrings>("filament_settings_id");
+    const std::size_t filaments = filament_names ? filament_names->values.size() : 0;
+    const auto entry = [](const Slic3r::ConfigOptionStrings* list, std::size_t i) {
+        return list != nullptr && i < list->values.size() ? list->values[i] : std::string();
+    };
+
+    // Which preset each of the project's is here, and which settings to compare
+    // (those it says it changes; all of its kind where it falls back to its system preset).
+    std::set<std::string> compare;
+    {
+        PresetCatalog::Impl& impl = catalog.impl();
+        std::lock_guard<std::mutex> lock(impl.mutex);
+        PresetBundle& bundle = impl.bundle_for(vendor);
+        const auto pick = [&](PresetKind kind, const std::string& name, std::size_t group) -> std::string {
+            if (name.empty())
+                return {};
+            std::vector<std::string> listed;
+            Slic3r::unescape_strings_cstyle(entry(differing, group), listed);
+            compare.insert(listed.begin(), listed.end());
+            if (impl.user_presets.count({kind, name}) > 0)
+                return name;
+            const Slic3r::PresetCollection& collection = collection_of(bundle, kind);
+            if (const Preset* system = collection.find_preset(name, false); system != nullptr && system->is_system && !system->is_default)
+                return system->name;
+            const std::string inherits = entry(groups, group);
+            const Preset* parent = inherits.empty() ? nullptr : collection_of(bundle, kind).find_preset2(inherits, true);
+            if (parent == nullptr || !parent->is_system || parent->is_default) {
+                out.problems.push_back("The project's " + label_of(kind) + " preset \"" + name + "\" isn't one of " + vendor + "'s here.");
+                return {};
+            }
+            // Its own settings come over the system preset it is based on.
+            for (const std::string& key : keys_of(kind))
+                compare.insert(key);
+            return parent->name;
+        };
+        out.selection.process = pick(PresetKind::Process, text_value(settings, "print_settings_id"), 0);
+        for (std::size_t i = 0; i < filaments; ++i)
+            out.selection.filaments.push_back(pick(PresetKind::Filament, filament_names->values[i], 1 + i));
+        out.selection.printer = pick(PresetKind::Printer, text_value(settings, "printer_settings_id"), filaments + 1);
+    }
+    if (const auto* colours = settings.option<Slic3r::ConfigOptionStrings>("filament_colour"))
+        out.selection.filament_colours = colours->values;
+    const bool complete = !out.selection.printer.empty() && !out.selection.process.empty() && !out.selection.filaments.empty() &&
+        std::none_of(out.selection.filaments.begin(), out.selection.filaments.end(), [](const std::string& f) { return f.empty(); });
+    if (!complete)
+        return out;
+
+    // What the project sets differently from those presets.
+    // Built as a save builds it, so only what the project really changes differs.
+    const DynamicPrintConfig composed = ConfigBuilder::resolve(out.selection, {}, &catalog, /*normalize=*/false);
+    for (const std::string& key : compare) {
+        if (is_bookkeeping(key) || key == "filament_colour")
+            continue;
+        const ConfigOption* mine = settings.option(key);
+        const ConfigOption* theirs = composed.option(key);
+        if (mine != nullptr && theirs != nullptr && !(*mine == *theirs) && mine->type() == theirs->type())
+            out.changes[key] = mine->serialize();
+    }
+    return out;
 }
 
 std::string user_preset_json(const UserPreset& preset)

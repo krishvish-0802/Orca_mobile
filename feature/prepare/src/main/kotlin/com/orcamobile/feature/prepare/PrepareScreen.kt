@@ -1,5 +1,6 @@
 package com.orcamobile.feature.prepare
 
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -20,11 +21,14 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilledTonalIconButton
@@ -50,10 +54,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -76,6 +82,7 @@ import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.SimplifyTarget
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
@@ -107,14 +114,30 @@ fun PrepareRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
+    // Where to save the project: a new document the desktop opens.
+    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME)) { uri ->
+        viewModel.onIntent(if (uri != null) PrepareIntent.SaveProject(uri.toString()) else PrepareIntent.SaveCancelled)
+    }
     LaunchedEffect(viewModel) {
         viewModel.events.collect { event ->
             when (event) {
                 PrepareEvent.Left -> onBack()
                 PrepareEvent.SaveChanges -> onSavePresets()
+                is PrepareEvent.AskWhereToSave -> saveAs.launch(event.suggestedName)
             }
         }
     }
+    val context = LocalContext.current
+    val savedText = stringResource(R.string.prepare_project_saved)
+    LaunchedEffect(state.saveResult) {
+        when (val result = state.saveResult) {
+            null -> return@LaunchedEffect
+            is SaveResult.Saved -> Toast.makeText(context, result.name?.let { "$savedText: $it" } ?: savedText, Toast.LENGTH_SHORT).show()
+            is SaveResult.Failed -> Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+        }
+        viewModel.onIntent(PrepareIntent.DismissSaveResult)
+    }
+    state.projectPresets?.let { saved -> ProjectPresetsDialog(saved) { use -> viewModel.onIntent(PrepareIntent.UseProjectPresets(use)) } }
     // The back gesture and the arrow both ask first when the presets have unsaved changes.
     BackHandler { viewModel.onIntent(PrepareIntent.Leave) }
     val cut by cutTool.state.collectAsStateWithLifecycle()
@@ -323,6 +346,66 @@ fun PrepareRoute(
     state.leaving?.let { prompt -> LeaveDialog(prompt) { viewModel.onIntent(PrepareIntent.ConfirmLeave(it)) } }
 }
 
+/** Saving the project, as the desktop's File menu. */
+@Composable
+private fun ProjectMenu(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.prepare_project_menu))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.prepare_project_save)) },
+                enabled = state.project != null && !state.saving,
+                onClick = {
+                    open = false
+                    onIntent(PrepareIntent.SaveProject())
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.prepare_project_save_as)) },
+                enabled = state.project != null && !state.saving,
+                onClick = {
+                    open = false
+                    onIntent(PrepareIntent.SaveProjectAs)
+                },
+            )
+        }
+    }
+}
+
+/** A project file's presets and settings, offered on opening it. */
+@Composable
+private fun ProjectPresetsDialog(saved: ProjectPresets, onAnswer: (Boolean) -> Unit) {
+    val selection = saved.selection ?: return
+    AlertDialog(
+        onDismissRequest = { onAnswer(false) },
+        title = { Text(stringResource(R.string.prepare_project_presets_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(
+                        R.string.prepare_project_presets_body,
+                        selection.printer,
+                        selection.process,
+                        selection.filaments.distinct().joinToString(),
+                    ),
+                )
+                if (saved.changes.isNotEmpty()) {
+                    Text(pluralStringResource(R.plurals.prepare_project_presets_changes, saved.changes.size, saved.changes.size))
+                }
+                saved.problems.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onAnswer(true) }) { Text(stringResource(R.string.prepare_project_presets_use)) } },
+        dismissButton = { TextButton(onClick = { onAnswer(false) }) { Text(stringResource(R.string.prepare_project_presets_keep)) } },
+    )
+}
+
+/** What the desktop and file pickers take a project as. */
+private const val PROJECT_MIME = "model/3mf"
+
 /**
  * Leaving with unsaved changes: the plate's edits will be lost; settings
  * changes can be kept, discarded, or saved as presets first. Stay goes back.
@@ -341,6 +424,9 @@ private fun LeaveDialog(prompt: LeavePrompt, onChoice: (LeaveChoice?) -> Unit) {
         },
         confirmButton = {
             Column(horizontalAlignment = Alignment.End) {
+                if (prompt.plateChanged) {
+                    TextButton(onClick = { onChoice(LeaveChoice.SAVE_PROJECT) }) { Text(stringResource(R.string.prepare_leave_save_project)) }
+                }
                 if (settings > 0) {
                     TextButton(onClick = { onChoice(LeaveChoice.SAVE) }) { Text(stringResource(R.string.prepare_leave_save)) }
                     TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_keep)) }
@@ -388,6 +474,7 @@ fun PrepareScreen(
                             Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.prepare_settings))
                         }
                     }
+                    ProjectMenu(state, onIntent)
                 },
             )
         },

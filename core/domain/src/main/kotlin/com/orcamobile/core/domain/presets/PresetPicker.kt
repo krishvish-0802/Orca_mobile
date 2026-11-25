@@ -112,6 +112,31 @@ class PresetPicker @Inject constructor(
         remember()
     }
 
+    /**
+     * Chooses [selection] whole (a project's presets): its printer, process and
+     * filaments with their colours. Fails when any of them isn't here.
+     */
+    suspend fun choose(selection: PresetSelection): Result<Unit> = mutex.withLock {
+        runCatching {
+            val vendors = _choices.value.vendors.ifEmpty { catalog.vendors().getOrThrow() }
+            require(selection.vendor in vendors) { "${selection.vendor}'s presets aren't here" }
+            val printers = catalog.printers(selection.vendor).getOrThrow()
+            require(selection.printer in printers) { "The printer ${selection.printer} isn't here" }
+            val compatible = catalog.compatiblePresets(selection.vendor, selection.printer).getOrThrow()
+            require(selection.process in compatible.processes) { "The process ${selection.process} doesn't suit this printer" }
+            selection.filaments.firstOrNull { it !in compatible.filaments }?.let { throw IllegalArgumentException("The filament $it doesn't suit this printer") }
+            val slots = selection.filaments.mapIndexed { i, name -> FilamentSlot(name, selection.filamentColours.getOrNull(i)?.ifEmpty { null }) }
+            val listed = listed(selection.printer, compatible.filaments, slots)
+            _choices.update {
+                it.copy(
+                    loading = false, error = null, vendors = vendors, vendor = selection.vendor, printers = printers, printer = selection.printer,
+                    processes = compatible.processes, process = selection.process, filaments = listed, slots = slots,
+                )
+            }
+            remember()
+        }
+    }
+
     /** The first filament, for screens that show one. */
     suspend fun selectFilament(filament: String) = selectFilament(0, filament)
 

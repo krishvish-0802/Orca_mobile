@@ -14,7 +14,9 @@ import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.project.PlateEditor
+import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.project.SaveProjectUseCase
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
@@ -106,6 +108,11 @@ class PrepareViewModelTest {
         override suspend fun load(path: String) = result
         override suspend fun centerOn(id: ProjectId, x: Double, y: Double) { centers += x to y }
         override fun release(id: ProjectId) = Unit
+        val saves = mutableListOf<Pair<String, PlateConfig>>()
+        override suspend fun save(id: ProjectId, path: String, config: PlateConfig): Result<Unit> {
+            saves += path to config
+            return Result.success(Unit)
+        }
     }
 
     private inner class FakePresets : PresetCatalog {
@@ -310,6 +317,8 @@ class PrepareViewModelTest {
             TestPrintHostUseCase(hosts),
             SendGcodeUseCase(hosts),
             PresetSwitcher(picker, printSettings, optionCatalog),
+            SaveProjectUseCase(projects, PlateConfigResolver(printSettings), documents),
+            documents,
         )
     }
 
@@ -908,6 +917,43 @@ class PrepareViewModelTest {
         assertTrue(vm.state.value.canUndo)
         assertFalse(vm.state.value.canRedo)
         assertNull(vm.state.value.plateTask)
+    }
+
+    /** Documents the user picks: what each holds once written. */
+    private val documents = object : ProjectDocuments {
+        val written = mutableMapOf<String, String>()
+        override suspend fun scratchFile(name: String) = "/cache/$name"
+        override suspend fun copyTo(localPath: String, uri: String): Result<Unit> {
+            written[uri] = localPath
+            return Result.success(Unit)
+        }
+        override suspend fun nameOf(uri: String) = uri.substringAfterLast('/')
+    }
+
+    @Test
+    fun `the project is saved where the user says, then again there, and leaving after saving doesn't ask`() = kotlinx.coroutines.test.runTest {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        assertFalse(vm.state.value.plateEdited)
+        vm.onIntent(PrepareIntent.Arrange)
+        assertTrue(vm.state.value.plateEdited)
+
+        // Never saved: asks where.
+        vm.onIntent(PrepareIntent.SaveProject())
+        assertEquals(PrepareEvent.AskWhereToSave("benchy.3mf"), vm.events.first())
+        vm.onIntent(PrepareIntent.SaveProject("content://docs/benchy.3mf"))
+        assertEquals("/cache/project.3mf", documents.written["content://docs/benchy.3mf"])
+        assertEquals(selection, projects.saves.single().second.presets)
+        assertFalse(vm.state.value.plateEdited)
+        assertEquals(SaveResult.Saved("benchy.3mf"), vm.state.value.saveResult)
+
+        // Edited again; leaving offers to save, which goes where it went before.
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(LeavePrompt(settingsChanges = 0, plateChanged = true), vm.state.value.leaving)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.SAVE_PROJECT))
+        assertEquals(PrepareEvent.Left, vm.events.first())
+        assertEquals(2, projects.saves.size)
     }
 
     @Test
