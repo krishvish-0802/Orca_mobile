@@ -14,6 +14,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -53,6 +54,7 @@ fun HomeRoute(
     onOpenModel: (path: String) -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSetup: () -> Unit,
+    onOpenPrinters: () -> Unit = {},
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -79,6 +81,7 @@ fun HomeRoute(
         onPickModel = { picker.launch(arrayOf("*/*")) },
         onOpenSettings = onOpenSettings,
         onOpenSetup = onOpenSetup,
+        onOpenPrinters = onOpenPrinters,
     )
 }
 
@@ -97,6 +100,7 @@ fun HomeScreen(
     onPickModel: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenSetup: () -> Unit = {},
+    onOpenPrinters: () -> Unit = {},
 ) {
     var choosing by rememberSaveable { mutableStateOf<PresetField?>(null) }
     Scaffold { padding ->
@@ -112,7 +116,7 @@ fun HomeScreen(
             UpdateCard(state.update, onIntent)
             if (state.engine is EngineUiState.Ready) {
                 StartCard(state, onIntent, onPickModel)
-                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings, onOpenSetup = onOpenSetup)
+                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings, onOpenSetup = onOpenSetup, onOpenPrinters = onOpenPrinters)
             }
         }
     }
@@ -217,7 +221,13 @@ private fun StartCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPick
 }
 
 @Composable
-private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -> Unit, onOpenSettings: () -> Unit, onOpenSetup: () -> Unit) {
+private fun PrinterSection(
+    setup: PrinterSetupUiState,
+    onChoose: (PresetField) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSetup: () -> Unit,
+    onOpenPrinters: () -> Unit,
+) {
     SectionHeader(stringResource(R.string.home_printer_title))
     val notChosen = stringResource(R.string.home_not_chosen)
     val chevron: @Composable RowScope.() -> Unit = {
@@ -255,6 +265,15 @@ private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -
             supporting = stringResource(R.string.home_print_settings_description),
             leading = { Icon(Icons.Filled.Settings, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
             onClick = onOpenSettings,
+            trailing = chevron,
+        )
+    }
+    ListGroup(items = listOf(Unit)) {
+        ListRow(
+            title = stringResource(R.string.home_printers),
+            supporting = stringResource(R.string.home_printers_description),
+            leading = { Icon(Icons.Filled.Build, contentDescription = null, tint = MaterialTheme.colorScheme.primary) },
+            onClick = onOpenPrinters,
             trailing = chevron,
         )
     }

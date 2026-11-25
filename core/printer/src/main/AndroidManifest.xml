@@ -3,4 +3,6 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <!-- To send printer traffic over Wi-Fi while Android prefers mobile data. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- Finding printers: some phones drop broadcast answers without a multicast lock. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" />
 </manifest>

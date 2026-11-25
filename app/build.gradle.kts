@@ -53,6 +53,7 @@ dependencies {
     implementation(project(":feature:prepare"))
     implementation(project(":feature:settings"))
     implementation(project(":feature:setup"))
+    implementation(project(":feature:devices"))
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

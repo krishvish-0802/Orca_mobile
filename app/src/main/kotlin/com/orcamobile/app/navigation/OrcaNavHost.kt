@@ -7,6 +7,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.orcamobile.feature.devices.DEVICES_PRINTER_ARG
+import com.orcamobile.feature.devices.EditPrinterRoute
+import com.orcamobile.feature.devices.PrinterRoute
+import com.orcamobile.feature.devices.PrintersRoute
 import com.orcamobile.feature.home.HomeRoute
 import com.orcamobile.feature.prepare.PREPARE_MODEL_PATH_ARG
 import com.orcamobile.feature.prepare.PrepareRoute
@@ -25,6 +29,14 @@ private object Routes {
     const val PREPARE = "prepare/{$PREPARE_MODEL_PATH_ARG}"
     const val SETTINGS = "settings"
     const val SETUP = "setup"
+    const val PRINTERS = "printers"
+    const val PRINTER = "printers/{$DEVICES_PRINTER_ARG}"
+    const val ADD_PRINTER = "printers/add"
+    const val EDIT_PRINTER = "printers/edit/{$DEVICES_PRINTER_ARG}"
+
+    fun printer(id: String) = "printers/${Uri.encode(id)}"
+
+    fun editPrinter(id: String) = "printers/edit/${Uri.encode(id)}"
 
     /** The settings screen; with the optional arguments, for one object, part or height range. */
     const val SETTINGS_PATTERN = "settings?$SETTINGS_PROJECT_ARG={$SETTINGS_PROJECT_ARG}&$SETTINGS_OBJECT_ARG={$SETTINGS_OBJECT_ARG}" +
@@ -52,7 +64,28 @@ fun OrcaNavHost() {
                 onOpenModel = { path -> navController.navigate(Routes.prepare(path)) },
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenSetup = { navController.navigate(Routes.SETUP) { launchSingleTop = true } },
+                onOpenPrinters = { navController.navigate(Routes.PRINTERS) },
             )
+        }
+        composable(Routes.PRINTERS) {
+            PrintersRoute(
+                onBack = { navController.popBackStack() },
+                onOpenPrinter = { id -> navController.navigate(Routes.printer(id)) },
+                onAddPrinter = { navController.navigate(Routes.ADD_PRINTER) },
+            )
+        }
+        composable(Routes.ADD_PRINTER) {
+            EditPrinterRoute(onDone = { navController.popBackStack() })
+        }
+        composable(Routes.EDIT_PRINTER, arguments = listOf(navArgument(DEVICES_PRINTER_ARG) { type = NavType.StringType })) {
+            EditPrinterRoute(
+                onDone = { navController.popBackStack() },
+                // The printer's own page goes with it.
+                onRemoved = { navController.popBackStack(Routes.PRINTERS, inclusive = false) },
+            )
+        }
+        composable(Routes.PRINTER, arguments = listOf(navArgument(DEVICES_PRINTER_ARG) { type = NavType.StringType })) {
+            PrinterRoute(onBack = { navController.popBackStack() }, onEdit = { id -> navController.navigate(Routes.editPrinter(id)) })
         }
         composable(Routes.SETUP) {
             SetupRoute(onFinished = { navController.popBackStack() })

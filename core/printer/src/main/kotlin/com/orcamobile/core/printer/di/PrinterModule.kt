@@ -1,26 +1,34 @@
 package com.orcamobile.core.printer.di
 
+import android.content.Context
+import android.net.Network
+import com.orcamobile.core.domain.printer.CameraFrames
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
+import com.orcamobile.core.domain.printer.PrinterConnectionFactory
+import com.orcamobile.core.domain.printer.PrinterDiscovery
 import com.orcamobile.core.printer.DefaultPrintHostClientFactory
+import com.orcamobile.core.printer.DefaultPrinterConnectionFactory
 import com.orcamobile.core.printer.PrintHostAdapter
+import com.orcamobile.core.printer.discovery.CompositePrinterDiscovery
+import com.orcamobile.core.printer.discovery.PrinterDiscoverer
 import com.orcamobile.core.printer.elegoo.ElegooLinkAdapter
+import com.orcamobile.core.printer.elegoo.SdcpDiscovery
+import com.orcamobile.core.printer.http.HttpCameraFrames
+import com.orcamobile.core.printer.http.LanSocketFactory
+import com.orcamobile.core.printer.http.LocalNetworkTracker
 import com.orcamobile.core.printer.moonraker.MoonrakerAdapter
 import com.orcamobile.core.printer.octoprint.OctoPrintAdapter
 import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
-import android.content.Context
-import android.net.Network
-import com.orcamobile.core.printer.http.LanSocketFactory
-import com.orcamobile.core.printer.http.LocalNetworkTracker
-import dagger.hilt.android.qualifiers.ApplicationContext
-import okhttp3.ConnectionPool
-import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 import javax.inject.Singleton
+import okhttp3.ConnectionPool
+import okhttp3.OkHttpClient
 
 @Module
 @InstallIn(SingletonComponent::class)
@@ -39,6 +47,19 @@ internal interface PrinterModule {
     @Binds
     @IntoSet
     fun elegooLink(adapter: ElegooLinkAdapter): PrintHostAdapter
+
+    @Binds
+    fun connections(impl: DefaultPrinterConnectionFactory): PrinterConnectionFactory
+
+    @Binds
+    fun cameraFrames(impl: HttpCameraFrames): CameraFrames
+
+    @Binds
+    fun discovery(impl: CompositePrinterDiscovery): PrinterDiscovery
+
+    @Binds
+    @IntoSet
+    fun sdcpDiscovery(impl: SdcpDiscovery): PrinterDiscoverer
 }
 
 @Module
@@ -46,8 +67,11 @@ internal interface PrinterModule {
 internal object PrinterNetworkModule {
     @Provides
     @Singleton
-    fun okHttp(@ApplicationContext context: Context): OkHttpClient {
-        val localNetwork = LocalNetworkTracker(context)
+    fun localNetwork(@ApplicationContext context: Context): LocalNetworkTracker = LocalNetworkTracker(context)
+
+    @Provides
+    @Singleton
+    fun okHttp(localNetwork: LocalNetworkTracker): OkHttpClient {
         return OkHttpClient.Builder()
             // A printer on the LAN is reached over Wi-Fi even while Android
             // prefers mobile data (see LanSocketFactory).

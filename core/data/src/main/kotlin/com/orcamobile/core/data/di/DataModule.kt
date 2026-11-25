@@ -11,6 +11,7 @@ import com.orcamobile.core.data.ContentPresetDocuments
 import com.orcamobile.core.data.ContentProjectDocuments
 import com.orcamobile.core.data.ContentTextureImageRepository
 import com.orcamobile.core.data.DataStorePrintSettingsRepository
+import com.orcamobile.core.data.DataStorePrinterRepository
 import com.orcamobile.core.data.DataStoreUserSettingsRepository
 import com.orcamobile.core.data.FileUserPresetRepository
 import com.orcamobile.core.data.FileWorkspaceRepository
@@ -23,6 +24,7 @@ import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.presets.PresetDocuments
 import com.orcamobile.core.domain.presets.UserPresetRepository
+import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import dagger.Binds
@@ -65,6 +67,9 @@ internal interface DataModule {
 
     @Binds
     fun projectDocuments(impl: ContentProjectDocuments): ProjectDocuments
+
+    @Binds
+    fun printers(impl: DataStorePrinterRepository): PrinterRepository
 }
 
 @Module

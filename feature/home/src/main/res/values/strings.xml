@@ -28,4 +28,6 @@
     <string name="home_update_retry">Try again</string>
     <string name="home_preset_yours">Yours</string>
     <string name="home_run_setup">Set up printer and filaments</string>
+    <string name="home_printers">Printers</string>
+    <string name="home_printers_description">Status, camera and controls of your printers</string>
 </resources>
