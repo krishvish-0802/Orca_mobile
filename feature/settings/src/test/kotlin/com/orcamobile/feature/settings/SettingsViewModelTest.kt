@@ -48,6 +48,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -301,6 +302,27 @@ class SettingsViewModelTest {
         vm.onIntent(SettingsIntent.DeletePreset(PresetKind.PROCESS, "Fine PLA"))
         assertEquals(presets.process, picker.choices.value.process)
         assertEquals(emptyList(), userPresets.all())
+    }
+
+    @Test
+    fun `leaving asks about this visit's changes, and discarding takes them back`() = kotlinx.coroutines.test.runTest {
+        kotlinx.coroutines.runBlocking { printSettings.set(presets, "sparse_infill_density", "40%") }
+        val vm = viewModel()
+        // Nothing changed on this visit: back just leaves.
+        vm.onIntent(SettingsIntent.Leave)
+        assertEquals(SettingsEvent.Left, vm.events.first())
+
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0.12"))
+        vm.onIntent(SettingsIntent.Leave)
+        assertEquals(1, vm.state.value.leaving)
+        vm.onIntent(SettingsIntent.ConfirmLeave(null))
+        assertNull(vm.state.value.leaving)
+
+        vm.onIntent(SettingsIntent.Leave)
+        vm.onIntent(SettingsIntent.ConfirmLeave(keep = false))
+        assertEquals(SettingsEvent.Left, vm.events.first())
+        // The change from before this visit stays.
+        assertEquals(mapOf("sparse_infill_density" to "40%"), printSettings.state.value.values)
     }
 
     @Test

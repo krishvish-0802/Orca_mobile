@@ -16,9 +16,12 @@ import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.SettingsReview
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -68,9 +71,51 @@ class SettingsViewModel @Inject constructor(
         loadJob = viewModelScope.launch { load() }
     }
 
+    private val _events = Channel<SettingsEvent>(Channel.BUFFERED)
+    val events: Flow<SettingsEvent> = _events.receiveAsFlow()
+
+    /** The changes when this visit began (or the last save): what Discard goes back to. */
+    private var visitStart: Map<String, String>? = null
+
+    /** The settings this visit changed, for the presets' screen only (an object's apply as they are set). */
+    private fun visitChanges(): Set<String> {
+        val start = visitStart ?: return emptySet()
+        val active = source ?: return emptySet()
+        if (active.presets == null || active.subject != null) return emptySet()
+        return (start.keys + changes.keys).filterTo(mutableSetOf()) { start[it] != changes[it] }
+    }
+
+    private fun leave(keep: Boolean) {
+        val active = source
+        val start = visitStart
+        viewModelScope.launch {
+            if (!keep && active != null && start != null) {
+                runCatching {
+                    for (key in visitChanges()) start[key]?.let { active.set(key, it) } ?: active.reset(key)
+                }
+            }
+            _state.update { it.copy(leaving = null) }
+            _events.send(SettingsEvent.Left)
+        }
+    }
+
     fun onIntent(intent: SettingsIntent) {
+        when (intent) {
+            SettingsIntent.Leave -> {
+                val changed = visitChanges().size
+                if (changed > 0) _state.update { it.copy(leaving = changed) } else leave(keep = true)
+                return
+            }
+            is SettingsIntent.ConfirmLeave -> {
+                val keep = intent.keep
+                if (keep == null) _state.update { it.copy(leaving = null) } else leave(keep)
+                return
+            }
+            else -> Unit
+        }
         val source = source ?: return
         when (intent) {
+            SettingsIntent.Leave, is SettingsIntent.ConfirmLeave -> Unit // answered above
             is SettingsIntent.SelectKind -> refresh { copy(kind = intent.kind, pageIndex = 0) }
             is SettingsIntent.SelectPage -> _state.update { it.copy(pageIndex = intent.index.coerceIn(0, (it.pages.size - 1).coerceAtLeast(0))) }
             is SettingsIntent.SetMode -> refresh { copy(mode = intent.mode) }
@@ -194,6 +239,8 @@ class SettingsViewModel @Inject constructor(
     /** Keeps [kept] over the presets now chosen (dropping what they already give), and shows them. */
     private suspend fun carryOver(kept: Map<String, String>) {
         switcher.carryOver(kept)
+        // What is saved is no longer this visit's to discard.
+        visitStart = null
         reload()
     }
 
@@ -283,6 +330,7 @@ class SettingsViewModel @Inject constructor(
         }
         active.changes.collect { edits ->
             changes = edits
+            if (visitStart == null) visitStart = edits
             refresh { copy(loading = false, error = null, saveTargets = saveTargets(active, filamentSlot)) }
             reviewChanges(active)
         }

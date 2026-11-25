@@ -68,4 +68,12 @@
         <item quantity="one">Exported %1$d preset. OrcaSlicer on a computer takes the file in File › Import › Import Configs.</item>
         <item quantity="other">Exported %1$d presets. OrcaSlicer on a computer takes the file in File › Import › Import Configs.</item>
     </plurals>
+    <string name="settings_leave_title">Save your changes?</string>
+    <plurals name="settings_leave_body">
+        <item quantity="one">You changed %1$d setting. Keep it to slice with it now, or save it as your own preset to use it again later.</item>
+        <item quantity="other">You changed %1$d settings. Keep them to slice with them now, or save them as your own preset to use them again later.</item>
+    </plurals>
+    <string name="settings_leave_save">Save as preset</string>
+    <string name="settings_leave_keep">Keep without saving</string>
+    <string name="settings_leave_discard">Discard</string>
 </resources>

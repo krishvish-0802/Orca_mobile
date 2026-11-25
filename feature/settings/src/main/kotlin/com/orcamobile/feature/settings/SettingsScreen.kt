@@ -1,5 +1,6 @@
 package com.orcamobile.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -27,6 +28,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -61,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -82,7 +85,16 @@ import java.util.Locale
 @Composable
 fun SettingsRoute(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsScreen(state, viewModel::onIntent, onBack)
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                SettingsEvent.Left -> onBack()
+            }
+        }
+    }
+    // The back gesture and the arrow both ask first when this visit changed settings.
+    BackHandler { viewModel.onIntent(SettingsIntent.Leave) }
+    SettingsScreen(state, viewModel::onIntent, onBack = { viewModel.onIntent(SettingsIntent.Leave) })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -215,6 +227,23 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
     val open = editing?.let { key -> (state.pages.flatMap { it.groups } + state.results).flatMap { it.rows }.firstOrNull { it.option.key == key } }
     if (open != null) SettingSheet(row = open, onIntent = onIntent, onDismiss = { editing = null })
     if (presetsOpen) PresetsSheet(state, onIntent, onDismiss = { presetsOpen = false })
+    state.leaving?.let { count ->
+        AlertDialog(
+            onDismissRequest = { onIntent(SettingsIntent.ConfirmLeave(null)) },
+            title = { Text(stringResource(R.string.settings_leave_title)) },
+            text = { Text(pluralStringResource(R.plurals.settings_leave_body, count, count)) },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        onIntent(SettingsIntent.ConfirmLeave(null))
+                        presetsOpen = true
+                    }) { Text(stringResource(R.string.settings_leave_save)) }
+                    TextButton(onClick = { onIntent(SettingsIntent.ConfirmLeave(true)) }) { Text(stringResource(R.string.settings_leave_keep)) }
+                    TextButton(onClick = { onIntent(SettingsIntent.ConfirmLeave(false)) }) { Text(stringResource(R.string.settings_leave_discard)) }
+                }
+            },
+        )
+    }
     state.comparison?.let { ComparePresetsSheet(it, onIntent) }
 }
 
