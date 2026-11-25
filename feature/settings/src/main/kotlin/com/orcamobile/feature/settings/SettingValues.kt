@@ -1,12 +1,17 @@
 package com.orcamobile.feature.settings
 
 import com.orcamobile.core.model.ConfigOption
+import com.orcamobile.core.model.ConfigText
 import com.orcamobile.core.model.OptionType
+import com.orcamobile.core.model.element
+import com.orcamobile.core.model.elements
+import com.orcamobile.core.model.joinElements
 
 /**
  * Reading and writing option values as profiles serialize them. Per-extruder
- * options (one value per extruder or filament) are edited through their first
- * value, which is the one a single-extruder print uses; the others are kept.
+ * options (one value per extruder or filament) are edited one value at a time:
+ * the first (a single-extruder print's) unless an index is given, the others
+ * kept.
  */
 object SettingValues {
 
@@ -14,8 +19,8 @@ object SettingValues {
     const val UNSET = "nil"
 
     /** The value the screen shows and edits: one element, unescaped, a percentage without its "%". */
-    fun editable(option: ConfigOption, serialized: String): String {
-        val first = elements(option, serialized).firstOrNull().orEmpty()
+    fun editable(option: ConfigOption, serialized: String, index: Int = 0): String {
+        val first = at(elements(option, serialized), index)
         return when {
             option.type == OptionType.STRING -> ConfigText.unescape(serialized)
             option.type.isPercentOnly -> first.removeSuffix("%")
@@ -24,11 +29,11 @@ object SettingValues {
     }
 
     /** Whether the edited element is an unset override. */
-    fun isUnset(option: ConfigOption, serialized: String): Boolean =
-        option.nullable && elements(option, serialized).firstOrNull() == UNSET
+    fun isUnset(option: ConfigOption, serialized: String, index: Int = 0): Boolean =
+        option.nullable && at(elements(option, serialized), index) == UNSET
 
     /** [serialized] with its edited element replaced by [edited] (or by [UNSET]). */
-    fun write(option: ConfigOption, serialized: String, edited: String): String {
+    fun write(option: ConfigOption, serialized: String, edited: String, index: Int = 0): String {
         val value = when {
             edited == UNSET && option.nullable -> UNSET
             option.type == OptionType.STRING -> return ConfigText.escape(edited)
@@ -37,10 +42,20 @@ object SettingValues {
             else -> edited.trim()
         }
         if (!option.type.isVector) return value
-        val rest = elements(option, serialized).drop(1)
-        val all = listOf(value) + rest
-        return if (option.type == OptionType.STRINGS) ConfigText.joinStrings(all) else all.joinToString(",")
+        val all = elements(option, serialized).toMutableList()
+        // A shorter list (one value for every filament) takes its last value up to the edited one.
+        while (all.size <= index) all += all.lastOrNull().orEmpty()
+        all[index] = value
+        return join(option, all)
     }
+
+    /** Element [index] of a per-extruder value alone, serialized as a one-value list; a single value as it is. */
+    fun element(option: ConfigOption, serialized: String, index: Int): String = option.element(serialized, index)
+
+    private fun join(option: ConfigOption, all: List<String>) = option.joinElements(all)
+
+    /** Element [index], or the last for a shorter list. */
+    private fun at(elements: List<String>, index: Int): String = elements.getOrNull(index) ?: elements.lastOrNull().orEmpty()
 
     /** Why [edited] is not a valid value of [option], or null when it is. */
     fun problem(option: ConfigOption, edited: String): Problem? {
@@ -64,8 +79,8 @@ object SettingValues {
      * How a value reads in a row: the choice's label, a number with its unit, or
      * the first line of a text. Switches and unset overrides are worded by the UI.
      */
-    fun display(option: ConfigOption, serialized: String): String {
-        val value = editable(option, serialized)
+    fun display(option: ConfigOption, serialized: String, index: Int = 0): String {
+        val value = editable(option, serialized, index)
         option.choices.firstOrNull { it.value == value }?.let { return it.label }
         if (option.type == OptionType.STRING || option.type == OptionType.STRINGS) {
             val lines = value.lines()
@@ -76,11 +91,7 @@ object SettingValues {
     }
 
     /** The elements of a per-extruder value; the whole value for a single one. */
-    private fun elements(option: ConfigOption, serialized: String): List<String> = when {
-        option.type == OptionType.STRINGS -> ConfigText.splitStrings(serialized).ifEmpty { listOf("") }
-        option.type.isVector && option.type != OptionType.POINTS -> serialized.split(',')
-        else -> listOf(serialized)
-    }
+    private fun elements(option: ConfigOption, serialized: String): List<String> = option.elements(serialized)
 
     sealed interface Problem {
         data object Empty : Problem

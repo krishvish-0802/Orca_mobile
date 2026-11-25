@@ -1,34 +1,41 @@
 package com.orcamobile.feature.home
 
+import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.ModelImportRepository
 import com.orcamobile.core.domain.model.SampleModelRepository
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.GetEngineStatusUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.EngineStatus
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.SettingsEdits
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlin.test.assertEquals
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertEquals
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class HomeViewModelTest {
@@ -57,6 +64,8 @@ class HomeViewModelTest {
         override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
         override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
+        var done = true
+        override suspend fun setupDone() = done
     }
 
     private class FakeImports(private val result: Result<String>) : ModelImportRepository {
@@ -72,7 +81,28 @@ class HomeViewModelTest {
     private fun viewModel(
         status: EngineStatus = EngineStatus.Available(info),
         imports: ModelImportRepository = FakeImports(Result.success("/models/benchy.stl")),
-    ) = HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), PresetPicker(FakePresets(), settings), imports, samples, updates)
+    ): HomeViewModel {
+        val picker = PresetPicker(FakePresets(), settings)
+        return HomeViewModel(GetEngineStatusUseCase(FixedEngine(status)), picker, imports, samples, updates, PresetSwitcher(picker, printSettings, optionCatalog), settings)
+    }
+
+    /** No changed settings: preset changes never ask. */
+    private val printSettings = object : PrintSettingsRepository {
+        override val edits: Flow<SettingsEdits> = MutableStateFlow(SettingsEdits.NONE)
+        override suspend fun editsFor(selection: PresetSelection?) = emptyMap<String, String>()
+        override suspend fun set(selection: PresetSelection?, key: String, value: String) = Unit
+        override suspend fun reset(selection: PresetSelection?, key: String) = Unit
+        override suspend fun resetAll() = Unit
+    }
+
+    /** Which settings each kind of preset holds; the presets give the defaults. */
+    private val optionCatalog = object : ConfigOptionCatalog {
+        override suspend fun describe(keys: List<String>) = Result.success(emptyList<ConfigOption>())
+        override suspend fun values(selection: PresetSelection?, keys: List<String>) =
+            Result.success(mapOf("layer_height" to "0.2").filterKeys { it in keys })
+        override suspend fun presetOptionKeys() = Result.success(PresetOptionKeys(listOf("layer_height"), emptyList(), emptyList()))
+    }
+
 
     /** GitHub with build 200 waiting, unless [latest] says otherwise. */
     private class FakeUpdates : com.orcamobile.core.domain.update.AppUpdates {
@@ -108,6 +138,13 @@ class HomeViewModelTest {
 
     @After
     fun tearDown() = Dispatchers.resetMain()
+
+    @Test
+    fun `the first launch opens the setup`() = kotlinx.coroutines.test.runTest {
+        settings.done = false
+        val vm = viewModel()
+        assertEquals(HomeEvent.OpenSetup, vm.events.first())
+    }
 
     @Test
     fun `reports an unavailable engine`() {

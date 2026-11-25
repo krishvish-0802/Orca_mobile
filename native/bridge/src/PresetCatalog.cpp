@@ -55,6 +55,41 @@ PresetBundle& PresetCatalog::Impl::bundle_for(const std::string& vendor)
     return *bundles.emplace(vendor, std::move(bundle)).first->second;
 }
 
+Slic3r::Preset PresetCatalog::Impl::resolve(PresetBundle& bundle, PresetKind kind, const std::string& name)
+{
+    const char* label = kind == PresetKind::Printer ? "printer" : kind == PresetKind::Process ? "process" : "filament";
+    Slic3r::PresetCollection& collection =
+        kind == PresetKind::Printer ? static_cast<Slic3r::PresetCollection&>(bundle.printers) : kind == PresetKind::Process ? bundle.prints : bundle.filaments;
+    const auto user = user_presets.find({kind, name});
+    if (user == user_presets.end())
+        return require_preset(collection, name, label);
+    // The desktop's user preset: its system preset with the user's values over it.
+    Preset preset = require_preset(collection, user->second.inherits, label);
+    Slic3r::ConfigSubstitutionContext substitutions(Slic3r::ForwardCompatibilitySubstitutionRule::EnableSilent);
+    for (const auto& [key, value] : user->second.values) {
+        if (!preset.config.has(key))
+            continue;   // a setting this kind does not hold (or a newer one)
+        try {
+            preset.config.set_deserialize(key, value, substitutions);
+        } catch (const std::exception&) {
+            // A value this version does not take keeps the system preset's.
+        }
+    }
+    preset.name = name;
+    preset.is_system = false;
+    preset.is_default = false;
+    return preset;
+}
+
+std::vector<std::string> PresetCatalog::Impl::user_children(PresetKind kind, const std::string& system) const
+{
+    std::vector<std::string> names;
+    for (const auto& [key, preset] : user_presets)
+        if (key.first == kind && preset.inherits == system)
+            names.push_back(preset.name);
+    return names;
+}
+
 Slic3r::DynamicPrintConfig PresetCatalog::Impl::compose(const PresetSelection& selection)
 {
     std::lock_guard<std::mutex> lock(mutex);
@@ -64,12 +99,12 @@ Slic3r::DynamicPrintConfig PresetCatalog::Impl::compose(const PresetSelection& s
 
     // construct_full_config takes mutable presets; work on copies so the
     // catalog's bundle stays untouched.
-    Preset printer = require_preset(bundle.printers, selection.printer, "printer");
-    Preset process = require_preset(bundle.prints, selection.process, "process");
+    Preset printer = resolve(bundle, PresetKind::Printer, selection.printer);
+    Preset process = resolve(bundle, PresetKind::Process, selection.process);
     std::vector<Preset> filaments;
     filaments.reserve(selection.filaments.size());
     for (const std::string& name : selection.filaments)
-        filaments.push_back(require_preset(bundle.filaments, name, "filament"));
+        filaments.push_back(resolve(bundle, PresetKind::Filament, name));
 
     const Slic3r::DynamicPrintConfig project_config;
     Slic3r::DynamicPrintConfig config =
@@ -114,17 +149,36 @@ std::vector<std::string> PresetCatalog::printers(const std::string& vendor)
         if (is_listed(preset))
             result.push_back(preset.name);
     std::sort(result.begin(), result.end());
+    // The user's printers, after the system ones.
+    std::vector<std::string> users;
+    for (const std::string& system : result)
+        for (const std::string& name : m_impl->user_children(PresetKind::Printer, system))
+            users.push_back(name);
+    std::sort(users.begin(), users.end());
+    result.insert(result.end(), users.begin(), users.end());
     return result;
+}
+
+void PresetCatalog::set_user_presets(std::vector<UserPreset> presets)
+{
+    std::lock_guard<std::mutex> lock(m_impl->mutex);
+    m_impl->user_presets.clear();
+    for (UserPreset& preset : presets)
+        if (!preset.name.empty() && !preset.inherits.empty() && preset.name != preset.inherits)
+            m_impl->user_presets[{preset.kind, preset.name}] = std::move(preset);
 }
 
 CompatiblePresets PresetCatalog::compatible_presets(const std::string& vendor, const std::string& printer)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
     PresetBundle& bundle = m_impl->bundle_for(vendor);
-    require_preset(bundle.printers, printer, "printer");
+    // A user's printer is compatible with what its system printer is.
+    const auto user_printer = m_impl->user_presets.find({PresetKind::Printer, printer});
+    const std::string system_printer = user_printer != m_impl->user_presets.end() ? user_printer->second.inherits : printer;
+    require_preset(bundle.printers, system_printer, "printer");
     // Same compatibility evaluation as the desktop tabs: select the printer, then
     // let the bundle flag every process and filament against it.
-    bundle.printers.select_preset_by_name(printer, true);
+    bundle.printers.select_preset_by_name(system_printer, true);
     bundle.update_compatible(Slic3r::PresetSelectCompatibleType::Never);
 
     CompatiblePresets result;
@@ -150,6 +204,16 @@ CompatiblePresets PresetCatalog::compatible_presets(const std::string& vendor, c
                 break;
             }
     }
+    // The user's processes and filaments, after the system ones they inherit.
+    for (PresetKind kind : {PresetKind::Process, PresetKind::Filament}) {
+        std::vector<std::string>& names = kind == PresetKind::Process ? result.processes : result.filaments;
+        std::vector<std::string> users;
+        for (const std::string& system : names)
+            for (const std::string& name : m_impl->user_children(kind, system))
+                users.push_back(name);
+        std::sort(users.begin(), users.end());
+        names.insert(names.end(), users.begin(), users.end());
+    }
     if (result.default_process.empty() && !result.processes.empty())
         result.default_process = result.processes.front();
     if (result.default_filament.empty() && !result.filaments.empty())
@@ -160,8 +224,8 @@ CompatiblePresets PresetCatalog::compatible_presets(const std::string& vendor, c
 BedShape PresetCatalog::bed_shape(const std::string& vendor, const std::string& printer)
 {
     std::lock_guard<std::mutex> lock(m_impl->mutex);
-    const PresetBundle& bundle = m_impl->bundle_for(vendor);
-    const Slic3r::DynamicPrintConfig& config = require_preset(bundle.printers, printer, "printer").config;
+    PresetBundle& bundle = m_impl->bundle_for(vendor);
+    const Slic3r::DynamicPrintConfig config = m_impl->resolve(bundle, PresetKind::Printer, printer).config;
 
     BedShape shape;
     if (const auto* area = config.option<Slic3r::ConfigOptionPoints>("printable_area"))

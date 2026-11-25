@@ -18,4 +18,14 @@ interface UserSettingsRepository {
     suspend fun printStartOptions(): PrintStartOptions
 
     suspend fun savePrintStartOptions(options: PrintStartOptions)
+
+    /** Whether the first-run setup was finished. */
+    suspend fun setupDone(): Boolean = true
+
+    suspend fun saveSetupDone() = Unit
+
+    /** The filament presets [printer] lists (the desktop's filament selection); empty for all it suits. */
+    suspend fun shownFilaments(printer: String): Set<String> = emptySet()
+
+    suspend fun saveShownFilaments(printer: String, names: Set<String>) = Unit
 }

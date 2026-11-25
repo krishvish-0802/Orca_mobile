@@ -44,6 +44,7 @@ import com.orcamobile.core.designsystem.component.ChoiceSheet
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.TonalPillButton
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetKind
 
 /**
  * The filaments loaded, as the desktop sidebar's filament list: one chip per
@@ -51,7 +52,7 @@ import com.orcamobile.core.model.PresetChoices
  * or take it away. "+" adds a filament, a copy of the last.
  */
 @Composable
-internal fun FilamentBar(choices: PresetChoices, onIntent: (PrepareIntent) -> Unit, modifier: Modifier = Modifier) {
+internal fun FilamentBar(choices: PresetChoices, onIntent: (PrepareIntent) -> Unit, modifier: Modifier = Modifier, modified: Boolean = false) {
     var editing by rememberSaveable { mutableStateOf<Int?>(null) }
     val colours = choices.slotColoursOrDefault()
     Row(
@@ -73,8 +74,9 @@ internal fun FilamentBar(choices: PresetChoices, onIntent: (PrepareIntent) -> Un
                 ) {
                     FilamentSwatch(colours.getOrElse(index) { Color.Gray }, index + 1)
                     Column {
+                        val number = stringResource(R.string.prepare_filament_number, index + 1)
                         Text(
-                            stringResource(R.string.prepare_filament_number, index + 1),
+                            if (modified) stringResource(R.string.prepare_preset_modified, number) else number,
                             style = MaterialTheme.typography.labelSmall,
                             color = MaterialTheme.colorScheme.primary,
                         )
@@ -203,6 +205,8 @@ private fun FilamentSheet(choices: PresetChoices, index: Int, onIntent: (Prepare
             onSelect = { onIntent(PrepareIntent.SelectFilament(it, index)) },
             onDismiss = { choosingPreset = false },
             searchHint = stringResource(R.string.prepare_search),
+            marked = choices.userNames(PresetKind.FILAMENT),
+            markLabel = stringResource(R.string.prepare_preset_yours),
         )
     }
 }

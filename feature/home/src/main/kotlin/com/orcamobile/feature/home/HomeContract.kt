@@ -1,5 +1,7 @@
 package com.orcamobile.feature.home
 
+import com.orcamobile.core.domain.presets.UnsavedChoice
+import com.orcamobile.core.domain.presets.UnsavedPrompt
 import com.orcamobile.core.model.AppUpdate
 import com.orcamobile.core.model.EngineInfo
 import com.orcamobile.core.model.PresetChoices
@@ -12,6 +14,8 @@ data class HomeUiState(
     val importError: String? = null,
     /** A newer build of the app on GitHub, and how getting it is going. */
     val update: UpdateUiState = UpdateUiState.None,
+    /** A preset change waiting on what to do with the changed settings. */
+    val unsaved: UnsavedPrompt? = null,
 )
 
 sealed interface UpdateUiState {
@@ -48,6 +52,9 @@ sealed interface HomeIntent {
 
     data class SelectFilament(val filament: String) : HomeIntent
 
+    /** The answer to [HomeUiState.unsaved]; null cancels the change. */
+    data class ResolveUnsaved(val choice: UnsavedChoice?) : HomeIntent
+
     /** A document the user picked in the system file picker. */
     data class ImportModel(val uri: String) : HomeIntent
 
@@ -67,4 +74,7 @@ sealed interface HomeIntent {
 /** One-off effects the screen acts on. */
 sealed interface HomeEvent {
     data class OpenModel(val path: String) : HomeEvent
+
+    /** The first-run setup is due. */
+    data object OpenSetup : HomeEvent
 }

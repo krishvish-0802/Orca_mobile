@@ -1,44 +1,63 @@
 package com.orcamobile.feature.settings
 
+import androidx.lifecycle.SavedStateHandle
 import com.orcamobile.core.common.CoroutineDispatchers
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
+import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.ComparePresetsUseCase
+import com.orcamobile.core.domain.presets.InMemoryUserPresets
+import com.orcamobile.core.domain.presets.PresetDocuments
+import com.orcamobile.core.domain.presets.PresetFileContents
+import com.orcamobile.core.domain.presets.PresetFileFormat
+import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.TransferPresetsUseCase
 import com.orcamobile.core.domain.project.ObjectEditor
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
-import androidx.lifecycle.SavedStateHandle
 import com.orcamobile.core.model.Axes
+import com.orcamobile.core.model.BedShape
+import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.LayerRange
 import com.orcamobile.core.model.ObjectDetails
 import com.orcamobile.core.model.ObjectEdit
 import com.orcamobile.core.model.ObjectUpdate
-import com.orcamobile.core.model.ProjectId
-import com.orcamobile.core.model.SettingScope
-import com.orcamobile.core.model.SettingTarget
-import com.orcamobile.core.model.VolumeInfo
-import com.orcamobile.core.model.VolumeKind
 import com.orcamobile.core.model.OptionMode
+import com.orcamobile.core.model.OptionRuleState
 import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.RulesScope
+import com.orcamobile.core.model.SettingScope
+import com.orcamobile.core.model.SettingTarget
+import com.orcamobile.core.model.SettingsCheck
 import com.orcamobile.core.model.SettingsEdits
+import com.orcamobile.core.model.SettingsFix
+import com.orcamobile.core.model.SettingsReview
+import com.orcamobile.core.model.UserPreset
+import com.orcamobile.core.model.VolumeInfo
+import com.orcamobile.core.model.VolumeKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertTrue
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModelTest {
@@ -53,11 +72,17 @@ class SettingsViewModelTest {
         ConfigOption("machine_start_gcode", OptionType.STRING, "Start G-code", "", "", "", "", "", mode = OptionMode.ADVANCED, multiline = true),
     ).associateBy { it.key }
 
+    /** The desktop's rules, as the test needs them: settings over the presets in, review out. */
+    private var rules: (Map<String, String>, RulesScope) -> SettingsReview = { _, _ -> SettingsReview.NONE }
+
     private val catalog = object : ConfigOptionCatalog {
+        override suspend fun review(selection: PresetSelection?, settings: Map<String, String>, scope: RulesScope, filament: Int) =
+            Result.success(rules(settings, scope))
+
         override suspend fun describe(keys: List<String>) = Result.success(keys.mapNotNull { options[it] })
         override suspend fun values(selection: PresetSelection?, keys: List<String>) = Result.success(
             mapOf(
-                "layer_height" to "0.2", "sparse_infill_density" to "15%", "ironing_expansion" to "0",
+                "layer_height" to if (selection?.process == FINE) "0.12" else "0.2", "sparse_infill_density" to "15%", "ironing_expansion" to "0",
                 "nozzle_temperature" to "220,220", "machine_start_gcode" to "G28\\nG1 Z5",
             ).filterKeys { it in keys },
         )
@@ -81,8 +106,11 @@ class SettingsViewModelTest {
     }
 
     private val userSettings = object : UserSettingsRepository {
-        override suspend fun presetSelection() = presets
-        override suspend fun savePresetSelection(selection: PresetSelection) = Unit
+        var saved: PresetSelection = presets
+        override suspend fun presetSelection() = saved
+        override suspend fun savePresetSelection(selection: PresetSelection) {
+            saved = selection
+        }
         override suspend fun printHost(): PrintHostConfig? = null
         override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
@@ -151,10 +179,44 @@ class SettingsViewModelTest {
 
     private val objects = FakeObjects()
 
+    /** The presets the selection names, with the user's listed after the system ones they inherit. */
+    private val presetCatalog = object : PresetCatalog {
+        var users: List<UserPreset> = emptyList()
+        override suspend fun vendors() = Result.success(listOf(presets.vendor))
+        override suspend fun printers(vendor: String) = Result.success(listOf(presets.printer))
+        override suspend fun compatiblePresets(vendor: String, printer: String) = Result.success(
+            CompatiblePresets(
+                listOf(presets.process) + users.filter { it.kind == PresetKind.PROCESS }.map { it.name },
+                presets.filaments + users.filter { it.kind == PresetKind.FILAMENT }.map { it.name },
+                presets.process,
+                presets.filaments.first(),
+            ),
+        )
+        override suspend fun bedShape(vendor: String, printer: String) = Result.success(BedShape(emptyList(), 250.0))
+        override suspend fun setUserPresets(presets: List<UserPreset>): Result<Unit> {
+            users = presets
+            return Result.success(Unit)
+        }
+    }
+    /** No preset files here (importing is tested with the domain). */
+    private val noFiles = object : PresetFileFormat, PresetDocuments {
+        override suspend fun read(vendor: String, path: String) = Result.failure<PresetFileContents>(UnsupportedOperationException())
+        override suspend fun write(preset: UserPreset) = Result.success("{}")
+        override suspend fun open(uri: String) = Result.success(emptyList<String>())
+        override suspend fun saveZip(uri: String, files: Map<String, String>) = Result.success(Unit)
+    }
+    private val userPresets = InMemoryUserPresets()
+    private val picker = PresetPicker(presetCatalog, userSettings, userPresets)
+
     private fun viewModel(args: Map<String, Any> = emptyMap()): SettingsViewModel {
         val dispatcher = UnconfinedTestDispatcher()
         val sources = SettingsSourceFactory(catalog, userSettings, printSettings, objects, PlateConfigResolver(printSettings))
-        return SettingsViewModel(SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher))
+        return SettingsViewModel(
+            SavedStateHandle(args), sources, catalog, layout, CoroutineDispatchers(dispatcher, dispatcher, dispatcher), picker,
+            PresetSwitcher(picker, printSettings, catalog),
+            ComparePresetsUseCase(picker, catalog),
+            TransferPresetsUseCase(picker, noFiles, noFiles),
+        )
     }
 
     private fun objectArgs(volume: Int = -1, range: Int = -1) = mapOf(
@@ -177,6 +239,106 @@ class SettingsViewModelTest {
         vm.onIntent(SettingsIntent.SelectKind(PresetKind.PRINTER))
         assertEquals(0, vm.state.value.pageIndex)
         assertEquals("G28\\nG1 Z5", vm.rows().getValue("machine_start_gcode").value)
+    }
+
+    @Test
+    fun `the rules hide, grey out, reset with a notice and offer fixes`() {
+        val fine = SettingsFix("Use 0.28 mm", mapOf("layer_height" to "0.28"))
+        rules = { settings, _ ->
+            SettingsReview(
+                options = mapOf(
+                    "ironing_expansion" to OptionRuleState(visible = false, reason = "Enable Z contouring to use this setting."),
+                    "sparse_infill_density" to OptionRuleState(enabled = false, reason = "Because spiral vase."),
+                ),
+                // A zero layer height goes back to 0.2 mm, as the desktop does.
+                changes = if (settings["layer_height"] == "0") mapOf("layer_height" to "0.2") else emptyMap(),
+                notices = if (settings["layer_height"] == "0") listOf("Layer height can't be zero.") else emptyList(),
+                checks = listOf(SettingsCheck("coarse", "Thicker layers print faster.", listOf(fine))),
+            )
+        }
+        val vm = viewModel()
+        assertEquals(listOf("Quality", "Strength"), vm.state.value.pages.map { it.title })
+        vm.onIntent(SettingsIntent.SelectPage(1))
+        val density = vm.rows().getValue("sparse_infill_density")
+        assertEquals(false, density.enabled)
+        assertEquals("Because spiral vase.", density.reason)
+
+        vm.onIntent(SettingsIntent.SelectPage(0))
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0"))
+        assertEquals("0.2", vm.rows().getValue("layer_height").value)
+        assertEquals(emptyMap(), printSettings.state.value.values)
+        assertEquals(listOf("Layer height can't be zero."), vm.state.value.notices)
+        vm.onIntent(SettingsIntent.DismissNotices)
+        assertEquals(emptyList(), vm.state.value.notices)
+
+        assertEquals("coarse", vm.state.value.checks.single().id)
+        vm.onIntent(SettingsIntent.ApplyFix(fine))
+        assertEquals("0.28", vm.rows().getValue("layer_height").value)
+    }
+
+    @Test
+    fun `opened on a setting, it shows that setting's page and editor`() {
+        val vm = viewModel(mapOf(SETTINGS_FOCUS_ARG to "nozzle_temperature"))
+        assertEquals(PresetKind.FILAMENT, vm.state.value.kind)
+        assertEquals("nozzle_temperature", vm.state.value.focus)
+        assertTrue(vm.rows().containsKey("nozzle_temperature"))
+    }
+
+    @Test
+    fun `changes are saved as the user's preset, which is then chosen`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel()
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0.12"))
+        vm.onIntent(SettingsIntent.Edit("nozzle_temperature", "215"))
+        assertEquals(listOf(PresetKind.PROCESS, PresetKind.FILAMENT), vm.state.value.saveTargets.map { it.kind })
+
+        vm.onIntent(SettingsIntent.SavePreset(PresetKind.PROCESS, "Fine PLA"))
+        assertEquals(listOf(UserPreset(PresetKind.PROCESS, "Fine PLA", presets.process, mapOf("layer_height" to "0.12"))), userPresets.all())
+        assertEquals("Fine PLA", picker.choices.value.process)
+        // The filament change stays, over the new presets.
+        assertEquals(mapOf("nozzle_temperature" to "215,220"), printSettings.state.value.values)
+        assertEquals("Fine PLA", printSettings.state.value.selection?.process)
+        assertEquals(listOf(PresetKind.FILAMENT), vm.state.value.saveTargets.map { it.kind })
+
+        vm.onIntent(SettingsIntent.DeletePreset(PresetKind.PROCESS, "Fine PLA"))
+        assertEquals(presets.process, picker.choices.value.process)
+        assertEquals(emptyList(), userPresets.all())
+    }
+
+    @Test
+    fun `leaving after a change asks, and discarding takes the presets back to how they are saved`() = kotlinx.coroutines.test.runTest {
+        kotlinx.coroutines.runBlocking { printSettings.set(presets, "sparse_infill_density", "40%") }
+        val vm = viewModel()
+        // Nothing changed on this visit: back just leaves.
+        vm.onIntent(SettingsIntent.Leave)
+        assertEquals(SettingsEvent.Left, vm.events.first())
+
+        vm.onIntent(SettingsIntent.Edit("layer_height", "0.12"))
+        vm.onIntent(SettingsIntent.Leave)
+        // Every unsaved change: this visit's and the one from before.
+        assertEquals(2, vm.state.value.leaving)
+        vm.onIntent(SettingsIntent.ConfirmLeave(null))
+        assertNull(vm.state.value.leaving)
+
+        vm.onIntent(SettingsIntent.Leave)
+        vm.onIntent(SettingsIntent.ConfirmLeave(keep = false))
+        assertEquals(SettingsEvent.Left, vm.events.first())
+        assertEquals(emptyMap(), printSettings.state.value.values)
+    }
+
+    @Test
+    fun `two processes compare by the settings they set differently`() {
+        val vm = viewModel()
+        vm.onIntent(SettingsIntent.OpenComparison(PresetKind.PROCESS))
+        assertEquals(presets.process, vm.state.value.comparison?.first)
+
+        vm.onIntent(SettingsIntent.Compare(presets.process, FINE))
+        val differences = vm.state.value.comparison?.differences.orEmpty()
+        assertEquals(listOf(Triple("layer_height", "0.2", "0.12")), differences.map { Triple(it.option.key, it.first, it.second) })
+
+        vm.onIntent(SettingsIntent.Compare(presets.process, presets.process))
+        assertEquals(emptyList(), vm.state.value.comparison?.differences)
+        vm.onIntent(SettingsIntent.CloseComparison)
+        assertNull(vm.state.value.comparison)
     }
 
     @Test
@@ -265,3 +427,5 @@ class SettingsViewModelTest {
         assertEquals(ObjectEdit.SetSetting(SettingTarget(range = 0), "layer_height", "0.2"), objects.edits.single())
     }
 }
+
+private const val FINE = "0.12mm Fine"

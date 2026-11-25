@@ -1,4 +1,4 @@
-package com.orcamobile.feature.settings
+package com.orcamobile.core.model
 
 import org.junit.Test
 import kotlin.test.assertEquals

@@ -5,6 +5,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "orca_engine/PresetCatalog.hpp"
 
@@ -55,11 +56,28 @@ struct SliceStatistics {
     std::size_t gcode_bytes = 0;
 };
 
+// Something the slicer said about the print: why it failed, or a warning.
+struct SliceMessage {
+    enum class Level { Info, Warning, Error };
+    Level level = Level::Warning;
+    std::string text;
+    std::string object;   // the object it is about, by name; empty for the whole plate
+    std::string setting;  // the setting it is about (its key), when the slicer names one
+    // What kind of message it is, for the app's fixes: "need_support",
+    // "empty_first_layer", "floating", "too_tall", "no_layers", "too_small",
+    // "support_enforcers", "spiral_vase", "prime_tower", "bed_temperature",
+    // "timelapse"..., or empty.
+    std::string code;
+};
+
 struct SliceOutcome {
     enum class Status { Succeeded, Canceled, Failed };
     Status status = Status::Failed;
     std::string error;               // set when Failed
     std::optional<SliceStatistics> statistics;
+    // Every error and warning, the error first (Print::validate's, each step's,
+    // the G-code processor's), each once.
+    std::vector<SliceMessage> messages;
 };
 
 class Project;

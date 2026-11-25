@@ -5,9 +5,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.model.UserSettingsRepository
+import com.orcamobile.core.domain.presets.PresetChange
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
+import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.project.SaveProjectUseCase
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
@@ -21,23 +26,27 @@ import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateSettingKeys
-import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
-import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.ProjectId
-import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceResult
+import com.orcamobile.core.model.TransformEdit
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -55,10 +64,16 @@ class PrepareViewModel @Inject constructor(
     private val plateTools: PlateToolsUseCase,
     private val testPrintHost: TestPrintHostUseCase,
     private val sendGcode: SendGcodeUseCase,
+    private val switcher: PresetSwitcher,
+    private val saveProject: SaveProjectUseCase,
+    private val documents: ProjectDocuments,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PrepareUiState())
     val state: StateFlow<PrepareUiState> = _state.asStateFlow()
+
+    private val _events = Channel<PrepareEvent>(Channel.BUFFERED)
+    val events: Flow<PrepareEvent> = _events.receiveAsFlow()
 
     private var sliceJob: Job? = null
     private var hostJob: Job? = null
@@ -91,6 +106,114 @@ class PrepareViewModel @Inject constructor(
         viewModelScope.launch { followWipeTower() }
     }
 
+    private fun confirmLeave(choice: LeaveChoice?) {
+        _state.update { it.copy(leaving = null) }
+        viewModelScope.launch {
+            when (choice) {
+                null -> Unit
+                LeaveChoice.KEEP -> _events.send(PrepareEvent.Left)
+                LeaveChoice.DISCARD -> {
+                    printSettings.resetAll()
+                    _events.send(PrepareEvent.Left)
+                }
+                LeaveChoice.SAVE -> _events.send(PrepareEvent.SaveChanges)
+                LeaveChoice.SAVE_PROJECT -> saveThenLeave()
+            }
+        }
+    }
+
+    /** Where the project was last saved this time (a document), and as what. */
+    private var savedTo: String? = null
+
+    /** Leaving once the project is saved (the save asked where first). */
+    private var leaveAfterSave = false
+
+    /** Saves the project: to [uri], or where it was saved before; asks where when it never was. */
+    private fun save(uri: String?) {
+        val project = _state.value.project ?: return
+        val target = uri ?: savedTo
+        if (target == null) {
+            viewModelScope.launch { _events.send(PrepareEvent.AskWhereToSave(suggestedName(project))) }
+            return
+        }
+        _state.update { it.copy(saving = true, saveResult = null) }
+        viewModelScope.launch {
+            val stepSaving = steps[step]
+            val result = saveProject(project.id, _state.value.presets, target)
+            result.onSuccess {
+                savedTo = target
+                savedStep = stepSaving
+                showEdited()
+            }
+            val name = if (result.isSuccess) documents.nameOf(target) else null
+            _state.update {
+                it.copy(
+                    saving = false,
+                    saveResult = result.fold({ SaveResult.Saved(name) }, { e -> SaveResult.Failed(e.message ?: e.javaClass.simpleName) }),
+                )
+            }
+            if (leaveAfterSave) {
+                leaveAfterSave = false
+                if (result.isSuccess) _events.send(PrepareEvent.Left)
+            }
+        }
+    }
+
+    private fun saveThenLeave() {
+        leaveAfterSave = true
+        save(null)
+    }
+
+    private fun suggestedName(project: ProjectSummary): String {
+        // The file as opened, less the import's time stamp.
+        val file = project.sourcePath.substringAfterLast('/').substringBeforeLast('.').replace(Regex("^\\d+_"), "")
+        val base = file.ifBlank { project.objects.firstOrNull()?.name ?: "project" }
+        return "$base.3mf"
+    }
+
+    /** A desktop project brings the presets it was saved with: offered when they aren't the ones in use. */
+    private suspend fun offerSavedPresets(project: ProjectId) {
+        val vendor = picker.choices.value.vendor ?: return
+        val saved = projects.savedPresets(project, vendor).getOrNull() ?: return
+        val selection = saved.selection ?: return
+        val current = picker.choices.value.selection
+        val sameSelection = current != null && current.vendor == selection.vendor && current.printer == selection.printer &&
+            current.process == selection.process && current.filaments == selection.filaments
+        val currentChanges = printSettings.editsFor(selection)
+        if (sameSelection && currentChanges == saved.changes) return
+        _state.update { it.copy(projectPresets = saved) }
+    }
+
+    private fun useSavedPresets(use: Boolean) {
+        val saved = _state.value.projectPresets ?: return
+        _state.update { it.copy(projectPresets = null) }
+        val selection = saved.selection ?: return
+        if (!use) return
+        viewModelScope.launch {
+            picker.choose(selection)
+                .onSuccess { printSettings.replace(selection, saved.changes) }
+                .onFailure { e -> _state.update { it.copy(plateNotice = PlateNotice.Failed(e.message ?: e.javaClass.simpleName)) } }
+        }
+    }
+
+    private fun changePreset(change: PresetChange) {
+        viewModelScope.launch {
+            runCatching { switcher.request(change) }.onSuccess { prompt -> _state.update { it.copy(unsaved = prompt) } }
+        }
+    }
+
+    /** Makes the waiting preset change with [choice]; a save that fails asks again, saying why. */
+    private fun resolveUnsaved(choice: UnsavedChoice?) {
+        val prompt = _state.value.unsaved ?: return
+        _state.update { it.copy(unsaved = null) }
+        if (choice == null) return
+        viewModelScope.launch {
+            switcher.switch(prompt.change, choice).onFailure { error ->
+                _state.update { it.copy(unsaved = prompt.copy(error = error.message ?: error.javaClass.simpleName)) }
+            }
+        }
+    }
+
     fun onIntent(intent: PrepareIntent) {
         when (intent) {
             PrepareIntent.Slice -> startSlice()
@@ -119,9 +242,28 @@ class PrepareViewModel @Inject constructor(
                 plateTools.arrangeAllPlates(project, presets, _state.value.arrangeOptions)
             }
             is PrepareIntent.SelectVendor -> viewModelScope.launch { picker.selectVendor(intent.vendor) }
-            is PrepareIntent.SelectPrinter -> viewModelScope.launch { picker.selectPrinter(intent.printer) }
-            is PrepareIntent.SelectProcess -> viewModelScope.launch { picker.selectProcess(intent.process) }
-            is PrepareIntent.SelectFilament -> viewModelScope.launch { picker.selectFilament(intent.slot, intent.filament) }
+            is PrepareIntent.SelectPrinter -> changePreset(PresetChange.Printer(intent.printer))
+            is PrepareIntent.SelectProcess -> changePreset(PresetChange.Process(intent.process))
+            is PrepareIntent.SelectFilament -> changePreset(PresetChange.Filament(intent.slot, intent.filament))
+            is PrepareIntent.ResolveUnsaved -> resolveUnsaved(intent.choice)
+            PrepareIntent.Leave -> {
+                // The plate's edits are lost on leaving (projects aren't saved yet); settings changes can be kept.
+                val prompt = _state.value.let { LeavePrompt(it.changedSettings, it.plateEdited) }
+                if (prompt.settingsChanges > 0 || prompt.plateChanged) {
+                    _state.update { it.copy(leaving = prompt) }
+                } else {
+                    viewModelScope.launch { _events.send(PrepareEvent.Left) }
+                }
+            }
+            is PrepareIntent.ConfirmLeave -> confirmLeave(intent.choice)
+            is PrepareIntent.SaveProject -> save(intent.uri)
+            PrepareIntent.SaveProjectAs -> _state.value.project?.let { project ->
+                viewModelScope.launch { _events.send(PrepareEvent.AskWhereToSave(suggestedName(project))) }
+            }
+            // Asked where to save, and no document was chosen: no save, and no leaving after it.
+            PrepareIntent.SaveCancelled -> leaveAfterSave = false
+            PrepareIntent.DismissSaveResult -> _state.update { it.copy(saveResult = null) }
+            is PrepareIntent.UseProjectPresets -> useSavedPresets(intent.use)
             PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }
             is PrepareIntent.RemoveFilament -> removeFilament(intent.slot)
             is PrepareIntent.SetFilamentColour -> viewModelScope.launch { picker.setFilamentColour(intent.slot, intent.colour) }
@@ -221,6 +363,7 @@ class PrepareViewModel @Inject constructor(
                 plateTools.arrange(project, presets, _state.value.arrangeOptions)
             }
             is PrepareIntent.SetArrangeOptions -> _state.update { it.copy(arrangeOptions = intent.options) }
+            is PrepareIntent.ApplySliceFix -> applySliceFix(intent.fix)
             PrepareIntent.Orient -> {
                 val selected = _state.value.selected
                 runPlateTool(PlateTask.ORIENT) { project, presets ->
@@ -327,13 +470,17 @@ class PrepareViewModel @Inject constructor(
         val bed = _state.value.bed ?: DEFAULT_BED
         projects.load(modelPath).fold(
             { project ->
-                val (x, y) = bed.center
-                projects.centerOn(project.id, x, y)
+                // A project keeps its places, as the desktop opens one; a model goes in the middle.
+                if (!modelPath.endsWith(".3mf", ignoreCase = true)) {
+                    val (x, y) = bed.center
+                    projects.centerOn(project.id, x, y)
+                }
                 _state.update { it.copy(loading = false, project = project) }
                 // A desktop 3MF brings its plates.
                 plateTools.plates(project.id).onSuccess(::showPlates)
                 // The first step of the history: as opened.
                 projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory)
+                offerSavedPresets(project.id)
             },
             { error -> _state.update { it.copy(loading = false, error = error.message ?: "Could not open the model") } },
         )
@@ -552,10 +699,28 @@ class PrepareViewModel @Inject constructor(
 
     // --- undo and redo ------------------------------------------------------
 
+    // Which step of the history the plate shows, and which one was last saved (or opened):
+    // the plate is edited when they differ, as the desktop's dirty project.
+    private val steps = mutableListOf(0L)
+    private var step = 0
+    private var nextStep = 1L
+    private var savedStep = 0L
+
+    private fun showEdited() = _state.update { it.copy(plateEdited = steps[step] != savedStep) }
+
     /** Keeps the project as it is now as a step to come back to. */
     private fun recordHistory() {
         val project = _state.value.project ?: return
-        viewModelScope.launch { projects.history(project.id, HistoryAction.RECORD).onSuccess(::showHistory) }
+        viewModelScope.launch {
+            projects.history(project.id, HistoryAction.RECORD).onSuccess { history ->
+                showHistory(history)
+                // A new step: the ones that could be redone are gone.
+                while (steps.size > step + 1) steps.removeAt(steps.size - 1)
+                steps += nextStep++
+                step = steps.size - 1
+                showEdited()
+            }
+        }
     }
 
     private fun showHistory(history: HistoryState) {
@@ -572,6 +737,8 @@ class PrepareViewModel @Inject constructor(
             projects.history(project.id, action).onSuccess { history ->
                 showHistory(history)
                 if (history.changed) {
+                    step = (step + if (action == HistoryAction.UNDO) -1 else 1).coerceIn(0, steps.size - 1)
+                    showEdited()
                     val painting = start.paint != null
                     _state.update {
                         it.copy(
@@ -770,6 +937,21 @@ class PrepareViewModel @Inject constructor(
         done?.let { loadPreview(it.gcodePath) }
     }
 
+    private fun applySliceFix(fix: SliceFix) {
+        when (fix) {
+            SliceFix.TurnOnSupports -> viewModelScope.launch {
+                printSettings.set(_state.value.presets, "enable_support", "1")
+                startSlice()
+            }
+            is SliceFix.LayFlat -> {
+                onIntent(PrepareIntent.Select(InstanceRef(fix.objectIndex, 0)))
+                onIntent(PrepareIntent.Orient)
+            }
+            is SliceFix.Show -> onIntent(PrepareIntent.Select(InstanceRef(fix.objectIndex, 0)))
+            is SliceFix.OpenSetting -> Unit
+        }
+    }
+
     /** Counts the settings changes; a change after slicing makes the result stale, as moving an object does. */
     private suspend fun followSettingsChanges() {
         var previous: Map<String, String>? = null
@@ -777,7 +959,8 @@ class PrepareViewModel @Inject constructor(
         combine(printSettings.edits, presets) { edits, selection ->
             if (edits.appliesTo(selection)) edits.values else emptyMap()
         }.distinctUntilChanged().collect { changes ->
-            _state.update { it.copy(changedSettings = changes.size) }
+            val kinds = switcher.changedKinds(changes)
+            _state.update { it.copy(changedSettings = changes.size, modifiedKinds = kinds) }
             if (previous != null) dropAllResults()
             towerInputs.update { it + 1 }
             previous = changes
@@ -910,9 +1093,9 @@ class PrepareViewModel @Inject constructor(
     private fun SliceEvent.toUiState(): SliceUiState = when (this) {
         is SliceEvent.Progress -> SliceUiState.Running(percent, message)
         is SliceEvent.Finished -> when (val r = result) {
-            is SliceResult.Succeeded -> SliceUiState.Done(r.statistics, r.gcodePath)
+            is SliceResult.Succeeded -> SliceUiState.Done(r.statistics, r.gcodePath, r.warnings)
             SliceResult.Canceled -> SliceUiState.Canceled
-            is SliceResult.Failed -> SliceUiState.Failed(r.message)
+            is SliceResult.Failed -> SliceUiState.Failed(r.message, r.details)
         }
     }
 

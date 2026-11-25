@@ -3,6 +3,7 @@ package com.orcamobile.core.engine.di
 import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
+import com.orcamobile.core.domain.presets.PresetFileFormat
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.project.MeshEditor
 import com.orcamobile.core.domain.project.ObjectEditor
@@ -33,6 +34,9 @@ internal interface EngineModule {
 
     @Binds
     fun presetCatalog(impl: NativePresetCatalog): PresetCatalog
+
+    @Binds
+    fun presetFiles(impl: NativePresetCatalog): PresetFileFormat
 
     @Binds
     fun projects(impl: NativeProjectRepository): ProjectRepository

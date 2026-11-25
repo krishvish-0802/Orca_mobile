@@ -1,7 +1,7 @@
 package com.orcamobile.feature.prepare
 
-import com.orcamobile.core.designsystem.icon.OrcaIcons
-import androidx.compose.material3.FilledTonalIconButton
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -21,12 +21,17 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -42,15 +47,19 @@ import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -66,9 +75,14 @@ import com.orcamobile.core.designsystem.component.DropdownField
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.StatusCard
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.designsystem.component.UnsavedChangesDialog
+import com.orcamobile.core.designsystem.icon.OrcaIcons
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.model.BuildPlateSide
+import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.SimplifyTarget
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
@@ -83,8 +97,12 @@ import kotlin.math.roundToInt
 fun PrepareRoute(
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** The settings, opened on one of them (its key): a message's "Go to the setting". */
+    onOpenSetting: (String) -> Unit = { onOpenSettings() },
     /** The settings of an object (project id, object), or of one of its parts or height ranges. */
     onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
+    /** The settings with the Presets sheet up, to save the changes before leaving. */
+    onSavePresets: () -> Unit = onOpenSettings,
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
     cutTool: CutViewModel = hiltViewModel(),
@@ -96,6 +114,32 @@ fun PrepareRoute(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val list by objectList.state.collectAsStateWithLifecycle()
+    // Where to save the project: a new document the desktop opens.
+    val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(PROJECT_MIME)) { uri ->
+        viewModel.onIntent(if (uri != null) PrepareIntent.SaveProject(uri.toString()) else PrepareIntent.SaveCancelled)
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                PrepareEvent.Left -> onBack()
+                PrepareEvent.SaveChanges -> onSavePresets()
+                is PrepareEvent.AskWhereToSave -> saveAs.launch(event.suggestedName)
+            }
+        }
+    }
+    val androidContext = LocalContext.current
+    val savedText = stringResource(R.string.prepare_project_saved)
+    LaunchedEffect(state.saveResult) {
+        when (val result = state.saveResult) {
+            null -> return@LaunchedEffect
+            is SaveResult.Saved -> Toast.makeText(androidContext, result.name?.let { "$savedText: $it" } ?: savedText, Toast.LENGTH_SHORT).show()
+            is SaveResult.Failed -> Toast.makeText(androidContext, result.message, Toast.LENGTH_LONG).show()
+        }
+        viewModel.onIntent(PrepareIntent.DismissSaveResult)
+    }
+    state.projectPresets?.let { saved -> ProjectPresetsDialog(saved) { use -> viewModel.onIntent(PrepareIntent.UseProjectPresets(use)) } }
+    // The back gesture and the arrow both ask first when the presets have unsaved changes.
+    BackHandler { viewModel.onIntent(PrepareIntent.Leave) }
     val cut by cutTool.state.collectAsStateWithLifecycle()
 
     // The cut tool works on the selected object while the Prepare screen has it open.
@@ -295,8 +339,104 @@ fun PrepareRoute(
             val selection = state.selection ?: return@PrepareScreen
             onOpenObjectSettings(project.id.value, selection.objectIndex, volume, range)
         },
-        onBack = onBack,
+        onBack = { viewModel.onIntent(PrepareIntent.Leave) },
         onOpenSettings = onOpenSettings,
+        onOpenSetting = onOpenSetting,
+    )
+    state.leaving?.let { prompt -> LeaveDialog(prompt) { viewModel.onIntent(PrepareIntent.ConfirmLeave(it)) } }
+}
+
+/** Saving the project, as the desktop's File menu. */
+@Composable
+private fun ProjectMenu(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(Icons.Filled.MoreVert, contentDescription = stringResource(R.string.prepare_project_menu))
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.prepare_project_save)) },
+                enabled = state.project != null && !state.saving,
+                onClick = {
+                    open = false
+                    onIntent(PrepareIntent.SaveProject())
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.prepare_project_save_as)) },
+                enabled = state.project != null && !state.saving,
+                onClick = {
+                    open = false
+                    onIntent(PrepareIntent.SaveProjectAs)
+                },
+            )
+        }
+    }
+}
+
+/** A project file's presets and settings, offered on opening it. */
+@Composable
+private fun ProjectPresetsDialog(saved: ProjectPresets, onAnswer: (Boolean) -> Unit) {
+    val selection = saved.selection ?: return
+    AlertDialog(
+        onDismissRequest = { onAnswer(false) },
+        title = { Text(stringResource(R.string.prepare_project_presets_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    stringResource(
+                        R.string.prepare_project_presets_body,
+                        selection.printer,
+                        selection.process,
+                        selection.filaments.distinct().joinToString(),
+                    ),
+                )
+                if (saved.changes.isNotEmpty()) {
+                    Text(pluralStringResource(R.plurals.prepare_project_presets_changes, saved.changes.size, saved.changes.size))
+                }
+                saved.problems.forEach { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+            }
+        },
+        confirmButton = { TextButton(onClick = { onAnswer(true) }) { Text(stringResource(R.string.prepare_project_presets_use)) } },
+        dismissButton = { TextButton(onClick = { onAnswer(false) }) { Text(stringResource(R.string.prepare_project_presets_keep)) } },
+    )
+}
+
+/** What the desktop and file pickers take a project as. */
+private const val PROJECT_MIME = "model/3mf"
+
+/**
+ * Leaving with unsaved changes: the plate's edits will be lost; settings
+ * changes can be kept, discarded, or saved as presets first. Stay goes back.
+ */
+@Composable
+private fun LeaveDialog(prompt: LeavePrompt, onChoice: (LeaveChoice?) -> Unit) {
+    val settings = prompt.settingsChanges
+    AlertDialog(
+        onDismissRequest = { onChoice(null) },
+        title = { Text(stringResource(if (settings > 0) R.string.prepare_leave_title else R.string.prepare_leave_plate_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (prompt.plateChanged) Text(stringResource(R.string.prepare_leave_plate_body))
+                if (settings > 0) Text(pluralStringResource(R.plurals.prepare_leave_body, settings, settings))
+            }
+        },
+        confirmButton = {
+            Column(horizontalAlignment = Alignment.End) {
+                if (prompt.plateChanged) {
+                    TextButton(onClick = { onChoice(LeaveChoice.SAVE_PROJECT) }) { Text(stringResource(R.string.prepare_leave_save_project)) }
+                }
+                if (settings > 0) {
+                    TextButton(onClick = { onChoice(LeaveChoice.SAVE) }) { Text(stringResource(R.string.prepare_leave_save)) }
+                    TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_keep)) }
+                    TextButton(onClick = { onChoice(LeaveChoice.DISCARD) }) { Text(stringResource(R.string.prepare_leave_discard)) }
+                } else {
+                    TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_go)) }
+                }
+                TextButton(onClick = { onChoice(null) }) { Text(stringResource(R.string.prepare_leave_stay)) }
+            }
+        },
     )
 }
 
@@ -307,6 +447,7 @@ fun PrepareScreen(
     onIntent: (PrepareIntent) -> Unit,
     onBack: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSetting: (String) -> Unit = { onOpenSettings() },
     list: ObjectListUiState = ObjectListUiState(),
     onListIntent: (ObjectListIntent) -> Unit = {},
     cut: CutUiState = CutUiState(),
@@ -333,6 +474,7 @@ fun PrepareScreen(
                             Icon(Icons.Filled.Settings, contentDescription = stringResource(R.string.prepare_settings))
                         }
                     }
+                    ProjectMenu(state, onIntent)
                 },
             )
         },
@@ -562,7 +704,7 @@ fun PrepareScreen(
                 (state.preview as? PreviewUiState.Failed)?.let {
                     Text(stringResource(R.string.prepare_preview_failed, it.message), color = MaterialTheme.colorScheme.error)
                 }
-                SliceCard(state, onIntent)
+                SliceCard(state, onIntent, onOpenSetting)
                 if (state.slice is SliceUiState.Done) PrintHostCard(state.printHost, onIntent)
             }
         }
@@ -585,7 +727,12 @@ private fun PlateModeToggle(showingPreview: Boolean, onShowPreview: (Boolean) ->
 }
 
 /** Which preset list a choice sheet is open for. */
-private enum class PresetField { VENDOR, PRINTER, PROCESS, FILAMENT }
+private enum class PresetField(val kind: PresetKind?) {
+    VENDOR(null),
+    PRINTER(PresetKind.PRINTER),
+    PROCESS(PresetKind.PROCESS),
+    FILAMENT(PresetKind.FILAMENT),
+}
 
 /**
  * The presets the plate slices with, changeable right here: printer, process and
@@ -600,8 +747,18 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         PresetChip(stringResource(R.string.prepare_preset_vendor), choices.vendor, enabled = choices.vendors.isNotEmpty()) { choosing = PresetField.VENDOR }
-        PresetChip(stringResource(R.string.prepare_preset_printer), choices.printer, enabled = choices.printers.isNotEmpty()) { choosing = PresetField.PRINTER }
-        PresetChip(stringResource(R.string.prepare_preset_process), choices.process, enabled = choices.processes.isNotEmpty()) { choosing = PresetField.PROCESS }
+        PresetChip(
+            stringResource(R.string.prepare_preset_printer),
+            choices.printer,
+            enabled = choices.printers.isNotEmpty(),
+            modified = PresetKind.PRINTER in state.modifiedKinds,
+        ) { choosing = PresetField.PRINTER }
+        PresetChip(
+            stringResource(R.string.prepare_preset_process),
+            choices.process,
+            enabled = choices.processes.isNotEmpty(),
+            modified = PresetKind.PROCESS in state.modifiedKinds,
+        ) { choosing = PresetField.PROCESS }
         FilledTonalButton(onClick = onOpenSettings) {
             Icon(Icons.Filled.Settings, contentDescription = null, modifier = Modifier.size(18.dp))
             Text(
@@ -614,7 +771,7 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             )
         }
     }
-    FilamentBar(choices, onIntent)
+    FilamentBar(choices, onIntent, modified = PresetKind.FILAMENT in state.modifiedKinds)
     if (choices.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
     choices.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
@@ -643,12 +800,29 @@ private fun PresetBar(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, 
             },
             onDismiss = { if (choosing == field) choosing = null },
             searchHint = stringResource(R.string.prepare_search),
+            marked = field.kind?.let(choices::userNames).orEmpty(),
+            markLabel = stringResource(R.string.prepare_preset_yours),
         )
+    }
+    state.unsaved?.let { prompt ->
+        key(prompt) {
+            UnsavedChangesDialog(
+                changes = prompt.changes,
+                from = prompt.from,
+                to = prompt.to,
+                canSave = true,
+                error = prompt.error,
+                onKeep = { onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Keep)) },
+                onDiscard = { onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Discard)) },
+                onSave = { name -> onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Save(name))) },
+                onDismiss = { onIntent(PrepareIntent.ResolveUnsaved(null)) },
+            )
+        }
     }
 }
 
 @Composable
-private fun PresetChip(label: String, value: String?, enabled: Boolean, onClick: () -> Unit) {
+private fun PresetChip(label: String, value: String?, enabled: Boolean, modified: Boolean = false, onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         enabled = enabled,
@@ -656,7 +830,11 @@ private fun PresetChip(label: String, value: String?, enabled: Boolean, onClick:
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
     ) {
         Column(Modifier.widthIn(max = 220.dp).padding(horizontal = 16.dp, vertical = 8.dp)) {
-            Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+            Text(
+                if (modified) stringResource(R.string.prepare_preset_modified, label) else label,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
             Text(
                 value ?: stringResource(R.string.prepare_preset_none),
                 style = MaterialTheme.typography.bodyMedium,
@@ -718,7 +896,11 @@ private fun ToolpathColoring.labelRes(): Int = when (this) {
 }
 
 @Composable
-private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) {
+private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit, onOpenSetting: (String) -> Unit = {}) {
+    val onFix: (SliceFix) -> Unit = { fix ->
+        if (fix is SliceFix.OpenSetting) onOpenSetting(fix.key) else onIntent(PrepareIntent.ApplySliceFix(fix))
+    }
+    val objects = state.project?.objects.orEmpty()
     StatusCard(title = stringResource(R.string.prepare_slice_title)) {
         if (state.presets == null) {
             Text(stringResource(R.string.prepare_slice_no_presets), style = MaterialTheme.typography.bodySmall)
@@ -751,9 +933,16 @@ private fun SliceCard(state: PrepareUiState, onIntent: (PrepareIntent) -> Unit) 
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            is SliceUiState.Done -> SliceStatisticsView(slice.statistics)
+            is SliceUiState.Done -> {
+                SliceStatisticsView(slice.statistics)
+                SliceMessagesView(slice.warnings, objects, onFix)
+            }
             SliceUiState.Canceled -> Text(stringResource(R.string.prepare_slice_canceled))
-            is SliceUiState.Failed -> Text(slice.message, color = MaterialTheme.colorScheme.error)
+            is SliceUiState.Failed -> if (slice.details.isEmpty()) {
+                Text(slice.message, color = MaterialTheme.colorScheme.error)
+            } else {
+                SliceMessagesView(slice.details, objects, onFix)
+            }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             val running = state.slice is SliceUiState.Running

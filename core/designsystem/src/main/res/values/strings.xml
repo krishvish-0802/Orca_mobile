@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ds_unsaved_title">Keep your changes?</string>
+    <plurals name="ds_unsaved_body">
+        <item quantity="one">You changed %1$d setting of %2$s. Carry it over to %3$s, discard it, or save it as your own preset first?</item>
+        <item quantity="other">You changed %1$d settings of %2$s. Carry them over to %3$s, discard them, or save them as your own preset first?</item>
+    </plurals>
+    <string name="ds_unsaved_keep">Keep</string>
+    <string name="ds_unsaved_discard">Discard</string>
+    <string name="ds_unsaved_save">Save as preset</string>
+    <string name="ds_unsaved_save_title">Save as your preset</string>
+    <string name="ds_unsaved_name">Name</string>
+    <string name="ds_unsaved_copy_name">%1$s - Copy</string>
+    <string name="ds_unsaved_save_and_switch">Save and switch</string>
+    <string name="ds_unsaved_back">Back</string>
+</resources>

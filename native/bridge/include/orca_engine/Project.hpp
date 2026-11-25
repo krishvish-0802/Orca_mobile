@@ -9,7 +9,7 @@
 #include <string>
 #include <vector>
 
-namespace Slic3r { class Model; class ModelInstance; }
+namespace Slic3r { class Model; class ModelInstance; class DynamicPrintConfig; }
 
 namespace orca::engine {
 
@@ -299,6 +299,16 @@ public:
     Slic3r::Model plate_model_copy() const;
     // Runs `change` on the model and its plates under the project's lock.
     void edit_plates(const std::function<void(Slic3r::Model&, PlateMembership&)>& change);
+
+    // Saves the project as the desktop's project file (.3mf) at `path`: its
+    // objects with their parts, settings and paint, its plates (laid out apart,
+    // as the desktop has them) with their names and settings, and `config`, the
+    // full settings (project_settings.config). Throws std::runtime_error when
+    // the file can't be written.
+    void save(const std::string& path, const Slic3r::DynamicPrintConfig& config) const;
+    // The settings the project file was saved with (a desktop .3mf's), into
+    // `out`; false when it had none.
+    bool loaded_settings(Slic3r::DynamicPrintConfig& out) const;
 
     // A snapshot of the model, for the slicing pipeline inside the bridge.
     Slic3r::Model model_copy() const;

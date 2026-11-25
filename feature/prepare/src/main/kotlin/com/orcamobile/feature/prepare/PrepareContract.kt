@@ -1,29 +1,33 @@
 package com.orcamobile.feature.prepare
 
+import com.orcamobile.core.domain.presets.UnsavedChoice
+import com.orcamobile.core.domain.presets.UnsavedPrompt
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
+import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
 import com.orcamobile.core.model.InstanceTransform
+import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PaintBrush
 import com.orcamobile.core.model.PaintKind
-import com.orcamobile.core.model.EmbossTarget
 import com.orcamobile.core.model.PlateInfo
-import com.orcamobile.core.model.WipeTower
-import com.orcamobile.core.model.ModelObjectInfo
-import com.orcamobile.core.model.TransformEdit
-import com.orcamobile.core.viewport.HandleMode
 import com.orcamobile.core.model.PresetChoices
+import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.ProjectSummary
 import com.orcamobile.core.model.SimplifyCounts
 import com.orcamobile.core.model.SimplifySettings
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.WipeTower
+import com.orcamobile.core.viewport.HandleMode
 
 /** Everything the Prepare screen renders. Produced only by [PrepareViewModel]. */
 data class PrepareUiState(
@@ -43,6 +47,19 @@ data class PrepareUiState(
     val group: List<InstanceRef> = emptyList(),
     /** How many settings the user changed from the presets (see the settings screen). */
     val changedSettings: Int = 0,
+    /** A preset change waiting on what to do with the changed settings. */
+    val unsaved: UnsavedPrompt? = null,
+    /** The plate differs from when it was opened or last saved (the desktop's modified project). */
+    val plateEdited: Boolean = false,
+    val saving: Boolean = false,
+    /** How the last save went, until dismissed. */
+    val saveResult: SaveResult? = null,
+    /** A project file's presets, offered when they aren't the ones in use. */
+    val projectPresets: ProjectPresets? = null,
+    /** The kinds of preset with changed settings: their chips say so. */
+    val modifiedKinds: Set<PresetKind> = emptySet(),
+    /** Leaving with unsaved changes, while the screen asks. */
+    val leaving: LeavePrompt? = null,
     /** The app-wide preset choice, changed from the chips under the plate. */
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
@@ -212,11 +229,32 @@ sealed interface SliceUiState {
 
     data class Running(val percent: Int, val message: String) : SliceUiState
 
-    data class Done(val statistics: SliceStatistics, val gcodePath: String) : SliceUiState
+    /** Sliced; [warnings] are what the slicer would have the user know. */
+    data class Done(
+        val statistics: SliceStatistics,
+        val gcodePath: String,
+        val warnings: List<com.orcamobile.core.model.SliceMessage> = emptyList(),
+    ) : SliceUiState
 
     data object Canceled : SliceUiState
 
-    data class Failed(val message: String) : SliceUiState
+    /** Not sliced: [message], and per object in [details] with the warnings before it. */
+    data class Failed(val message: String, val details: List<com.orcamobile.core.model.SliceMessage> = emptyList()) : SliceUiState
+}
+
+/** A one-tap way to act on something the slicer said. */
+sealed interface SliceFix {
+    /** Turns supports on (the presets' change) and slices again. */
+    data object TurnOnSupports : SliceFix
+
+    /** Turns the object to its best side down (auto-orient). */
+    data class LayFlat(val objectIndex: Int) : SliceFix
+
+    /** Selects the object, to see it on the plate. */
+    data class Show(val objectIndex: Int) : SliceFix
+
+    /** Opens the setting the message is about (the screen navigates). */
+    data class OpenSetting(val key: String) : SliceFix
 }
 
 /** Sending the sliced G-code to a printer host. */
@@ -273,6 +311,31 @@ sealed interface PrepareIntent {
     /** Loads [filament] as filament [slot] + 1. */
     data class SelectFilament(val filament: String, val slot: Int = 0) : PrepareIntent
 
+    /** The answer to [PrepareUiState.unsaved]; null cancels the change. */
+    data class ResolveUnsaved(val choice: UnsavedChoice?) : PrepareIntent
+
+    /**
+     * Saves the project as a desktop .3mf: to the document [uri], or (null) where
+     * it was saved before, asking where when it never was.
+     */
+    data class SaveProject(val uri: String? = null) : PrepareIntent
+
+    data object SaveCancelled : PrepareIntent
+
+    /** Saves the project to a new document (asks where). */
+    data object SaveProjectAs : PrepareIntent
+
+    data object DismissSaveResult : PrepareIntent
+
+    /** The answer to [PrepareUiState.projectPresets]: use the project's presets and settings, or keep these. */
+    data class UseProjectPresets(val use: Boolean) : PrepareIntent
+
+    /** Back: asks first when the presets have unsaved changes. */
+    data object Leave : PrepareIntent
+
+    /** The answer to [PrepareUiState.leaving]; null stays. */
+    data class ConfirmLeave(val choice: LeaveChoice?) : PrepareIntent
+
     /** Adds a filament, a copy of the last. */
     data object AddFilament : PrepareIntent
 
@@ -292,6 +355,9 @@ sealed interface PrepareIntent {
 
     /** Turns the selected object, or every object when none is selected, to print with the least support. */
     data object Orient : PrepareIntent
+
+    /** Acts on something the slicer said ([SliceFix.OpenSetting] is the screen's). */
+    data class ApplySliceFix(val fix: SliceFix) : PrepareIntent
 
     /** Adds [count] copies of the selected object, or as many as fit when null. */
     data class AddCopies(val count: Int?) : PrepareIntent
@@ -416,3 +482,38 @@ sealed interface PrepareIntent {
 
 /** Navigation argument: the model file to open. */
 const val PREPARE_MODEL_PATH_ARG = "modelPath"
+
+/** What leaving would lose: [settingsChanges] unsaved settings changes, and the plate's edits when [plateChanged]. */
+data class LeavePrompt(val settingsChanges: Int, val plateChanged: Boolean)
+
+/** What to do with unsaved settings changes on leaving. */
+enum class LeaveChoice {
+    /** Leave; settings changes stay for the next slice (the plate's edits go). */
+    KEEP,
+
+    /** Take the presets back to how they are saved, then leave. */
+    DISCARD,
+
+    /** Save them as the user's presets first (on the settings screen). */
+    SAVE,
+
+    /** Save the project (plate and settings) first, then leave. */
+    SAVE_PROJECT,
+}
+
+sealed interface PrepareEvent {
+    data object Left : PrepareEvent
+
+    /** The settings screen, to save the changes as the user's presets. */
+    data object SaveChanges : PrepareEvent
+
+    /** Where to save the project: a new document, named [suggestedName] to start with. */
+    data class AskWhereToSave(val suggestedName: String) : PrepareEvent
+}
+
+sealed interface SaveResult {
+    /** Saved, as the document [name] when known. */
+    data class Saved(val name: String?) : SaveResult
+
+    data class Failed(val message: String) : SaveResult
+}

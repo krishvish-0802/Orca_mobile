@@ -23,17 +23,18 @@ DynamicPrintConfig ConfigBuilder::defaults()
 }
 
 DynamicPrintConfig ConfigBuilder::resolve(const std::optional<PresetSelection>& presets,
-                                         const std::map<std::string, std::string>& overrides, PresetCatalog* catalog)
+                                         const std::map<std::string, std::string>& overrides, PresetCatalog* catalog,
+                                         bool normalize)
 {
     if (!presets)
-        return build(defaults(), overrides, 1);
+        return build(defaults(), overrides, 1, normalize);
     if (catalog == nullptr)
         throw std::runtime_error("Presets were requested but no preset catalog is available");
-    return build(catalog->impl().compose(*presets), overrides, static_cast<int>(presets->filaments.size()));
+    return build(catalog->impl().compose(*presets), overrides, static_cast<int>(presets->filaments.size()), normalize);
 }
 
 DynamicPrintConfig ConfigBuilder::build(DynamicPrintConfig config, const std::map<std::string, std::string>& overrides,
-                                       int used_filaments)
+                                       int used_filaments, bool normalize)
 {
     for (const auto& [key, value] : overrides) {
         if (config.def()->get(key) == nullptr)
@@ -50,7 +51,8 @@ DynamicPrintConfig ConfigBuilder::build(DynamicPrintConfig config, const std::ma
     if (nozzle_volume_type->values.empty())
         nozzle_volume_type->values.assign(1, Slic3r::nvtStandard);
 
-    config.normalize_fdm(used_filaments);
+    if (normalize)
+        config.normalize_fdm(used_filaments);
     return config;
 }
 

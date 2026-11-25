@@ -11,7 +11,7 @@ android {
         applicationId = "com.orcamobile.app"
         // CI passes its run number, so each published build installs as an update.
         versionCode = providers.gradleProperty("orca.versionCode").orNull?.toInt() ?: 1
-        versionName = "0.2.0"
+        versionName = "0.3.0"
     }
 
     signingConfigs {
@@ -52,6 +52,7 @@ dependencies {
     implementation(project(":feature:home"))
     implementation(project(":feature:prepare"))
     implementation(project(":feature:settings"))
+    implementation(project(":feature:setup"))
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

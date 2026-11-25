@@ -4,6 +4,7 @@
 #include <filesystem>
 
 #include "ConfigBuilder.hpp"
+#include "SliceMessages.hpp"
 #include "WipeTower.hpp"
 #include "PresetCatalogImpl.hpp"
 #include "orca_engine/Project.hpp"
@@ -133,11 +134,15 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
         SliceJobAccess::ScopedAttach attached(cancel, print);
 
         print.apply(model, config);
-        const Slic3r::StringObjectException error = print.validate();
+        std::vector<Slic3r::StringObjectException> warnings;
+        const Slic3r::StringObjectException error = print.validate(&warnings);
         if (!error.string.empty()) {
+            detail::add_message(outcome.messages, detail::validation_message(error, SliceMessage::Level::Error));
             outcome.error = error.string;
             return outcome;
         }
+        for (const Slic3r::StringObjectException& warning : warnings)
+            detail::add_message(outcome.messages, detail::validation_message(warning, SliceMessage::Level::Warning));
         if (print.empty()) {
             outcome.error = "Nothing to slice: no object lies fully inside the print volume.";
             return outcome;
@@ -149,6 +154,8 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
         // named; a bare file name has an empty parent, so resolve it first.
         const std::string gcode_path = std::filesystem::absolute(request.output_gcode_path).string();
         print.export_gcode(gcode_path, &result, nullptr);
+        detail::add_step_warnings(print, outcome.messages);
+        detail::add_gcode_warnings(result, outcome.messages);
 
         outcome.status = SliceOutcome::Status::Succeeded;
         outcome.statistics = collect_statistics(print, result, gcode_path);
@@ -160,9 +167,13 @@ SliceOutcome slice_model(Slic3r::Model& model, bool center_on_bed, const SliceRe
         outcome.error = print.slicing_errors_message(e);
         if (outcome.error.empty())
             outcome.error = "Slicing failed";
+        detail::add_slicing_errors(print, e, outcome.messages);
+        detail::add_step_warnings(print, outcome.messages);
     } catch (const Slic3r::SlicingError& e) {
         outcome.status = SliceOutcome::Status::Failed;
         outcome.error = print.slicing_errors_message(Slic3r::SlicingErrors({e}));
+        detail::add_slicing_errors(print, Slic3r::SlicingErrors({e}), outcome.messages);
+        detail::add_step_warnings(print, outcome.messages);
     } catch (const std::exception& e) {
         outcome.status = SliceOutcome::Status::Failed;
         outcome.error = e.what();

@@ -1,17 +1,22 @@
 package com.orcamobile.feature.prepare
 
 import androidx.lifecycle.SavedStateHandle
+import com.orcamobile.core.domain.engine.ConfigOptionCatalog
 import com.orcamobile.core.domain.engine.PresetCatalog
 import com.orcamobile.core.domain.engine.SlicingEngine
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.model.WorkspaceRepository
 import com.orcamobile.core.domain.presets.PresetPicker
+import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.project.PlateEditor
+import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.project.ProjectRepository
+import com.orcamobile.core.domain.project.SaveProjectUseCase
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
@@ -19,22 +24,22 @@ import com.orcamobile.core.domain.usecase.SliceProjectUseCase
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.Axes
-import com.orcamobile.core.model.InstanceTransform
-import com.orcamobile.core.model.TransformEdit
-import com.orcamobile.core.model.TransformUpdate
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.CompatiblePresets
+import com.orcamobile.core.model.ConfigOption
 import com.orcamobile.core.model.EngineStatus
 import com.orcamobile.core.model.GCodePreviewSummary
 import com.orcamobile.core.model.InstanceRef
+import com.orcamobile.core.model.InstanceTransform
 import com.orcamobile.core.model.ModelObjectInfo
 import com.orcamobile.core.model.PlateAction
 import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.PlateInfo
 import com.orcamobile.core.model.PlateSettingKeys
-import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PlateUpdate
+import com.orcamobile.core.model.Plates
+import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
 import com.orcamobile.core.model.PrintHostConfig
@@ -50,20 +55,24 @@ import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceSource
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.ToolpathColoring
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertIs
-import kotlin.test.assertNull
-import kotlin.test.assertTrue
+import com.orcamobile.core.model.TransformEdit
+import com.orcamobile.core.model.TransformUpdate
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
+import kotlin.test.assertEquals
+import kotlin.test.assertFalse
+import kotlin.test.assertIs
+import kotlin.test.assertNotNull
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -99,6 +108,11 @@ class PrepareViewModelTest {
         override suspend fun load(path: String) = result
         override suspend fun centerOn(id: ProjectId, x: Double, y: Double) { centers += x to y }
         override fun release(id: ProjectId) = Unit
+        val saves = mutableListOf<Pair<String, PlateConfig>>()
+        override suspend fun save(id: ProjectId, path: String, config: PlateConfig): Result<Unit> {
+            saves += path to config
+            return Result.success(Unit)
+        }
     }
 
     private inner class FakePresets : PresetCatalog {
@@ -279,19 +293,34 @@ class PrepareViewModelTest {
         }
     }
 
-    private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository) = PrepareViewModel(
-        SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
-        projects,
-        printSettings,
-        previews,
-        FakePresets(),
-        PresetPicker(FakePresets(), settings),
-        settings,
-        SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
-        PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
-        TestPrintHostUseCase(hosts),
-        SendGcodeUseCase(hosts),
-    )
+
+    /** Which settings each kind of preset holds; the presets give the defaults. */
+    private val optionCatalog = object : ConfigOptionCatalog {
+        override suspend fun describe(keys: List<String>) = Result.success(emptyList<ConfigOption>())
+        override suspend fun values(selection: PresetSelection?, keys: List<String>) =
+            Result.success(mapOf("layer_height" to "0.2").filterKeys { it in keys })
+        override suspend fun presetOptionKeys() = Result.success(PresetOptionKeys(listOf("layer_height"), emptyList(), emptyList()))
+    }
+
+    private fun viewModel(projects: ProjectRepository, settings: UserSettingsRepository): PrepareViewModel {
+        val picker = PresetPicker(FakePresets(), settings)
+        return PrepareViewModel(
+            SavedStateHandle(mapOf(PREPARE_MODEL_PATH_ARG to "/models/benchy.stl")),
+            projects,
+            printSettings,
+            previews,
+            FakePresets(),
+            picker,
+            settings,
+            SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
+            PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
+            TestPrintHostUseCase(hosts),
+            SendGcodeUseCase(hosts),
+            PresetSwitcher(picker, printSettings, optionCatalog),
+            SaveProjectUseCase(projects, PlateConfigResolver(printSettings), documents),
+            documents,
+        )
+    }
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -448,6 +477,47 @@ class PrepareViewModelTest {
         assertEquals(150.0 to 150.0, projects.centers.last())
         assertEquals(1, state.plateRevision)
         assertEquals(SliceUiState.Idle, state.slice)
+    }
+
+    @Test
+    fun `another process asks about the changes to the one left, and keeps or drops them`() {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        kotlinx.coroutines.runBlocking { printSettings.set(selection, "layer_height", "0.12") }
+
+        vm.onIntent(PrepareIntent.SelectProcess("0.12mm Fine"))
+        val prompt = assertNotNull(vm.state.value.unsaved)
+        assertEquals(1, prompt.changes)
+        assertEquals(selection.process, vm.state.value.presets?.process)
+
+        vm.onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Keep))
+        assertNull(vm.state.value.unsaved)
+        assertEquals("0.12mm Fine", vm.state.value.presets?.process)
+        assertEquals(mapOf("layer_height" to "0.12"), printSettings.state.value.values)
+        assertEquals("0.12mm Fine", printSettings.state.value.selection?.process)
+
+        vm.onIntent(PrepareIntent.SelectProcess(selection.process))
+        vm.onIntent(PrepareIntent.ResolveUnsaved(UnsavedChoice.Discard))
+        assertEquals(selection.process, vm.state.value.presets?.process)
+        assertEquals(emptyMap(), printSettings.state.value.values)
+    }
+
+    @Test
+    fun `leaving with unsaved settings changes asks, and discarding drops them`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(PrepareEvent.Left, vm.events.first())
+
+        printSettings.set(selection, "layer_height", "0.12")
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(LeavePrompt(settingsChanges = 1, plateChanged = false), vm.state.value.leaving)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.SAVE))
+        assertEquals(PrepareEvent.SaveChanges, vm.events.first())
+        assertNull(vm.state.value.leaving)
+
+        vm.onIntent(PrepareIntent.Leave)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.DISCARD))
+        assertEquals(PrepareEvent.Left, vm.events.first())
+        assertEquals(emptyMap(), printSettings.state.value.values)
     }
 
     @Test
@@ -847,6 +917,59 @@ class PrepareViewModelTest {
         assertTrue(vm.state.value.canUndo)
         assertFalse(vm.state.value.canRedo)
         assertNull(vm.state.value.plateTask)
+    }
+
+    /** Documents the user picks: what each holds once written. */
+    private val documents = object : ProjectDocuments {
+        val written = mutableMapOf<String, String>()
+        override suspend fun scratchFile(name: String) = "/cache/$name"
+        override suspend fun copyTo(localPath: String, uri: String): Result<Unit> {
+            written[uri] = localPath
+            return Result.success(Unit)
+        }
+        override suspend fun nameOf(uri: String) = uri.substringAfterLast('/')
+    }
+
+    @Test
+    fun `the project is saved where the user says, then again there, and leaving after saving doesn't ask`() = kotlinx.coroutines.test.runTest {
+        val projects = FakeProjects(Result.success(project))
+        val vm = viewModel(projects, FakeSettings(selection))
+        assertFalse(vm.state.value.plateEdited)
+        vm.onIntent(PrepareIntent.Arrange)
+        assertTrue(vm.state.value.plateEdited)
+
+        // Never saved: asks where.
+        vm.onIntent(PrepareIntent.SaveProject())
+        assertEquals(PrepareEvent.AskWhereToSave("benchy.3mf"), vm.events.first())
+        vm.onIntent(PrepareIntent.SaveProject("content://docs/benchy.3mf"))
+        assertEquals("/cache/project.3mf", documents.written["content://docs/benchy.3mf"])
+        assertEquals(selection, projects.saves.single().second.presets)
+        assertFalse(vm.state.value.plateEdited)
+        assertEquals(SaveResult.Saved("benchy.3mf"), vm.state.value.saveResult)
+
+        // Edited again; leaving offers to save, which goes where it went before.
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(LeavePrompt(settingsChanges = 0, plateChanged = true), vm.state.value.leaving)
+        vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.SAVE_PROJECT))
+        assertEquals(PrepareEvent.Left, vm.events.first())
+        assertEquals(2, projects.saves.size)
+    }
+
+    @Test
+    fun `leaving after editing the plate warns the edits will be lost`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(LeavePrompt(settingsChanges = 0, plateChanged = true), vm.state.value.leaving)
+        // Stay.
+        vm.onIntent(PrepareIntent.ConfirmLeave(null))
+        assertNull(vm.state.value.leaving)
+
+        // Undone back to how it opened: nothing to lose.
+        vm.onIntent(PrepareIntent.Undo)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(PrepareEvent.Left, vm.events.first())
     }
 
     @Test

@@ -21,9 +21,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -40,13 +42,17 @@ import com.orcamobile.core.designsystem.component.ListRow
 import com.orcamobile.core.designsystem.component.PrimaryPillButton
 import com.orcamobile.core.designsystem.component.SectionHeader
 import com.orcamobile.core.designsystem.component.TonalPillButton
+import com.orcamobile.core.designsystem.component.UnsavedChangesDialog
 import com.orcamobile.core.designsystem.theme.OrcaTheme
+import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.model.EngineInfo
+import com.orcamobile.core.model.PresetKind
 
 @Composable
 fun HomeRoute(
     onOpenModel: (path: String) -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenSetup: () -> Unit,
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -59,6 +65,7 @@ fun HomeRoute(
         viewModel.events.collect { event ->
             when (event) {
                 is HomeEvent.OpenModel -> onOpenModel(event.path)
+                HomeEvent.OpenSetup -> onOpenSetup()
             }
         }
     }
@@ -71,14 +78,26 @@ fun HomeRoute(
         onIntent = viewModel::onIntent,
         onPickModel = { picker.launch(arrayOf("*/*")) },
         onOpenSettings = onOpenSettings,
+        onOpenSetup = onOpenSetup,
     )
 }
 
 /** Which preset list a choice sheet is open for. */
-private enum class PresetField { VENDOR, PRINTER, PROCESS, FILAMENT }
+private enum class PresetField(val kind: PresetKind?) {
+    VENDOR(null),
+    PRINTER(PresetKind.PRINTER),
+    PROCESS(PresetKind.PROCESS),
+    FILAMENT(PresetKind.FILAMENT),
+}
 
 @Composable
-fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: () -> Unit, onOpenSettings: () -> Unit) {
+fun HomeScreen(
+    state: HomeUiState,
+    onIntent: (HomeIntent) -> Unit,
+    onPickModel: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenSetup: () -> Unit = {},
+) {
     var choosing by rememberSaveable { mutableStateOf<PresetField?>(null) }
     Scaffold { padding ->
         Column(
@@ -93,7 +112,7 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             UpdateCard(state.update, onIntent)
             if (state.engine is EngineUiState.Ready) {
                 StartCard(state, onIntent, onPickModel)
-                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings)
+                PrinterSection(state.printerSetup, onChoose = { choosing = it }, onOpenSettings = onOpenSettings, onOpenSetup = onOpenSetup)
             }
         }
     }
@@ -121,7 +140,24 @@ fun HomeScreen(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPickModel: 
             },
             onDismiss = { choosing = null },
             searchHint = stringResource(R.string.home_search),
+            marked = field.kind?.let(setup::userNames).orEmpty(),
+            markLabel = stringResource(R.string.home_preset_yours),
         )
+    }
+    state.unsaved?.let { prompt ->
+        key(prompt) {
+            UnsavedChangesDialog(
+                changes = prompt.changes,
+                from = prompt.from,
+                to = prompt.to,
+                canSave = true,
+                error = prompt.error,
+                onKeep = { onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Keep)) },
+                onDiscard = { onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Discard)) },
+                onSave = { name -> onIntent(HomeIntent.ResolveUnsaved(UnsavedChoice.Save(name))) },
+                onDismiss = { onIntent(HomeIntent.ResolveUnsaved(null)) },
+            )
+        }
     }
 }
 
@@ -181,7 +217,7 @@ private fun StartCard(state: HomeUiState, onIntent: (HomeIntent) -> Unit, onPick
 }
 
 @Composable
-private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -> Unit, onOpenSettings: () -> Unit) {
+private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -> Unit, onOpenSettings: () -> Unit, onOpenSetup: () -> Unit) {
     SectionHeader(stringResource(R.string.home_printer_title))
     val notChosen = stringResource(R.string.home_not_chosen)
     val chevron: @Composable RowScope.() -> Unit = {
@@ -222,6 +258,7 @@ private fun PrinterSection(setup: PrinterSetupUiState, onChoose: (PresetField) -
             trailing = chevron,
         )
     }
+    TextButton(onClick = onOpenSetup) { Text(stringResource(R.string.home_run_setup)) }
 }
 
 @Preview

@@ -5,9 +5,12 @@ import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.engine.jni.NativeEngine
 import com.orcamobile.core.model.HistoryAction
 import com.orcamobile.core.model.HistoryState
+import com.orcamobile.core.model.PlateConfig
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.ProjectSummary
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.jsonPrimitive
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -43,6 +46,25 @@ class NativeProjectRepository @Inject constructor(
         runCatching {
             val handle = registry.handleOf(id) ?: throw EngineException("The model is no longer loaded")
             EngineJson.history(NativeEngine.nativeProjectHistory(handle, action.nativeValue)).getOrThrow()
+        }
+    }
+
+    override suspend fun save(id: ProjectId, path: String, config: PlateConfig): Result<Unit> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(id) ?: throw EngineException("The model is no longer loaded")
+            environment.ensureInitialized()
+            val keys = config.overrides.keys.toTypedArray()
+            val values = keys.map { config.overrides.getValue(it) }.toTypedArray()
+            val result = EngineJson.parse(NativeEngine.nativeProjectSave(handle, path, EngineJson.encode(config.presets), keys, values))
+            result["error"]?.jsonPrimitive?.content?.let { throw EngineException(it) }
+            Unit
+        }
+    }
+
+    override suspend fun savedPresets(id: ProjectId, vendor: String): Result<ProjectPresets?> = withContext(dispatchers.io) {
+        runCatching {
+            val handle = registry.handleOf(id) ?: throw EngineException("The model is no longer loaded")
+            EngineJson.projectPresets(NativeEngine.nativeProjectPresets(handle, vendor))
         }
     }
 

@@ -37,7 +37,8 @@ private const val SEARCH_THRESHOLD = 8
 
 /**
  * Picks one of [options] in a bottom sheet, as a grouped list with radio
- * buttons; long lists get a search field. Choosing closes the sheet.
+ * buttons; long lists get a search field. Choosing closes the sheet. The
+ * [marked] options (the user's own presets) come first, labelled [markLabel].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,10 +49,13 @@ fun ChoiceSheet(
     onSelect: (String) -> Unit,
     onDismiss: () -> Unit,
     searchHint: String = "Search",
+    marked: Set<String> = emptySet(),
+    markLabel: String? = null,
 ) {
     var query by remember { mutableStateOf("") }
-    val shown = remember(options, query) {
-        if (query.isBlank()) options else options.filter { it.contains(query.trim(), ignoreCase = true) }
+    val shown = remember(options, query, marked) {
+        val ordered = options.sortedBy { it !in marked }
+        if (query.isBlank()) ordered else ordered.filter { it.contains(query.trim(), ignoreCase = true) }
     }
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Column(
@@ -92,7 +96,12 @@ fun ChoiceSheet(
                                 .padding(horizontal = 16.dp, vertical = 8.dp),
                         ) {
                             RadioButton(selected = option == selected, onClick = null)
-                            Text(option, modifier = Modifier.padding(start = 16.dp))
+                            Column(Modifier.padding(start = 16.dp)) {
+                                Text(option)
+                                if (option in marked && markLabel != null) {
+                                    Text(markLabel, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                                }
+                            }
                         }
                     }
                 }

@@ -10,6 +10,7 @@ import com.orcamobile.core.model.ObjectEdit
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.ProjectId
+import com.orcamobile.core.model.RulesScope
 import com.orcamobile.core.model.SettingTarget
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -42,6 +43,12 @@ interface SettingsSource {
     /** The changes made here, as they change. */
     val changes: Flow<Map<String, String>>
 
+    /** Where the desktop's rules between settings see these changes made. */
+    val rulesScope: RulesScope get() = RulesScope.GLOBAL
+
+    /** Settings under the changes made here, over the presets (for the rules). */
+    suspend fun rulesBase(): Map<String, String> = emptyMap()
+
     suspend fun set(key: String, value: String)
 
     suspend fun reset(key: String)
@@ -51,7 +58,11 @@ interface SettingsSource {
 
 /** What the settings screen opens on: the presets, or a target in a loaded project's object. */
 sealed interface SettingsArgs {
-    data object Presets : SettingsArgs
+    /** The setting (its key) to open on; null for none. */
+    val focus: String? get() = null
+
+    /** [save]: opened to save the changes (the Presets sheet up). */
+    data class Presets(override val focus: String? = null, val save: Boolean = false) : SettingsArgs
 
     data class Object(val project: ProjectId, val objectIndex: Int, val target: SettingTarget) : SettingsArgs
 }
@@ -67,7 +78,7 @@ class SettingsSourceFactory @Inject constructor(
     suspend fun create(args: SettingsArgs): SettingsSource {
         val presets = userSettings.presetSelection()
         return when (args) {
-            SettingsArgs.Presets -> PresetSettingsSource(presets, catalog, printSettings)
+            is SettingsArgs.Presets -> PresetSettingsSource(presets, catalog, printSettings)
             is SettingsArgs.Object -> ObjectSettingsSource.load(args, presets, catalog, configs, objects)
         }
     }
@@ -125,6 +136,14 @@ internal class ObjectSettingsSource private constructor(
     }
 
     override val changes: Flow<Map<String, String>> = details.map { settingsOf(it) }
+
+    override val rulesScope: RulesScope = RulesScope.OBJECT
+
+    override suspend fun rulesBase(): Map<String, String> {
+        val edits = configs.configFor(presets).overrides
+        val objectValues = if (target == SettingTarget.OBJECT) emptyMap() else details.value.settings
+        return edits + objectValues
+    }
 
     override suspend fun set(key: String, value: String) = apply(ObjectEdit.SetSetting(target, key, value))
 

@@ -50,6 +50,12 @@ internal object NativeEngine {
 
     @JvmStatic external fun nativeProjectRelease(handle: Long)
 
+    /** Saves the project as a desktop .3mf at [path] with the settings of [presetsJson] and [keys] = [values]: `{}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectSave(handle: Long, path: String, presetsJson: String, keys: Array<String>, values: Array<String>): String
+
+    /** The presets the project file was saved with, over [vendor]'s: `{"selection": {..} | null, "changes": {..}, "problems": [..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeProjectPresets(handle: Long, vendor: String): String
+
     /**
      * Reads an instance's transform, after the change in [editJson] when not empty
      * (see native/bridge/jni/ProjectJni.cpp): `{"transform":{..},"objects":[..]}` or `{"error": ...}`.
@@ -192,6 +198,28 @@ internal object NativeEngine {
 
     /** `{"values":{...}}` of [keys] for a preset selection, or the engine defaults for an empty one. */
     @JvmStatic external fun nativeConfigValues(presetSelectionJson: String, keys: Array<String>): String
+
+    /**
+     * The desktop's rules between settings (OptionRules.hpp) for a preset selection
+     * (or "" for the engine defaults) with [keys] = [values] over it, at [scope]
+     * (RulesScope), showing filament slot [filament]. `{"error"}` on failure.
+     */
+    @JvmStatic external fun nativeReviewSettings(
+        presetSelectionJson: String,
+        keys: Array<String>,
+        values: Array<String>,
+        scope: Int,
+        filament: Int,
+    ): String
+
+    /** The user's presets (see PresetCatalog::set_user_presets): `[{"kind","name","inherits","values"}]`. `{}` or `{"error"}`. */
+    @JvmStatic external fun nativeSetUserPresets(presetsJson: String): String
+
+    /** The user presets in the desktop preset file at [path], over [vendor]'s (PresetFiles.hpp): `{"presets": [..], "problems": [..]}` or `{"error"}`. */
+    @JvmStatic external fun nativeReadPresetFile(vendor: String, path: String): String
+
+    /** A user preset `{"kind","name","inherits","values"}` as the desktop saves one: `{"json": text}` or `{"error"}`. */
+    @JvmStatic external fun nativeUserPresetJson(presetJson: String): String
 
     @JvmStatic external fun nativeCreateCancelToken(): Long
 

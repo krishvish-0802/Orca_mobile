@@ -1,6 +1,8 @@
 package com.orcamobile.feature.settings
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +28,10 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +44,7 @@ import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -58,6 +63,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
@@ -79,14 +85,27 @@ import java.util.Locale
 @Composable
 fun SettingsRoute(onBack: () -> Unit, viewModel: SettingsViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    SettingsScreen(state, viewModel::onIntent, onBack)
+    LaunchedEffect(viewModel) {
+        viewModel.events.collect { event ->
+            when (event) {
+                SettingsEvent.Left -> onBack()
+            }
+        }
+    }
+    // The back gesture and the arrow both ask first when this visit changed settings.
+    BackHandler { viewModel.onIntent(SettingsIntent.Leave) }
+    SettingsScreen(state, viewModel::onIntent, onBack = { viewModel.onIntent(SettingsIntent.Leave) })
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, onBack: () -> Unit) {
     var editing by rememberSaveable { mutableStateOf<String?>(null) }
+    // Opened on a setting: its editor.
+    LaunchedEffect(state.focus) { state.focus?.let { editing = it } }
     var searchOpen by rememberSaveable { mutableStateOf(false) }
+    var presetsOpen by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.openSaving) { if (state.openSaving) presetsOpen = true }
 
     Scaffold(
         topBar = {
@@ -136,6 +155,9 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                             IconButton(onClick = { searchOpen = true }) {
                                 Icon(Icons.Filled.Search, contentDescription = stringResource(R.string.settings_search))
                             }
+                            if (state.presets != null && state.subject == null) {
+                                TextButton(onClick = { presetsOpen = true }) { Text(stringResource(R.string.settings_presets)) }
+                            }
                             if (state.changedCount > 0) {
                                 TextButton(onClick = { onIntent(SettingsIntent.ResetAll) }) { Text(stringResource(R.string.settings_reset_all)) }
                             }
@@ -180,6 +202,10 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
                     ),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
+                    if (state.notices.isNotEmpty()) {
+                        item(key = "notices") { NoticesCard(state.notices) { onIntent(SettingsIntent.DismissNotices) } }
+                    }
+                    items(state.checks, key = { "check/${it.id}" }) { check -> CheckCard(check, onIntent) }
                     if (state.searching && groups.isEmpty()) {
                         item { Text(stringResource(R.string.settings_search_empty), color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
@@ -201,6 +227,25 @@ fun SettingsScreen(state: SettingsUiState, onIntent: (SettingsIntent) -> Unit, o
 
     val open = editing?.let { key -> (state.pages.flatMap { it.groups } + state.results).flatMap { it.rows }.firstOrNull { it.option.key == key } }
     if (open != null) SettingSheet(row = open, onIntent = onIntent, onDismiss = { editing = null })
+    if (presetsOpen) PresetsSheet(state, onIntent, onDismiss = { presetsOpen = false })
+    state.leaving?.let { count ->
+        AlertDialog(
+            onDismissRequest = { onIntent(SettingsIntent.ConfirmLeave(null)) },
+            title = { Text(stringResource(R.string.settings_leave_title)) },
+            text = { Text(pluralStringResource(R.plurals.settings_leave_body, count, count)) },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        onIntent(SettingsIntent.ConfirmLeave(null))
+                        presetsOpen = true
+                    }) { Text(stringResource(R.string.settings_leave_save)) }
+                    TextButton(onClick = { onIntent(SettingsIntent.ConfirmLeave(true)) }) { Text(stringResource(R.string.settings_leave_keep)) }
+                    TextButton(onClick = { onIntent(SettingsIntent.ConfirmLeave(false)) }) { Text(stringResource(R.string.settings_leave_discard)) }
+                }
+            },
+        )
+    }
+    state.comparison?.let { ComparePresetsSheet(it, onIntent) }
 }
 
 /** Process / Filament / Printer, the pages of the chosen one, and the level of detail. */
@@ -219,6 +264,21 @@ private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Uni
                     ) {
                         Text(stringResource(kindLabel(kind)) + if (changed > 0) " · $changed" else "", maxLines = 1)
                     }
+                }
+            }
+        }
+        if (state.kind == PresetKind.FILAMENT && state.filamentSlots.size > 1) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                state.filamentSlots.forEachIndexed { index, preset ->
+                    FilterChip(
+                        selected = state.filamentSlot == index,
+                        onClick = { onIntent(SettingsIntent.SelectFilamentSlot(index)) },
+                        label = { Text(stringResource(R.string.settings_filament_slot, index + 1) + " · " + preset, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                        modifier = Modifier.widthIn(max = 240.dp),
+                    )
                 }
             }
         }
@@ -263,11 +323,16 @@ private fun TabsHeader(state: SettingsUiState, onIntent: (SettingsIntent) -> Uni
 private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onOpen: () -> Unit) {
     val option = row.option
     val isSwitch = option.type == OptionType.BOOL || option.type == OptionType.BOOLS
-    val supporting = if (row.changed) stringResource(R.string.settings_changed, displayValue(row.presetValue, row)) else null
+    // Greyed out: why, in the desktop's words, in place of the preset value.
+    val supporting = row.reason
+        ?: if (row.changed) stringResource(R.string.settings_changed, displayValue(row.presetValue, row)) else null
     ListRow(
-        title = option.label,
+        title = row.label ?: option.label,
         supporting = supporting,
-        onClick = if (isSwitch && !SettingValues.isUnset(option, row.value)) {
+        enabled = row.enabled,
+        onClick = if (!row.enabled) {
+            null
+        } else if (isSwitch && !SettingValues.isUnset(option, row.value, row.slot)) {
             { onIntent(SettingsIntent.Edit(option.key, if (checked(row)) "0" else "1")) }
         } else {
             onOpen
@@ -278,8 +343,12 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
                     Icon(Icons.Filled.Refresh, contentDescription = stringResource(R.string.settings_reset), modifier = Modifier.size(20.dp))
                 }
             }
-            if (isSwitch && !SettingValues.isUnset(option, row.value)) {
-                Switch(checked = checked(row), onCheckedChange = { onIntent(SettingsIntent.Edit(option.key, if (it) "1" else "0")) })
+            if (isSwitch && !SettingValues.isUnset(option, row.value, row.slot)) {
+                Switch(
+                    checked = checked(row),
+                    onCheckedChange = { onIntent(SettingsIntent.Edit(option.key, if (it) "1" else "0")) },
+                    enabled = row.enabled,
+                )
             } else {
                 Text(
                     displayValue(row.value, row),
@@ -294,16 +363,49 @@ private fun SettingRowItem(row: SettingRow, onIntent: (SettingsIntent) -> Unit, 
     )
 }
 
-private fun checked(row: SettingRow) = SettingValues.editable(row.option, row.value) == "1"
+private fun checked(row: SettingRow) = SettingValues.editable(row.option, row.value, row.slot) == "1"
+
+/** What the rules changed on their own, and why. */
+@Composable
+private fun NoticesCard(notices: List<String>, onDismiss: () -> Unit) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.secondaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(stringResource(R.string.settings_notices_title), style = MaterialTheme.typography.titleSmall)
+            for (notice in notices) Text(notice, style = MaterialTheme.typography.bodyMedium)
+            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text(stringResource(R.string.settings_problem_ok)) }
+        }
+    }
+}
+
+/** A conflict between settings, and the ways out of it (the first is recommended). */
+@Composable
+private fun CheckCard(check: com.orcamobile.core.model.SettingsCheck, onIntent: (SettingsIntent) -> Unit) {
+    Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.tertiaryContainer) {
+        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(check.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onTertiaryContainer)
+            check.fixes.forEachIndexed { index, fix ->
+                if (index == 0) {
+                    com.orcamobile.core.designsystem.component.PrimaryPillButton(
+                        fix.label, onClick = { onIntent(SettingsIntent.ApplyFix(fix)) }, modifier = Modifier.fillMaxWidth(),
+                    )
+                } else {
+                    com.orcamobile.core.designsystem.component.TonalPillButton(
+                        fix.label, onClick = { onIntent(SettingsIntent.ApplyFix(fix)) }, modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+    }
+}
 
 @Composable
 private fun displayValue(serialized: String, row: SettingRow): String {
     val option = row.option
-    if (SettingValues.isUnset(option, serialized)) return stringResource(R.string.settings_unset)
+    if (SettingValues.isUnset(option, serialized, row.slot)) return stringResource(R.string.settings_unset)
     if (option.type == OptionType.BOOL || option.type == OptionType.BOOLS) {
-        return stringResource(if (SettingValues.editable(option, serialized) == "1") R.string.settings_on else R.string.settings_off)
+        return stringResource(if (SettingValues.editable(option, serialized, row.slot) == "1") R.string.settings_on else R.string.settings_off)
     }
-    val text = SettingValues.display(option, serialized)
+    val text = SettingValues.display(option, serialized, row.slot)
     return text.ifEmpty { stringResource(R.string.settings_empty) }
 }
 
@@ -343,7 +445,7 @@ private fun SettingSheet(row: SettingRow, onIntent: (SettingsIntent) -> Unit, on
 @Composable
 private fun SwitchEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onDismiss: () -> Unit) {
     val choices = listOf("1" to stringResource(R.string.settings_on), "0" to stringResource(R.string.settings_off))
-    val current = if (SettingValues.isUnset(row.option, row.value)) SettingValues.UNSET else SettingValues.editable(row.option, row.value)
+    val current = if (SettingValues.isUnset(row.option, row.value, row.slot)) SettingValues.UNSET else SettingValues.editable(row.option, row.value, row.slot)
     ListGroup(items = choices + if (row.option.nullable) listOf(SettingValues.UNSET to stringResource(R.string.settings_unset)) else emptyList()) { (value, label) ->
         RadioRow(label, selected = value == current) {
             onIntent(SettingsIntent.Edit(row.option.key, value))
@@ -354,8 +456,8 @@ private fun SwitchEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, on
 
 @Composable
 private fun ChoiceList(row: SettingRow, onChoose: (String) -> Unit) {
-    val current = SettingValues.editable(row.option, row.value)
-    val preset = SettingValues.editable(row.option, row.presetValue)
+    val current = SettingValues.editable(row.option, row.value, row.slot)
+    val preset = SettingValues.editable(row.option, row.presetValue, row.slot)
     ListGroup(items = row.option.choices) { choice ->
         RadioRow(choice.label, selected = choice.value == current, note = stringResource(R.string.settings_preset_choice).takeIf { choice.value == preset && preset != current }) {
             onChoose(choice.value)
@@ -384,8 +486,8 @@ private fun RadioRow(label: String, selected: Boolean, note: String? = null, onC
 @Composable
 private fun ValueEditor(row: SettingRow, onIntent: (SettingsIntent) -> Unit, onDismiss: () -> Unit) {
     val option = row.option
-    val unset = SettingValues.isUnset(option, row.value)
-    var text by remember(option.key) { mutableStateOf(if (unset) "" else SettingValues.editable(option, row.value)) }
+    val unset = SettingValues.isUnset(option, row.value, row.slot)
+    var text by remember(option.key) { mutableStateOf(if (unset) "" else SettingValues.editable(option, row.value, row.slot)) }
     val problem = SettingValues.problem(option, text)
     val multiline = option.multiline || text.contains('\n')
     val keyboard = when (option.type) {

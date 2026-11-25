@@ -25,7 +25,9 @@ import com.orcamobile.core.model.Plates
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PreviewId
+import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.SettingTarget
+import com.orcamobile.core.model.SliceMessage
 import com.orcamobile.core.model.SliceResult
 import com.orcamobile.core.model.SliceStatistics
 import com.orcamobile.core.model.TransformEdit
@@ -38,10 +40,13 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -58,13 +63,32 @@ internal object EngineJson {
 
     fun sliceResult(payload: String, gcodePath: String): SliceResult {
         val dto = json.decodeFromString<SliceOutcomeDto>(payload)
+        val messages = dto.messages.map { it.toModel() }
         return when (dto.status) {
-            "succeeded" -> dto.statistics?.let { SliceResult.Succeeded(gcodePath, it.toModel()) }
+            "succeeded" -> dto.statistics?.let { SliceResult.Succeeded(gcodePath, it.toModel(), messages) }
                 ?: SliceResult.Failed("Engine reported success without statistics")
             "canceled" -> SliceResult.Canceled
-            else -> SliceResult.Failed(dto.error ?: "Slicing failed")
+            else -> SliceResult.Failed(dto.error ?: "Slicing failed", messages)
         }
     }
+
+    /** The presets a project file was saved with; null for a file without them. */
+    fun projectPresets(payload: String): ProjectPresets? {
+        val result = parse(payload)
+        if ("error" in result) throw EngineException(result.errorMessage())
+        val selection = result["selection"]?.takeIf { it !is JsonNull }?.let { json.decodeFromJsonElement(PresetSelectionDto.serializer(), it) }
+        val changes = result["changes"]?.jsonObject.orEmpty().mapValues { it.value.jsonPrimitive.content }
+        val problems = result["problems"]?.jsonArray.orEmpty().map { it.jsonPrimitive.content }
+        if (selection == null && changes.isEmpty() && problems.isEmpty()) return null
+        return ProjectPresets(
+            selection?.let { PresetSelection(it.vendor, it.printer, it.process, it.filaments, it.filamentColours) },
+            changes,
+            problems,
+        )
+    }
+
+    /** A JSON object the engine returned. */
+    fun parse(payload: String): JsonObject = json.parseToJsonElement(payload) as? JsonObject ?: throw EngineException("Unexpected engine response")
 
     /** A JSON array of strings, or a failure carrying the engine's `{"error": ...}` message. */
     fun stringList(payload: String): Result<List<String>> = runCatching {
@@ -493,7 +517,29 @@ internal object EngineJson {
         val status: String,
         val error: String? = null,
         val statistics: StatisticsDto? = null,
+        val messages: List<SliceMessageDto> = emptyList(),
     )
+
+    @Serializable
+    private data class SliceMessageDto(
+        val level: String = "warning",
+        val text: String = "",
+        val `object`: String = "",
+        val setting: String = "",
+        val code: String = "",
+    ) {
+        fun toModel() = SliceMessage(
+            level = when (level) {
+                "error" -> SliceMessage.Level.ERROR
+                "info" -> SliceMessage.Level.INFO
+                else -> SliceMessage.Level.WARNING
+            },
+            text = text,
+            objectName = `object`.ifEmpty { null },
+            setting = setting.ifEmpty { null },
+            code = code.ifEmpty { null },
+        )
+    }
 
     @Serializable
     private data class StatisticsDto(

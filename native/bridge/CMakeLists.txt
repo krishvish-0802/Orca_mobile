@@ -9,6 +9,11 @@ add_library(orca_engine_core STATIC
     src/CutTool.cpp
     src/EmbossTool.cpp
     src/TextureTool.cpp
+    src/OptionRules.cpp
+    src/PresetFiles.cpp
+    src/ProjectSave.cpp
+    src/SliceMessages.cpp
+    src/SliceMessages.hpp
     src/Filaments.cpp
     src/Filaments.hpp
     src/EngineInfo.cpp
@@ -58,6 +63,7 @@ if (ANDROID)
         jni/MeshJni.cpp
         jni/ToolsJni.cpp
         jni/TextureJni.cpp
+        jni/SettingsJni.cpp
         jni/ObjectJni.cpp
         jni/PaintJni.cpp
         jni/PlateJni.cpp
