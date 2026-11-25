@@ -12,7 +12,6 @@ import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -78,7 +77,7 @@ class NativeProjectSaveDeviceTest {
 
         // The desktop's project settings: its presets, and the one setting changed from the process.
         val settings = ZipFile(file).use { zip ->
-            val entry = assertNotNull(zip.getEntry("Metadata/project_settings.config"))
+            val entry = requireNotNull(zip.getEntry("Metadata/project_settings.config")) { "no project settings in the file" }
             EngineJson.parse(zip.getInputStream(entry).bufferedReader().readText())
         }
         assertEquals(presets.process, settings.getValue("print_settings_id").jsonPrimitive.content)
