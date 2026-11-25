@@ -11,16 +11,11 @@ import com.orcamobile.core.printer.http.bodyOrThrow
 import com.orcamobile.core.printer.http.hasExplicitPort
 import com.orcamobile.core.printer.http.normalizeBaseUrl
 import com.orcamobile.core.printer.http.withNetworkRetries
-import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonObject
-import kotlinx.serialization.json.jsonPrimitive
+import java.io.File
 import okhttp3.HttpUrl
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import java.io.File
-import java.io.IOException
 
 /**
  * Klipper printers through Moonraker's HTTP API, as desktop OrcaSlicer's
@@ -33,53 +28,18 @@ import java.io.IOException
  * Mainsail and answers the API with 404.
  */
 internal class MoonrakerClient(
-    /** Base URLs to try, in order. */
-    private val candidates: List<HttpUrl>,
+    private val api: MoonrakerApi,
     private val apiKey: String?,
     private val http: OkHttpClient,
 ) : PrintHostClient {
-    constructor(config: PrintHostConfig, http: OkHttpClient) :
-        this(moonrakerCandidates(config.baseUrl), config.apiKey, http)
+    constructor(config: PrintHostConfig, http: OkHttpClient) : this(moonrakerCandidates(config.baseUrl), config.apiKey, http)
 
-    init {
-        require(candidates.isNotEmpty()) { "No printer address" }
-    }
-
-    private val json = Json { ignoreUnknownKeys = true }
-
-    /** The candidate that answered as Moonraker, once one has. */
-    @Volatile
-    private var resolved: HttpUrl? = null
+    /** Tries [candidates] in order. */
+    constructor(candidates: List<HttpUrl>, apiKey: String?, http: OkHttpClient) : this(MoonrakerApi(candidates, apiKey, http), apiKey, http)
 
     override suspend fun testConnection(): Result<PrintHostInfo> = runCatching {
-        val (_, state) = withNetworkRetries(candidates.first().host) { findMoonraker() }
+        val (_, state) = withNetworkRetries(api.host) { api.find() }
         PrintHostInfo("Klipper $state")
-    }
-
-    /** The first candidate that answers `server/info` as Moonraker, and its klippy state. */
-    private suspend fun findMoonraker(): Pair<HttpUrl, String> {
-        val failures = mutableListOf<Pair<HttpUrl, IOException>>()
-        for (base in candidates) {
-            try {
-                val state = klippyState(base)
-                resolved = base
-                return base to state
-            } catch (e: IOException) {
-                failures += base to e
-            }
-        }
-        val (firstBase, firstError) = failures.first()
-        if (failures.size == 1) throw firstError
-        val tried = failures.joinToString("; ") { (base, error) -> "${base.host}:${base.port}: ${error.message}" }
-        throw IOException("No Moonraker found at ${firstBase.host} ($tried). Check the address and that Moonraker is running.", firstError)
-    }
-
-    private suspend fun klippyState(base: HttpUrl): String {
-        val request = Request.Builder().url(base.resolve("server/info")!!).apiKey(apiKey).get().build()
-        val body = http.newCall(request).await().bodyOrThrow()
-        val result = runCatching { json.parseToJsonElement(body).jsonObject["result"]?.jsonObject }.getOrNull()
-        return result?.get("klippy_state")?.jsonPrimitive?.contentOrNull
-            ?: throw IOException("The host answered but does not look like Moonraker (no result.klippy_state)")
     }
 
     override suspend fun upload(
@@ -89,7 +49,7 @@ internal class MoonrakerClient(
         options: PrintStartOptions,
         onProgress: (sent: Long, total: Long) -> Unit,
     ): Result<Unit> = runCatching {
-        val baseUrl = resolved ?: findMoonraker().first
+        val baseUrl = api.base()
         val file = File(localPath)
         val form = MultipartBody.Builder()
             .setType(MultipartBody.FORM)

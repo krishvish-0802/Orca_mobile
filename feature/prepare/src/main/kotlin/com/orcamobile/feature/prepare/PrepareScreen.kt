@@ -1047,7 +1047,7 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
             label = stringResource(R.string.prepare_host_printer),
             options = host.printers.map { labels.getValue(it.id) },
             selected = host.printerId?.let(labels::get).orEmpty(),
-            onSelect = { label -> labels.entries.firstOrNull { it.value == label }?.let { onIntent(PrepareIntent.SelectPrinter(it.key)) } },
+            onSelect = { label -> labels.entries.firstOrNull { it.value == label }?.let { onIntent(PrepareIntent.SelectSendTarget(it.key)) } },
             enabled = !busy,
         )
         TextButton(onClick = { onIntent(PrepareIntent.AddPrinter) }, enabled = !busy) {

@@ -444,7 +444,7 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.SetPreviewLayers -> updatePreview { copy(layers = intent.layers.clampTo(summary.layerCount)) }
             is PrepareIntent.SetPreviewColoring -> updatePreview { copy(coloring = intent.coloring) }
-            is PrepareIntent.SelectPrinter -> {
+            is PrepareIntent.SelectSendTarget -> {
                 updateHost { copy(printerId = intent.id, status = PrintHostStatus.Idle) }
                 viewModelScope.launch { printers.select(intent.id) }
             }

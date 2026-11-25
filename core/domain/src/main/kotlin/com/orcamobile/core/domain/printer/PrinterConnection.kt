@@ -101,8 +101,8 @@ interface PrintHistory {
 interface GcodeConsole {
     suspend fun send(gcode: String): Result<Unit>
 
-    /** What the printer answers (Klipper's console, OctoPrint's terminal). */
-    val output: Flow<String>
+    /** What the printer answers, as it comes (Klipper's console); null where the answers don't come back. */
+    val output: Flow<String>?
 }
 
 /** Opens a [PrinterConnection] for a printer's host settings; null where the protocol only uploads. */

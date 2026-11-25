@@ -9,10 +9,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -22,6 +24,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
@@ -36,6 +39,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -46,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -54,6 +61,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.orcamobile.core.designsystem.component.ListGroup
 import com.orcamobile.core.designsystem.component.ListRow
 import com.orcamobile.core.designsystem.component.StatusCard
+import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.FanKind
 import com.orcamobile.core.model.Heater
 import com.orcamobile.core.model.HeaterKind
@@ -126,12 +134,13 @@ fun PrinterScreen(state: PrinterUiState, onIntent: (PrinterIntent) -> Unit, onBa
             if (state.abilities.camera) CameraCard(state.camera, enabled = status.link == PrinterLink.Online) { onIntent(PrinterIntent.ToggleCamera) }
             JobCard(status, state.abilities, onIntent)
             if (status.heaters.isNotEmpty()) TemperatureCard(status.heaters, state.abilities.heaters, onIntent)
-            if (state.abilities.fans.isNotEmpty() || state.abilities.speed != null || state.abilities.light || state.abilities.home) {
+            if (state.abilities.fans.isNotEmpty() || state.abilities.speed != null || state.abilities.light || state.abilities.home || state.abilities.jog) {
                 ControlsCard(status, state.abilities, onIntent)
             }
             if (status.filamentSlots.isNotEmpty()) FilamentCard(status)
             if (state.abilities.files) FilesCard(state.files, onIntent, canPrint = !status.machine.active && status.link == PrinterLink.Online)
             if (state.abilities.history) HistoryCard(state.history) { onIntent(PrinterIntent.LoadHistory) }
+            if (state.abilities.console) ConsoleCard(state.console, state.abilities.consoleOutput, enabled = status.link == PrinterLink.Online, onIntent)
             listOfNotNull(status.model, status.firmware?.let { stringResource(R.string.devices_firmware, it) }).takeIf { it.isNotEmpty() }?.let {
                 Text(it.joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -271,6 +280,74 @@ private fun ControlsCard(status: PrinterState, abilities: PrinterAbilities, onIn
         }
         if (abilities.home) {
             OutlinedButton(onClick = { onIntent(PrinterIntent.Home) }, enabled = online && !status.machine.active) { Text(stringResource(R.string.devices_home)) }
+        }
+        if (abilities.jog) JogPad(enabled = online && !status.machine.active, onIntent)
+    }
+}
+
+/** Moves the toolhead by a chosen step, as the desktop's and Mainsail's jog controls. */
+@Composable
+private fun JogPad(enabled: Boolean, onIntent: (PrinterIntent) -> Unit) {
+    var step by remember { mutableStateOf(JOG_STEPS[1]) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(stringResource(R.string.devices_jog), style = MaterialTheme.typography.titleSmall)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (choice in JOG_STEPS) {
+                FilterChip(selected = step == choice, onClick = { step = choice }, label = { Text(stringResource(R.string.devices_jog_step, formatStep(choice))) })
+            }
+        }
+        for (axis in Axis.entries) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(axis.name, style = MaterialTheme.typography.labelLarge, modifier = Modifier.size(width = 24.dp, height = 24.dp))
+                OutlinedButton(onClick = { onIntent(PrinterIntent.Jog(axis, -step)) }, enabled = enabled, modifier = Modifier.weight(1f)) {
+                    Text("−${formatStep(step)}")
+                }
+                OutlinedButton(onClick = { onIntent(PrinterIntent.Jog(axis, step)) }, enabled = enabled, modifier = Modifier.weight(1f)) {
+                    Text("+${formatStep(step)}")
+                }
+            }
+        }
+    }
+}
+
+private val JOG_STEPS = listOf(0.1, 1.0, 10.0, 50.0)
+
+private fun formatStep(step: Double) = if (step % 1.0 == 0.0) step.toInt().toString() else step.toString()
+
+/** G-code to the printer, and what it answers when it does. */
+@Composable
+private fun ConsoleCard(lines: List<String>?, answers: Boolean, enabled: Boolean, onIntent: (PrinterIntent) -> Unit) {
+    StatusCard(title = stringResource(R.string.devices_console)) {
+        if (lines == null) {
+            OutlinedButton(onClick = { onIntent(PrinterIntent.ToggleConsole) }) { Text(stringResource(R.string.devices_console_open)) }
+            return@StatusCard
+        }
+        if (!answers) Text(stringResource(R.string.devices_console_no_answers), style = MaterialTheme.typography.bodySmall)
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = MaterialTheme.shapes.small, modifier = Modifier.fillMaxWidth()) {
+            val scroll = rememberScrollState()
+            LaunchedEffect(lines.size) { scroll.scrollTo(scroll.maxValue) }
+            Column(Modifier.heightIn(min = 80.dp, max = 240.dp).verticalScroll(scroll).padding(8.dp)) {
+                for (line in lines) Text(line, style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace)
+            }
+        }
+        var gcode by remember { mutableStateOf("") }
+        val send = {
+            onIntent(PrinterIntent.SendGcode(gcode))
+            gcode = ""
+        }
+        OutlinedTextField(
+            value = gcode,
+            onValueChange = { gcode = it },
+            label = { Text(stringResource(R.string.devices_console_gcode)) },
+            singleLine = true,
+            enabled = enabled,
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send, capitalization = KeyboardCapitalization.Characters),
+            keyboardActions = KeyboardActions(onSend = { send() }),
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilledTonalButton(onClick = send, enabled = enabled && gcode.isNotBlank()) { Text(stringResource(R.string.devices_console_send)) }
+            TextButton(onClick = { onIntent(PrinterIntent.ToggleConsole) }) { Text(stringResource(R.string.devices_console_close)) }
         }
     }
 }

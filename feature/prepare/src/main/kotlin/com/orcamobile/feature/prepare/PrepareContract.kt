@@ -466,7 +466,7 @@ sealed interface PrepareIntent {
     data class SetPreviewColoring(val coloring: ToolpathColoring) : PrepareIntent
 
     /** Prints go to the printer [id] from now on. */
-    data class SelectPrinter(val id: String) : PrepareIntent
+    data class SelectSendTarget(val id: String) : PrepareIntent
 
     data object AddPrinter : PrepareIntent
 

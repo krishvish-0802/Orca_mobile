@@ -10,6 +10,7 @@ import com.orcamobile.core.domain.printer.CameraFrames
 import com.orcamobile.core.domain.printer.PrinterConnection
 import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.printer.PrinterSessions
+import com.orcamobile.core.model.Axis
 import com.orcamobile.core.model.FanKind
 import com.orcamobile.core.model.HeaterKind
 import com.orcamobile.core.model.PrintRecord
@@ -42,6 +43,11 @@ data class PrinterAbilities(
     val fans: Set<FanKind> = emptySet(),
     val speed: IntRange? = null,
     val home: Boolean = false,
+    /** Moving the toolhead by a step. */
+    val jog: Boolean = false,
+    /** Sending G-code; [consoleOutput] whether the printer's answers come back. */
+    val console: Boolean = false,
+    val consoleOutput: Boolean = false,
     val light: Boolean = false,
     val camera: Boolean = false,
     val files: Boolean = false,
@@ -78,6 +84,8 @@ data class PrinterUiState(
     val history: ListUi<PrintRecord> = ListUi.NotLoaded,
     /** What a command the printer refused said, until dismissed. */
     val problem: String? = null,
+    /** The console while open: what was sent and answered, oldest first; null when closed. */
+    val console: List<String>? = null,
 )
 
 sealed interface PrinterIntent {
@@ -89,6 +97,9 @@ sealed interface PrinterIntent {
     data class SetSpeed(val percent: Int) : PrinterIntent
     data class SetLight(val on: Boolean) : PrinterIntent
     data object Home : PrinterIntent
+    data class Jog(val axis: Axis, val millimetres: Double) : PrinterIntent
+    data object ToggleConsole : PrinterIntent
+    data class SendGcode(val gcode: String) : PrinterIntent
     data object ToggleCamera : PrinterIntent
     data object LoadFiles : PrinterIntent
     data class PrintFile(val file: PrinterFile) : PrinterIntent
@@ -112,6 +123,7 @@ class PrinterViewModel @Inject constructor(
     private var connection: PrinterConnection? = null
     private var statusJob: Job? = null
     private var cameraJob: Job? = null
+    private var consoleJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -127,7 +139,9 @@ class PrinterViewModel @Inject constructor(
         connection = next
         statusJob?.cancel()
         stopCamera()
-        statusJob = next?.let { live -> viewModelScope.launch { live.state.collect { status -> _state.update { it.copy(status = status) } } } }
+        closeConsole()
+        // Abilities can follow the state (a chamber heater, once seen).
+        statusJob = next?.let { live -> viewModelScope.launch { live.state.collect { status -> _state.update { it.copy(status = status, abilities = abilitiesOf(live)) } } } }
         if (next == null) _state.update { it.copy(status = null) }
     }
 
@@ -142,6 +156,9 @@ class PrinterViewModel @Inject constructor(
             is PrinterIntent.SetSpeed -> act { live.fans?.setSpeed(intent.percent) }
             is PrinterIntent.SetLight -> act { live.light?.setLight(intent.on) }
             PrinterIntent.Home -> act { live.motion?.home() }
+            is PrinterIntent.Jog -> act { live.motion?.takeIf { it.canJog }?.jog(intent.axis, intent.millimetres) }
+            PrinterIntent.ToggleConsole -> if (_state.value.console == null) openConsole(live) else closeConsole()
+            is PrinterIntent.SendGcode -> sendGcode(live, intent.gcode)
             PrinterIntent.ToggleCamera -> if (_state.value.camera == CameraUi.Off || _state.value.camera is CameraUi.Failed) startCamera(live) else stopCamera()
             PrinterIntent.LoadFiles -> loadFiles(live)
             is PrinterIntent.PrintFile -> act { live.files?.print(intent.file) }
@@ -174,6 +191,34 @@ class PrinterViewModel @Inject constructor(
             val result = files.list()
             _state.update { it.copy(files = result.fold({ list -> ListUi.Loaded(list.sortedBy { f -> f.name.lowercase() }) }, { e -> ListUi.Failed(message(e)) })) }
         }
+    }
+
+    private fun openConsole(live: PrinterConnection) {
+        val console = live.console ?: return
+        _state.update { it.copy(console = emptyList()) }
+        val output = console.output ?: return
+        consoleJob = viewModelScope.launch {
+            runCatching { output.collect { line -> addConsoleLine(line) } }
+                .onFailure { e -> if (e !is CancellationException) addConsoleLine("!! ${message(e)}") }
+        }
+    }
+
+    private fun closeConsole() {
+        consoleJob?.cancel()
+        consoleJob = null
+        _state.update { it.copy(console = null) }
+    }
+
+    private fun sendGcode(live: PrinterConnection, gcode: String) {
+        val console = live.console ?: return
+        val text = gcode.trim().ifEmpty { return }
+        // Shown as typed when the printer won't echo it back.
+        if (_state.value.console != null && !_state.value.abilities.consoleOutput) addConsoleLine("> $text")
+        act { console.send(text) }
+    }
+
+    private fun addConsoleLine(line: String) = _state.update { state ->
+        state.console?.let { lines -> state.copy(console = (lines + line).takeLast(CONSOLE_LINES)) } ?: state
     }
 
     private fun startCamera(live: PrinterConnection) {
@@ -224,6 +269,9 @@ class PrinterViewModel @Inject constructor(
             fans = live.fans?.fans.orEmpty(),
             speed = live.fans?.speedRange,
             home = live.motion != null,
+            jog = live.motion?.canJog == true,
+            console = live.console != null,
+            consoleOutput = live.console?.output != null,
             light = live.light != null,
             camera = live.camera != null,
             files = live.files != null,
@@ -233,4 +281,9 @@ class PrinterViewModel @Inject constructor(
 
     /** Waits until the printer is known (for tests). */
     internal suspend fun awaitPrinter() = state.first { it.printer != null }
+
+    private companion object {
+        /** Lines the console keeps. */
+        const val CONSOLE_LINES = 200
+    }
 }

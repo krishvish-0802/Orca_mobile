@@ -390,7 +390,7 @@ class PrepareViewModelTest {
             printers.save(SavedPrinter("b", "Ender", PrintHostConfig(PrintHostType.OCTOPRINT, "printer.local")))
         }
         assertEquals("voron.local", vm.state.value.printHost.config?.baseUrl)
-        vm.onIntent(PrepareIntent.SelectPrinter("b"))
+        vm.onIntent(PrepareIntent.SelectSendTarget("b"))
         assertEquals("b", printers.chosen.value)
         vm.onIntent(PrepareIntent.SendToPrinter)
         assertEquals(PrintHostStatus.Sent(printing = false), vm.state.value.printHost.status)

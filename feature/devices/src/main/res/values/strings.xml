@@ -66,6 +66,14 @@
     <string name="devices_speed">Print speed</string>
     <string name="devices_light">Light</string>
     <string name="devices_home">Home the axes</string>
+    <string name="devices_jog">Move the toolhead</string>
+    <string name="devices_jog_step">%1$s mm</string>
+    <string name="devices_console">Console</string>
+    <string name="devices_console_open">Open the console</string>
+    <string name="devices_console_close">Close</string>
+    <string name="devices_console_gcode">G-code</string>
+    <string name="devices_console_send">Send</string>
+    <string name="devices_console_no_answers">This printer takes G-code from here, but its answers show only in its own web page.</string>
     <string name="devices_filament">Filament</string>
     <string name="devices_slot">Slot %1$d</string>
     <string name="devices_slot_loaded">Loaded</string>
