@@ -1,18 +1,16 @@
 package com.orcamobile.core.data
 
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
-import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.BuildPlateSide
-import com.orcamobile.core.model.PrintHostConfig
-import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.PresetSelection
 import com.orcamobile.core.model.PrintStartOptions
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
-import kotlin.test.assertEquals
-import kotlin.test.assertNull
 
 class DataStoreUserSettingsRepositoryTest {
 
@@ -37,16 +35,6 @@ class DataStoreUserSettingsRepositoryTest {
         repository.savePresetSelection(selection)
 
         assertEquals(selection, repository.presetSelection())
-    }
-
-    @Test
-    fun `remembers a print host and drops a blank api key`() = runTest {
-        val repository = repository()
-        repository.savePrintHost(PrintHostConfig(PrintHostType.OCTOPRINT, "octopi.local", "key"))
-        assertEquals(PrintHostConfig(PrintHostType.OCTOPRINT, "octopi.local", "key"), repository.printHost())
-
-        repository.savePrintHost(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125", ""))
-        assertEquals(PrintHostConfig(PrintHostType.MOONRAKER, "192.168.1.50:7125", null), repository.printHost())
     }
 
     @Test

@@ -31,7 +31,6 @@ import com.orcamobile.core.model.OptionType
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetOptionKeys
 import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.RulesScope
@@ -111,8 +110,6 @@ class SettingsViewModelTest {
         override suspend fun savePresetSelection(selection: PresetSelection) {
             saved = selection
         }
-        override suspend fun printHost(): PrintHostConfig? = null
-        override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
         override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
     }

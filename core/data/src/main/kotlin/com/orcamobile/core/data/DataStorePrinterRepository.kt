@@ -60,13 +60,10 @@ class DataStorePrinterRepository @Inject constructor(
 
     private fun write(prefs: MutablePreferences, list: List<SavedPrinter>) {
         prefs[PRINTERS] = json.encodeToString(ListSerializer(PrinterDto.serializer()), list.map(PrinterDto::of))
-        // The slice screen still sends to "the" print host: the selected printer's.
-        (list.firstOrNull { it.id == prefs[SELECTED] } ?: list.firstOrNull())?.host?.let { host ->
-            prefs[HOST_TYPE] = host.type.name
-            prefs[HOST_ADDRESS] = host.baseUrl
-            val key = host.apiKey
-            if (key.isNullOrBlank()) prefs.remove(HOST_API_KEY) else prefs[HOST_API_KEY] = key
-        }
+        // The list replaces the single host from here on.
+        prefs.remove(HOST_TYPE)
+        prefs.remove(HOST_ADDRESS)
+        prefs.remove(HOST_API_KEY)
     }
 
     private fun printersOf(prefs: Preferences): List<SavedPrinter> {
@@ -103,7 +100,7 @@ class DataStorePrinterRepository @Inject constructor(
         const val LEGACY_ID = "printer-1"
         val PRINTERS = stringPreferencesKey("printers")
         val SELECTED = stringPreferencesKey("selected_printer")
-        // Shared with DataStoreUserSettingsRepository's print host.
+        // The single print host kept before the list (0.3 and earlier).
         val HOST_TYPE = stringPreferencesKey("host_type")
         val HOST_ADDRESS = stringPreferencesKey("host_address")
         val HOST_API_KEY = stringPreferencesKey("host_api_key")

@@ -21,6 +21,7 @@ import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.ProjectSummary
+import com.orcamobile.core.model.SavedPrinter
 import com.orcamobile.core.model.SimplifyCounts
 import com.orcamobile.core.model.SimplifySettings
 import com.orcamobile.core.model.SliceStatistics
@@ -257,26 +258,29 @@ sealed interface SliceFix {
     data class OpenSetting(val key: String) : SliceFix
 }
 
-/** Sending the sliced G-code to a printer host. */
+/** Sending the sliced G-code to one of the user's printers. */
 data class PrintHostUiState(
-    val type: PrintHostType = PrintHostType.MOONRAKER,
-    val address: String = "",
-    val apiKey: String = "",
+    val printers: List<SavedPrinter> = emptyList(),
+    /** The printer it goes to: the one chosen last. */
+    val printerId: String? = null,
     val startPrint: Boolean = false,
     /** For hosts that take them ([PrintHostType.supportsStartOptions]); remembered between sends. */
     val startOptions: PrintStartOptions = PrintStartOptions(),
     val status: PrintHostStatus = PrintHostStatus.Idle,
 ) {
+    val printer: SavedPrinter?
+        get() = printers.firstOrNull { it.id == printerId }
+
     val config: PrintHostConfig?
-        get() = address.takeIf { it.isNotBlank() }?.let { PrintHostConfig(type, it, apiKey.ifBlank { null }) }
+        get() = printer?.host
+
+    /** Time-lapse, bed levelling and plate side go with the print. */
+    val takesStartOptions: Boolean
+        get() = config?.type?.supportsStartOptions == true
 }
 
 sealed interface PrintHostStatus {
     data object Idle : PrintHostStatus
-
-    data object Testing : PrintHostStatus
-
-    data class Connected(val description: String) : PrintHostStatus
 
     data class Sending(val percent: Int) : PrintHostStatus
 
@@ -461,11 +465,13 @@ sealed interface PrepareIntent {
 
     data class SetPreviewColoring(val coloring: ToolpathColoring) : PrepareIntent
 
-    data class SetHostType(val type: PrintHostType) : PrepareIntent
+    /** Prints go to the printer [id] from now on. */
+    data class SelectPrinter(val id: String) : PrepareIntent
 
-    data class SetHostAddress(val address: String) : PrepareIntent
+    data object AddPrinter : PrepareIntent
 
-    data class SetHostApiKey(val apiKey: String) : PrepareIntent
+    /** The printer's own page, to watch the print just sent. */
+    data object OpenPrinter : PrepareIntent
 
     data class SetStartPrint(val startPrint: Boolean) : PrepareIntent
 
@@ -474,8 +480,6 @@ sealed interface PrepareIntent {
     data class SetHeatedBedLeveling(val enabled: Boolean) : PrepareIntent
 
     data class SetBuildPlate(val side: BuildPlateSide) : PrepareIntent
-
-    data object TestPrintHost : PrepareIntent
 
     data object SendToPrinter : PrepareIntent
 }
@@ -509,6 +513,10 @@ sealed interface PrepareEvent {
 
     /** Where to save the project: a new document, named [suggestedName] to start with. */
     data class AskWhereToSave(val suggestedName: String) : PrepareEvent
+
+    data object AddPrinter : PrepareEvent
+
+    data class OpenPrinter(val id: String) : PrepareEvent
 }
 
 sealed interface SaveResult {

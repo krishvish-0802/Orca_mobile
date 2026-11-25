@@ -17,7 +17,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -37,7 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RangeSlider
 import androidx.compose.material3.Scaffold
@@ -63,8 +61,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -80,7 +76,6 @@ import com.orcamobile.core.designsystem.icon.OrcaIcons
 import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PresetKind
-import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectPresets
 import com.orcamobile.core.model.SimplifyTarget
@@ -103,6 +98,9 @@ fun PrepareRoute(
     onOpenObjectSettings: (project: String, objectIndex: Int, volume: Int?, range: Int?) -> Unit = { _, _, _, _ -> },
     /** The settings with the Presets sheet up, to save the changes before leaving. */
     onSavePresets: () -> Unit = onOpenSettings,
+    onAddPrinter: () -> Unit = {},
+    /** A printer's page (its id): to watch the print sent. */
+    onOpenPrinter: (String) -> Unit = {},
     viewModel: PrepareViewModel = hiltViewModel(),
     objectList: ObjectListViewModel = hiltViewModel(),
     cutTool: CutViewModel = hiltViewModel(),
@@ -124,6 +122,8 @@ fun PrepareRoute(
                 PrepareEvent.Left -> onBack()
                 PrepareEvent.SaveChanges -> onSavePresets()
                 is PrepareEvent.AskWhereToSave -> saveAs.launch(event.suggestedName)
+                PrepareEvent.AddPrinter -> onAddPrinter()
+                is PrepareEvent.OpenPrinter -> onOpenPrinter(event.id)
             }
         }
     }
@@ -1030,46 +1030,36 @@ private fun LabeledSwitch(label: String, checked: Boolean, enabled: Boolean, onC
 
 @Composable
 private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> Unit) {
-    val busy = host.status is PrintHostStatus.Testing || host.status is PrintHostStatus.Sending
+    val busy = host.status is PrintHostStatus.Sending
     StatusCard(title = stringResource(R.string.prepare_host_title)) {
+        if (host.printers.isEmpty()) {
+            Text(stringResource(R.string.prepare_host_no_printers), style = MaterialTheme.typography.bodyMedium)
+            PrimaryPillButton(
+                text = stringResource(R.string.prepare_host_add_printer),
+                onClick = { onIntent(PrepareIntent.AddPrinter) },
+                modifier = Modifier.fillMaxWidth(),
+            )
+            return@StatusCard
+        }
+        // Names can repeat; the address tells them apart.
+        val labels = host.printers.associate { it.id to "${it.name} · ${it.host.baseUrl}" }
         DropdownField(
-            label = stringResource(R.string.prepare_host_type),
-            options = PrintHostType.entries.map { it.displayName },
-            selected = host.type.displayName,
-            onSelect = { name ->
-                PrintHostType.entries.firstOrNull { it.displayName == name }?.let { onIntent(PrepareIntent.SetHostType(it)) }
-            },
+            label = stringResource(R.string.prepare_host_printer),
+            options = host.printers.map { labels.getValue(it.id) },
+            selected = host.printerId?.let(labels::get).orEmpty(),
+            onSelect = { label -> labels.entries.firstOrNull { it.value == label }?.let { onIntent(PrepareIntent.SelectPrinter(it.key)) } },
             enabled = !busy,
         )
-        OutlinedTextField(
-            value = host.address,
-            onValueChange = { onIntent(PrepareIntent.SetHostAddress(it)) },
-            label = { Text(stringResource(R.string.prepare_host_address)) },
-            placeholder = { Text("192.168.1.50") },
-            singleLine = true,
-            enabled = !busy,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = host.apiKey,
-            onValueChange = { onIntent(PrepareIntent.SetHostApiKey(it)) },
-            label = { Text(stringResource(R.string.prepare_host_api_key)) },
-            singleLine = true,
-            enabled = !busy,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-            modifier = Modifier.fillMaxWidth(),
-        )
+        TextButton(onClick = { onIntent(PrepareIntent.AddPrinter) }, enabled = !busy) {
+            Text(stringResource(R.string.prepare_host_add_printer))
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Switch(checked = host.startPrint, onCheckedChange = { onIntent(PrepareIntent.SetStartPrint(it)) }, enabled = !busy)
             Text(stringResource(R.string.prepare_host_start_print))
         }
-        if (host.startPrint && host.type.supportsStartOptions) StartOptions(host.startOptions, enabled = !busy, onIntent)
+        if (host.startPrint && host.takesStartOptions) StartOptions(host.startOptions, enabled = !busy, onIntent)
         when (val status = host.status) {
             PrintHostStatus.Idle -> Unit
-            PrintHostStatus.Testing -> LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
-            is PrintHostStatus.Connected -> Text(stringResource(R.string.prepare_host_connected, status.description))
             is PrintHostStatus.Sending -> {
                 LinearProgressIndicator(progress = { status.percent / 100f }, modifier = Modifier.fillMaxWidth())
                 Text(stringResource(R.string.prepare_host_sending, status.percent), style = MaterialTheme.typography.bodySmall)
@@ -1080,17 +1070,16 @@ private fun PrintHostCard(host: PrintHostUiState, onIntent: (PrepareIntent) -> U
             is PrintHostStatus.Failed -> Text(status.message, color = MaterialTheme.colorScheme.error)
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            val ready = host.config != null && !busy
             TonalPillButton(
-                text = stringResource(R.string.prepare_host_test),
-                onClick = { onIntent(PrepareIntent.TestPrintHost) },
-                enabled = ready,
+                text = stringResource(R.string.prepare_host_open_printer),
+                onClick = { onIntent(PrepareIntent.OpenPrinter) },
+                enabled = host.printer != null,
                 modifier = Modifier.weight(1f),
             )
             PrimaryPillButton(
                 text = stringResource(R.string.prepare_host_send),
                 onClick = { onIntent(PrepareIntent.SendToPrinter) },
-                enabled = ready,
+                enabled = host.config != null && !busy,
                 modifier = Modifier.weight(1f),
             )
         }

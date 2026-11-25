@@ -7,18 +7,23 @@ import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.domain.presets.PresetChange
 import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
+import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.PresetKind
+import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostType
+import com.orcamobile.core.model.SavedPrinter
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 /**
@@ -32,6 +37,7 @@ class SetupViewModel @Inject constructor(
     private val catalog: PresetCatalog,
     private val settings: UserSettingsRepository,
     private val testHost: TestPrintHostUseCase,
+    private val printers: PrinterRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(SetupUiState())
@@ -96,7 +102,8 @@ class SetupViewModel @Inject constructor(
     }
 
     private suspend fun openConnection() {
-        val saved = settings.printHost()
+        val selected = printers.selected.first()
+        val saved = printers.printers.first().firstOrNull { it.id == selected }?.host
         val vendor = _state.value.choices.vendor
         val host = saved?.let { HostForm(it.type, it.baseUrl, it.apiKey.orEmpty()) }
             ?: HostForm(type = if (vendor == ELEGOO) PrintHostType.ELEGOO_LINK else PrintHostType.MOONRAKER)
@@ -108,9 +115,18 @@ class SetupViewModel @Inject constructor(
         val printer = state.choices.printer ?: return
         // Every filament ticked is the same as no choice: newer presets show up too.
         picker.setShownFilaments(printer, if (state.shown.containsAll(state.filaments)) emptySet() else state.shown)
-        state.host.config?.let { settings.savePrintHost(it) }
+        state.host.config?.let { keepPrinter(it, printer) }
         settings.saveSetupDone()
         _events.send(SetupEvent.Finished)
+    }
+
+    /** The printer reached at [host] joins the printer list (or is updated there) and prints go to it. */
+    private suspend fun keepPrinter(host: PrintHostConfig, preset: String) {
+        val known = printers.printers.first().firstOrNull { it.host.type == host.type && it.host.baseUrl.equals(host.baseUrl, ignoreCase = true) }
+        val kept = known?.copy(host = host, preset = preset)
+            ?: SavedPrinter(UUID.randomUUID().toString(), preset.replace(NOZZLE_SUFFIX, "").ifBlank { host.type.displayName }, host, preset)
+        printers.save(kept)
+        printers.select(kept.id)
     }
 
     private fun test() {
@@ -132,6 +148,9 @@ class SetupViewModel @Inject constructor(
 
     companion object {
         private const val ELEGOO = "Elegoo"
+
+        /** " 0.4 nozzle" at the end of a printer preset's name: the printer's name is what comes before. */
+        private val NOZZLE_SUFFIX = Regex("""\s+\d+(\.\d+)?\s*nozzle$""", RegexOption.IGNORE_CASE)
 
         /**
          * A starting choice, as the desktop ticks the printer's own: its default

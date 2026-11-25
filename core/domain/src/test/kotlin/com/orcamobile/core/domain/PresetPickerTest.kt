@@ -13,7 +13,6 @@ import com.orcamobile.core.model.CompatiblePresets
 import com.orcamobile.core.model.FilamentSlot
 import com.orcamobile.core.model.PresetKind
 import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.UserPreset
 import kotlinx.coroutines.test.runTest
@@ -56,8 +55,6 @@ class PresetPickerTest {
     private class Settings(var saved: PresetSelection?) : UserSettingsRepository {
         override suspend fun presetSelection() = saved
         override suspend fun savePresetSelection(selection: PresetSelection) { saved = selection }
-        override suspend fun printHost(): PrintHostConfig? = null
-        override suspend fun savePrintHost(host: PrintHostConfig) = Unit
         override suspend fun printStartOptions() = PrintStartOptions()
         override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
     }

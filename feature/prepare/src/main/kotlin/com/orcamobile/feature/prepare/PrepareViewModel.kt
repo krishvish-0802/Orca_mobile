@@ -10,6 +10,7 @@ import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
 import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
+import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.project.ProjectDocuments
 import com.orcamobile.core.domain.project.ProjectRepository
 import com.orcamobile.core.domain.project.SaveProjectUseCase
@@ -17,7 +18,6 @@ import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
-import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
 import com.orcamobile.core.model.HistoryAction
 import com.orcamobile.core.model.HistoryState
@@ -62,11 +62,11 @@ class PrepareViewModel @Inject constructor(
     private val settings: UserSettingsRepository,
     private val sliceProject: SliceProjectUseCase,
     private val plateTools: PlateToolsUseCase,
-    private val testPrintHost: TestPrintHostUseCase,
     private val sendGcode: SendGcodeUseCase,
     private val switcher: PresetSwitcher,
     private val saveProject: SaveProjectUseCase,
     private val documents: ProjectDocuments,
+    private val printers: PrinterRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(PrepareUiState())
@@ -96,11 +96,13 @@ class PrepareViewModel @Inject constructor(
             picker.choices.collect { applyPresets(it) }
         }
         viewModelScope.launch {
-            settings.printHost()?.let { host ->
-                updateHost { copy(type = host.type, address = host.baseUrl, apiKey = host.apiKey.orEmpty()) }
-            }
             val options = settings.printStartOptions()
             updateHost { copy(startOptions = options) }
+        }
+        viewModelScope.launch {
+            combine(printers.printers, printers.selected, ::Pair).collect { (list, selected) ->
+                updateHost { copy(printers = list, printerId = selected) }
+            }
         }
         viewModelScope.launch { followSettingsChanges() }
         viewModelScope.launch { followWipeTower() }
@@ -442,14 +444,16 @@ class PrepareViewModel @Inject constructor(
             }
             is PrepareIntent.SetPreviewLayers -> updatePreview { copy(layers = intent.layers.clampTo(summary.layerCount)) }
             is PrepareIntent.SetPreviewColoring -> updatePreview { copy(coloring = intent.coloring) }
-            is PrepareIntent.SetHostType -> updateHost { copy(type = intent.type, status = PrintHostStatus.Idle) }
-            is PrepareIntent.SetHostAddress -> updateHost { copy(address = intent.address, status = PrintHostStatus.Idle) }
-            is PrepareIntent.SetHostApiKey -> updateHost { copy(apiKey = intent.apiKey, status = PrintHostStatus.Idle) }
+            is PrepareIntent.SelectPrinter -> {
+                updateHost { copy(printerId = intent.id, status = PrintHostStatus.Idle) }
+                viewModelScope.launch { printers.select(intent.id) }
+            }
+            PrepareIntent.AddPrinter -> viewModelScope.launch { _events.send(PrepareEvent.AddPrinter) }
+            PrepareIntent.OpenPrinter -> _state.value.printHost.printerId?.let { id -> viewModelScope.launch { _events.send(PrepareEvent.OpenPrinter(id)) } }
             is PrepareIntent.SetStartPrint -> updateHost { copy(startPrint = intent.startPrint) }
             is PrepareIntent.SetTimeLapse -> updateStartOptions { copy(timeLapse = intent.enabled) }
             is PrepareIntent.SetHeatedBedLeveling -> updateStartOptions { copy(heatedBedLeveling = intent.enabled) }
             is PrepareIntent.SetBuildPlate -> updateStartOptions { copy(plate = intent.side) }
-            PrepareIntent.TestPrintHost -> testHost()
             PrepareIntent.SendToPrinter -> sendToPrinter()
         }
     }
@@ -1039,19 +1043,6 @@ class PrepareViewModel @Inject constructor(
 
     // --- sending to a printer -----------------------------------------------
 
-    private fun testHost() {
-        val host = _state.value.printHost.config ?: return
-        runHostTask(PrintHostStatus.Testing) {
-            testPrintHost(host).fold(
-                {
-                    settings.savePrintHost(host)
-                    PrintHostStatus.Connected(it.description)
-                },
-                { PrintHostStatus.Failed(it.message ?: "Connection failed (${it.javaClass.simpleName})") },
-            )
-        }
-    }
-
     private fun sendToPrinter() {
         val host = _state.value.printHost.config ?: return
         val gcode = (_state.value.slice as? SliceUiState.Done)?.gcodePath ?: return
@@ -1062,10 +1053,7 @@ class PrepareViewModel @Inject constructor(
                 val percent = if (total > 0) (sent * 100 / total).toInt() else 0
                 updateHost { if (status is PrintHostStatus.Sending) copy(status = PrintHostStatus.Sending(percent)) else this }
             }.fold(
-                {
-                    settings.savePrintHost(host)
-                    PrintHostStatus.Sent(startPrint)
-                },
+                { PrintHostStatus.Sent(startPrint) },
                 { PrintHostStatus.Failed(it.message ?: "Upload failed (${it.javaClass.simpleName})") },
             )
         }

@@ -12,6 +12,7 @@ import com.orcamobile.core.domain.presets.UnsavedChoice
 import com.orcamobile.core.domain.preview.GCodePreviewRepository
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
+import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.project.PlateConfigResolver
 import com.orcamobile.core.domain.project.PlateEditor
 import com.orcamobile.core.domain.project.ProjectDocuments
@@ -21,7 +22,6 @@ import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.PlateToolsUseCase
 import com.orcamobile.core.domain.usecase.SendGcodeUseCase
 import com.orcamobile.core.domain.usecase.SliceProjectUseCase
-import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.ArrangeOptions
 import com.orcamobile.core.model.Axes
 import com.orcamobile.core.model.BedShape
@@ -48,6 +48,7 @@ import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import com.orcamobile.core.model.ProjectId
 import com.orcamobile.core.model.ProjectSummary
+import com.orcamobile.core.model.SavedPrinter
 import com.orcamobile.core.model.SettingsEdits
 import com.orcamobile.core.model.SliceEvent
 import com.orcamobile.core.model.SliceRequest
@@ -64,6 +65,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -125,11 +127,8 @@ class PrepareViewModelTest {
     }
 
     private class FakeSettings(val selection: PresetSelection?) : UserSettingsRepository {
-        var host: PrintHostConfig? = null
         override suspend fun presetSelection() = selection
         override suspend fun savePresetSelection(selection: PresetSelection) = Unit
-        override suspend fun printHost() = host
-        override suspend fun savePrintHost(host: PrintHostConfig) { this.host = host }
         var startOptions = PrintStartOptions()
         override suspend fun printStartOptions() = startOptions
         override suspend fun savePrintStartOptions(options: PrintStartOptions) { startOptions = options }
@@ -153,6 +152,7 @@ class PrepareViewModelTest {
     private class FakeHosts : PrintHostClientFactory {
         val uploads = mutableListOf<String>()
         val options = mutableListOf<PrintStartOptions>()
+        val sentTo = mutableListOf<String>()
         override fun create(config: PrintHostConfig) = object : PrintHostClient {
             override suspend fun testConnection() = Result.success(PrintHostInfo("Klipper ready"))
             override suspend fun upload(
@@ -163,6 +163,7 @@ class PrepareViewModelTest {
                 onProgress: (sent: Long, total: Long) -> Unit,
             ): Result<Unit> {
                 uploads += localPath
+                sentTo += config.baseUrl
                 this@FakeHosts.options += options
                 return Result.success(Unit)
             }
@@ -200,6 +201,23 @@ class PrepareViewModelTest {
     private val printSettings = FakePrintSettings()
     private val engine = RecordingEngine()
     private val hosts = FakeHosts()
+
+    private val printers = object : PrinterRepository {
+        val list = MutableStateFlow(emptyList<SavedPrinter>())
+        val chosen = MutableStateFlow<String?>(null)
+        override val printers: Flow<List<SavedPrinter>> = list
+        override val selected: Flow<String?> = chosen
+        override suspend fun save(printer: SavedPrinter) {
+            list.value = list.value.filterNot { it.id == printer.id } + printer
+            if (chosen.value == null) chosen.value = printer.id
+        }
+        override suspend fun remove(id: String) {
+            list.value = list.value.filterNot { it.id == id }
+        }
+        override suspend fun select(id: String) {
+            chosen.value = id
+        }
+    }
     private val previews = FakePreviews()
     private val plateEditor = FakePlateEditor()
 
@@ -314,11 +332,11 @@ class PrepareViewModelTest {
             settings,
             SliceProjectUseCase(engine, workspace, PlateConfigResolver(printSettings)),
             PlateToolsUseCase(plateEditor, PlateConfigResolver(printSettings)),
-            TestPrintHostUseCase(hosts),
             SendGcodeUseCase(hosts),
             PresetSwitcher(picker, printSettings, optionCatalog),
             SaveProjectUseCase(projects, PlateConfigResolver(printSettings), documents),
             documents,
+            printers,
         )
     }
 
@@ -365,11 +383,19 @@ class PrepareViewModelTest {
         assertEquals("/gcode/benchy.gcode", request.outputGcodePath)
         assertIs<SliceUiState.Done>(vm.state.value.slice)
 
-        vm.onIntent(PrepareIntent.SetHostAddress("printer.local"))
+        // Nowhere to send it until a printer is added.
+        assertNull(vm.state.value.printHost.config)
+        runBlocking {
+            printers.save(SavedPrinter("a", "Voron", PrintHostConfig(PrintHostType.MOONRAKER, "voron.local")))
+            printers.save(SavedPrinter("b", "Ender", PrintHostConfig(PrintHostType.OCTOPRINT, "printer.local")))
+        }
+        assertEquals("voron.local", vm.state.value.printHost.config?.baseUrl)
+        vm.onIntent(PrepareIntent.SelectPrinter("b"))
+        assertEquals("b", printers.chosen.value)
         vm.onIntent(PrepareIntent.SendToPrinter)
         assertEquals(PrintHostStatus.Sent(printing = false), vm.state.value.printHost.status)
         assertEquals(listOf("/gcode/benchy.gcode"), hosts.uploads)
-        assertEquals("printer.local", settings.host?.baseUrl)
+        assertEquals(listOf("printer.local"), hosts.sentTo)
     }
 
     @Test
@@ -436,8 +462,8 @@ class PrepareViewModelTest {
         assertEquals(PrintStartOptions(timeLapse = true), vm.state.value.printHost.startOptions)
 
         vm.onIntent(PrepareIntent.Slice)
-        vm.onIntent(PrepareIntent.SetHostType(PrintHostType.ELEGOO_LINK))
-        vm.onIntent(PrepareIntent.SetHostAddress("192.168.1.64"))
+        runBlocking { printers.save(SavedPrinter("c", "Centauri", PrintHostConfig(PrintHostType.ELEGOO_LINK, "192.168.1.64"))) }
+        assertTrue(vm.state.value.printHost.takesStartOptions)
         vm.onIntent(PrepareIntent.SetStartPrint(true))
         vm.onIntent(PrepareIntent.SetHeatedBedLeveling(true))
         vm.onIntent(PrepareIntent.SetBuildPlate(BuildPlateSide.SMOOTH))

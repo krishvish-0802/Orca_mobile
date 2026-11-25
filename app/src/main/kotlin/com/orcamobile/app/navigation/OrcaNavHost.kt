@@ -99,6 +99,8 @@ fun OrcaNavHost() {
                 onOpenSettings = { navController.navigate(Routes.SETTINGS) },
                 onOpenSetting = { key -> navController.navigate(Routes.setting(key)) },
                 onSavePresets = { navController.navigate(Routes.SAVE_PRESETS) },
+                onAddPrinter = { navController.navigate(Routes.ADD_PRINTER) },
+                onOpenPrinter = { id -> navController.navigate(Routes.printer(id)) },
                 onOpenObjectSettings = { project, objectIndex, volume, range ->
                     navController.navigate(Routes.objectSettings(project, objectIndex, volume, range))
                 },

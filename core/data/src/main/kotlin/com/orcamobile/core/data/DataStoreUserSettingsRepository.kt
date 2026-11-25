@@ -8,8 +8,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import com.orcamobile.core.domain.model.UserSettingsRepository
 import com.orcamobile.core.model.BuildPlateSide
 import com.orcamobile.core.model.PresetSelection
-import com.orcamobile.core.model.PrintHostConfig
-import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
 import kotlinx.coroutines.flow.first
 import javax.inject.Inject
@@ -44,22 +42,6 @@ class DataStoreUserSettingsRepository @Inject constructor(
             it[PROCESS] = selection.process
             it[FILAMENTS] = selection.filaments.joinToString(LIST_SEPARATOR)
             it[FILAMENT_COLOURS] = selection.filamentColours.joinToString(LIST_SEPARATOR)
-        }
-    }
-
-    override suspend fun printHost(): PrintHostConfig? {
-        val prefs = store.data.first()
-        val type = prefs[HOST_TYPE]?.let { name -> PrintHostType.entries.firstOrNull { it.name == name } } ?: return null
-        val address = prefs[HOST_ADDRESS] ?: return null
-        return PrintHostConfig(type, address, prefs[HOST_API_KEY])
-    }
-
-    override suspend fun savePrintHost(host: PrintHostConfig) {
-        store.edit {
-            it[HOST_TYPE] = host.type.name
-            it[HOST_ADDRESS] = host.baseUrl
-            val key = host.apiKey
-            if (key.isNullOrBlank()) it.remove(HOST_API_KEY) else it[HOST_API_KEY] = key
         }
     }
 
@@ -111,9 +93,6 @@ class DataStoreUserSettingsRepository @Inject constructor(
         val PROCESS = stringPreferencesKey("preset_process")
         val FILAMENTS = stringPreferencesKey("preset_filaments")
         val FILAMENT_COLOURS = stringPreferencesKey("preset_filament_colours")
-        val HOST_TYPE = stringPreferencesKey("host_type")
-        val HOST_ADDRESS = stringPreferencesKey("host_address")
-        val HOST_API_KEY = stringPreferencesKey("host_api_key")
         val START_TIME_LAPSE = booleanPreferencesKey("start_time_lapse")
         val START_BED_LEVELING = booleanPreferencesKey("start_bed_leveling")
         val START_PLATE = stringPreferencesKey("start_plate")

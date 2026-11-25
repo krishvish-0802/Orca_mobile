@@ -7,6 +7,7 @@ import com.orcamobile.core.domain.presets.PresetPicker
 import com.orcamobile.core.domain.presets.PresetSwitcher
 import com.orcamobile.core.domain.printer.PrintHostClient
 import com.orcamobile.core.domain.printer.PrintHostClientFactory
+import com.orcamobile.core.domain.printer.PrinterRepository
 import com.orcamobile.core.domain.settings.PrintSettingsRepository
 import com.orcamobile.core.domain.usecase.TestPrintHostUseCase
 import com.orcamobile.core.model.BedShape
@@ -18,21 +19,23 @@ import com.orcamobile.core.model.PrintHostConfig
 import com.orcamobile.core.model.PrintHostInfo
 import com.orcamobile.core.model.PrintHostType
 import com.orcamobile.core.model.PrintStartOptions
+import com.orcamobile.core.model.SavedPrinter
 import com.orcamobile.core.model.SettingsEdits
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
-import org.junit.After
-import org.junit.Before
-import org.junit.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
 import kotlin.test.assertTrue
+import org.junit.After
+import org.junit.Before
+import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class SetupViewModelTest {
@@ -50,16 +53,11 @@ class SetupViewModelTest {
 
     private class Settings : UserSettingsRepository {
         var selection: PresetSelection? = null
-        var host: PrintHostConfig? = null
         var done = false
         val shown = mutableMapOf<String, Set<String>>()
         override suspend fun presetSelection() = selection
         override suspend fun savePresetSelection(selection: PresetSelection) {
             this.selection = selection
-        }
-        override suspend fun printHost() = host
-        override suspend fun savePrintHost(host: PrintHostConfig) {
-            this.host = host
         }
         override suspend fun printStartOptions() = PrintStartOptions()
         override suspend fun savePrintStartOptions(options: PrintStartOptions) = Unit
@@ -102,9 +100,25 @@ class SetupViewModelTest {
     }
 
     private val settings = Settings()
+
+    private val printers = object : PrinterRepository {
+        val list = MutableStateFlow(emptyList<SavedPrinter>())
+        val chosen = MutableStateFlow<String?>(null)
+        override val printers: Flow<List<SavedPrinter>> = list
+        override val selected: Flow<String?> = chosen
+        override suspend fun save(printer: SavedPrinter) {
+            list.value = list.value.filterNot { it.id == printer.id } + printer
+        }
+        override suspend fun remove(id: String) {
+            list.value = list.value.filterNot { it.id == id }
+        }
+        override suspend fun select(id: String) {
+            chosen.value = id
+        }
+    }
     private val picker = PresetPicker(catalog, settings)
 
-    private fun viewModel() = SetupViewModel(picker, PresetSwitcher(picker, printSettings, options), catalog, settings, TestPrintHostUseCase(hosts))
+    private fun viewModel() = SetupViewModel(picker, PresetSwitcher(picker, printSettings, options), catalog, settings, TestPrintHostUseCase(hosts), printers)
 
     @Before
     fun setUp() = Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -136,7 +150,12 @@ class SetupViewModelTest {
 
         assertEquals(SetupEvent.Finished, vm.events.first())
         assertTrue(settings.done)
-        assertEquals(PrintHostConfig(PrintHostType.ELEGOO_LINK, "192.168.1.40"), settings.host)
+        // The printer joins the printer list, named for its model, and prints go to it.
+        val kept = printers.list.value.single()
+        assertEquals(PrintHostConfig(PrintHostType.ELEGOO_LINK, "192.168.1.40"), kept.host)
+        assertEquals("Elegoo Centauri Carbon", kept.name)
+        assertEquals(printer, kept.preset)
+        assertEquals(kept.id, printers.chosen.value)
         assertEquals(setOf("Elegoo PLA", "Generic PETG", "Polymaker PolyTerra PLA"), settings.shown[printer])
         // The lists now show only those.
         assertEquals(listOf("Elegoo PLA", "Generic PETG", "Polymaker PolyTerra PLA"), picker.choices.value.filaments)
