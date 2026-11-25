@@ -127,13 +127,13 @@ fun PrepareRoute(
             }
         }
     }
-    val context = LocalContext.current
+    val androidContext = LocalContext.current
     val savedText = stringResource(R.string.prepare_project_saved)
     LaunchedEffect(state.saveResult) {
         when (val result = state.saveResult) {
             null -> return@LaunchedEffect
-            is SaveResult.Saved -> Toast.makeText(context, result.name?.let { "$savedText: $it" } ?: savedText, Toast.LENGTH_SHORT).show()
-            is SaveResult.Failed -> Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+            is SaveResult.Saved -> Toast.makeText(androidContext, result.name?.let { "$savedText: $it" } ?: savedText, Toast.LENGTH_SHORT).show()
+            is SaveResult.Failed -> Toast.makeText(androidContext, result.message, Toast.LENGTH_LONG).show()
         }
         viewModel.onIntent(PrepareIntent.DismissSaveResult)
     }
