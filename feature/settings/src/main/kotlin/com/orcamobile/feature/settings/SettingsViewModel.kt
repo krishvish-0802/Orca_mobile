@@ -67,15 +67,15 @@ class SettingsViewModel @Inject constructor(
     /** Changes the rules made in a row: rules that keep changing the same thing stop being followed. */
     private var ruleRounds = 0
 
-    init {
-        loadJob = viewModelScope.launch { load() }
-    }
-
     private val _events = Channel<SettingsEvent>(Channel.BUFFERED)
     val events: Flow<SettingsEvent> = _events.receiveAsFlow()
 
-    /** The changes when this visit began (or the last save): what Discard goes back to. */
+    /** The changes when this visit began (or the last save): leaving asks only when this visit changed something. */
     private var visitStart: Map<String, String>? = null
+
+    init {
+        loadJob = viewModelScope.launch { load() }
+    }
 
     /** The settings this visit changed, for the presets' screen only (an object's apply as they are set). */
     private fun visitChanges(): Set<String> {
@@ -85,14 +85,12 @@ class SettingsViewModel @Inject constructor(
         return (start.keys + changes.keys).filterTo(mutableSetOf()) { start[it] != changes[it] }
     }
 
+    /** Leaves; discarding first takes the presets back to how they are saved, as the desktop's Discard does. */
     private fun leave(keep: Boolean) {
         val active = source
-        val start = visitStart
         viewModelScope.launch {
-            if (!keep && active != null && start != null) {
-                runCatching {
-                    for (key in visitChanges()) start[key]?.let { active.set(key, it) } ?: active.reset(key)
-                }
+            if (!keep && active != null) {
+                runCatching { for (key in changes.keys) active.reset(key) }
             }
             _state.update { it.copy(leaving = null) }
             _events.send(SettingsEvent.Left)
@@ -102,8 +100,8 @@ class SettingsViewModel @Inject constructor(
     fun onIntent(intent: SettingsIntent) {
         when (intent) {
             SettingsIntent.Leave -> {
-                val changed = visitChanges().size
-                if (changed > 0) _state.update { it.copy(leaving = changed) } else leave(keep = true)
+                // Asked when this visit changed something; the answer covers every unsaved change.
+                if (visitChanges().isNotEmpty()) _state.update { it.copy(leaving = changes.size) } else leave(keep = true)
                 return
             }
             is SettingsIntent.ConfirmLeave -> {

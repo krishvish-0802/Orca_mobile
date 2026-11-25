@@ -70,8 +70,8 @@
     </plurals>
     <string name="settings_leave_title">Save your changes?</string>
     <plurals name="settings_leave_body">
-        <item quantity="one">You changed %1$d setting. Keep it to slice with it now, or save it as your own preset to use it again later.</item>
-        <item quantity="other">You changed %1$d settings. Keep them to slice with them now, or save them as your own preset to use them again later.</item>
+        <item quantity="one">%1$d setting of these presets is changed and not saved. Keep it to slice with it now, save it as your own preset, or discard it to go back to the presets as saved.</item>
+        <item quantity="other">%1$d settings of these presets are changed and not saved. Keep them to slice with them now, save them as your own preset, or discard them to go back to the presets as saved.</item>
     </plurals>
     <string name="settings_leave_save">Save as preset</string>
     <string name="settings_leave_keep">Keep without saving</string>

@@ -48,7 +48,7 @@ data class SettingsUiState(
     val comparison: ComparisonUi? = null,
     /** The last import or export of presets, until dismissed. */
     val transfer: TransferUi? = null,
-    /** Leaving with settings changed on this visit: how many, while the screen asks what to do with them. */
+    /** Leaving after changing settings: how many are unsaved in all, while the screen asks what to do with them. */
     val leaving: Int? = null,
 ) {
     val changedCount: Int get() = changedByKind.values.sum()
@@ -170,7 +170,7 @@ sealed interface SettingsIntent {
     /** Back: asks first when settings of the presets were changed on this visit. */
     data object Leave : SettingsIntent
 
-    /** The answer to [SettingsUiState.leaving]: keep the changes, or discard this visit's; null stays. */
+    /** The answer to [SettingsUiState.leaving]: keep the changes, or discard them all; null stays. */
     data class ConfirmLeave(val keep: Boolean?) : SettingsIntent
 }
 

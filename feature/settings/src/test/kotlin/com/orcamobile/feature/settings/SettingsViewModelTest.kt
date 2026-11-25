@@ -305,7 +305,7 @@ class SettingsViewModelTest {
     }
 
     @Test
-    fun `leaving asks about this visit's changes, and discarding takes them back`() = kotlinx.coroutines.test.runTest {
+    fun `leaving after a change asks, and discarding takes the presets back to how they are saved`() = kotlinx.coroutines.test.runTest {
         kotlinx.coroutines.runBlocking { printSettings.set(presets, "sparse_infill_density", "40%") }
         val vm = viewModel()
         // Nothing changed on this visit: back just leaves.
@@ -314,15 +314,15 @@ class SettingsViewModelTest {
 
         vm.onIntent(SettingsIntent.Edit("layer_height", "0.12"))
         vm.onIntent(SettingsIntent.Leave)
-        assertEquals(1, vm.state.value.leaving)
+        // Every unsaved change: this visit's and the one from before.
+        assertEquals(2, vm.state.value.leaving)
         vm.onIntent(SettingsIntent.ConfirmLeave(null))
         assertNull(vm.state.value.leaving)
 
         vm.onIntent(SettingsIntent.Leave)
         vm.onIntent(SettingsIntent.ConfirmLeave(keep = false))
         assertEquals(SettingsEvent.Left, vm.events.first())
-        // The change from before this visit stays.
-        assertEquals(mapOf("sparse_infill_density" to "40%"), printSettings.state.value.values)
+        assertEquals(emptyMap(), printSettings.state.value.values)
     }
 
     @Test
