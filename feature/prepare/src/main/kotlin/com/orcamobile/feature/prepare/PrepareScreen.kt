@@ -320,21 +320,35 @@ fun PrepareRoute(
         onOpenSettings = onOpenSettings,
         onOpenSetting = onOpenSetting,
     )
-    state.leaving?.let { count -> LeaveDialog(count) { viewModel.onIntent(PrepareIntent.ConfirmLeave(it)) } }
+    state.leaving?.let { prompt -> LeaveDialog(prompt) { viewModel.onIntent(PrepareIntent.ConfirmLeave(it)) } }
 }
 
-/** Unsaved settings changes on leaving: keep them, discard them, or save them as presets first. */
+/**
+ * Leaving with unsaved changes: the plate's edits will be lost; settings
+ * changes can be kept, discarded, or saved as presets first. Stay goes back.
+ */
 @Composable
-private fun LeaveDialog(changes: Int, onChoice: (LeaveChoice?) -> Unit) {
+private fun LeaveDialog(prompt: LeavePrompt, onChoice: (LeaveChoice?) -> Unit) {
+    val settings = prompt.settingsChanges
     AlertDialog(
         onDismissRequest = { onChoice(null) },
-        title = { Text(stringResource(R.string.prepare_leave_title)) },
-        text = { Text(pluralStringResource(R.plurals.prepare_leave_body, changes, changes)) },
+        title = { Text(stringResource(if (settings > 0) R.string.prepare_leave_title else R.string.prepare_leave_plate_title)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (prompt.plateChanged) Text(stringResource(R.string.prepare_leave_plate_body))
+                if (settings > 0) Text(pluralStringResource(R.plurals.prepare_leave_body, settings, settings))
+            }
+        },
         confirmButton = {
-            Column {
-                TextButton(onClick = { onChoice(LeaveChoice.SAVE) }) { Text(stringResource(R.string.prepare_leave_save)) }
-                TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_keep)) }
-                TextButton(onClick = { onChoice(LeaveChoice.DISCARD) }) { Text(stringResource(R.string.prepare_leave_discard)) }
+            Column(horizontalAlignment = Alignment.End) {
+                if (settings > 0) {
+                    TextButton(onClick = { onChoice(LeaveChoice.SAVE) }) { Text(stringResource(R.string.prepare_leave_save)) }
+                    TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_keep)) }
+                    TextButton(onClick = { onChoice(LeaveChoice.DISCARD) }) { Text(stringResource(R.string.prepare_leave_discard)) }
+                } else {
+                    TextButton(onClick = { onChoice(LeaveChoice.KEEP) }) { Text(stringResource(R.string.prepare_leave_go)) }
+                }
+                TextButton(onClick = { onChoice(null) }) { Text(stringResource(R.string.prepare_leave_stay)) }
             }
         },
     )

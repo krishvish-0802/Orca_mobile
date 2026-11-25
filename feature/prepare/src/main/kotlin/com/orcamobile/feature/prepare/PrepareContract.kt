@@ -50,8 +50,8 @@ data class PrepareUiState(
     val unsaved: UnsavedPrompt? = null,
     /** The kinds of preset with changed settings: their chips say so. */
     val modifiedKinds: Set<PresetKind> = emptySet(),
-    /** Leaving with unsaved settings changes: how many, while the screen asks what to do with them. */
-    val leaving: Int? = null,
+    /** Leaving with unsaved changes, while the screen asks. */
+    val leaving: LeavePrompt? = null,
     /** The app-wide preset choice, changed from the chips under the plate. */
     val choices: PresetChoices = PresetChoices(),
     /** Grows when the engine moved the objects (e.g. onto a new printer's bed), so the plate redraws them. */
@@ -459,9 +459,12 @@ sealed interface PrepareIntent {
 /** Navigation argument: the model file to open. */
 const val PREPARE_MODEL_PATH_ARG = "modelPath"
 
+/** What leaving would lose: [settingsChanges] unsaved settings changes, and the plate's edits when [plateChanged]. */
+data class LeavePrompt(val settingsChanges: Int, val plateChanged: Boolean)
+
 /** What to do with unsaved settings changes on leaving. */
 enum class LeaveChoice {
-    /** Leave; the changes stay for the next slice. */
+    /** Leave; settings changes stay for the next slice (the plate's edits go). */
     KEEP,
 
     /** Take the presets back to how they are saved, then leave. */

@@ -167,8 +167,13 @@ class PrepareViewModel @Inject constructor(
             is PrepareIntent.SelectFilament -> changePreset(PresetChange.Filament(intent.slot, intent.filament))
             is PrepareIntent.ResolveUnsaved -> resolveUnsaved(intent.choice)
             PrepareIntent.Leave -> {
-                val changed = _state.value.changedSettings
-                if (changed > 0) _state.update { it.copy(leaving = changed) } else viewModelScope.launch { _events.send(PrepareEvent.Left) }
+                // The plate's edits are lost on leaving (projects aren't saved yet); settings changes can be kept.
+                val prompt = _state.value.let { LeavePrompt(it.changedSettings, it.canUndo) }
+                if (prompt.settingsChanges > 0 || prompt.plateChanged) {
+                    _state.update { it.copy(leaving = prompt) }
+                } else {
+                    viewModelScope.launch { _events.send(PrepareEvent.Left) }
+                }
             }
             is PrepareIntent.ConfirmLeave -> confirmLeave(intent.choice)
             PrepareIntent.AddFilament -> viewModelScope.launch { picker.addFilament() }

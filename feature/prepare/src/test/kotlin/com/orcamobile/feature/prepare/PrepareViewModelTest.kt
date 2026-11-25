@@ -500,7 +500,7 @@ class PrepareViewModelTest {
 
         printSettings.set(selection, "layer_height", "0.12")
         vm.onIntent(PrepareIntent.Leave)
-        assertEquals(1, vm.state.value.leaving)
+        assertEquals(LeavePrompt(settingsChanges = 1, plateChanged = false), vm.state.value.leaving)
         vm.onIntent(PrepareIntent.ConfirmLeave(LeaveChoice.SAVE))
         assertEquals(PrepareEvent.SaveChanges, vm.events.first())
         assertNull(vm.state.value.leaving)
@@ -908,6 +908,22 @@ class PrepareViewModelTest {
         assertTrue(vm.state.value.canUndo)
         assertFalse(vm.state.value.canRedo)
         assertNull(vm.state.value.plateTask)
+    }
+
+    @Test
+    fun `leaving after editing the plate warns the edits will be lost`() = kotlinx.coroutines.test.runTest {
+        val vm = viewModel(FakeProjects(Result.success(project)), FakeSettings(selection))
+        vm.onIntent(PrepareIntent.Arrange)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(LeavePrompt(settingsChanges = 0, plateChanged = true), vm.state.value.leaving)
+        // Stay.
+        vm.onIntent(PrepareIntent.ConfirmLeave(null))
+        assertNull(vm.state.value.leaving)
+
+        // Undone back to how it opened: nothing to lose.
+        vm.onIntent(PrepareIntent.Undo)
+        vm.onIntent(PrepareIntent.Leave)
+        assertEquals(PrepareEvent.Left, vm.events.first())
     }
 
     @Test

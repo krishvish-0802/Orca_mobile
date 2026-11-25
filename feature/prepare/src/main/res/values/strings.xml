@@ -539,4 +539,8 @@
     <string name="prepare_leave_save">Save as preset</string>
     <string name="prepare_leave_keep">Keep without saving</string>
     <string name="prepare_leave_discard">Discard</string>
+    <string name="prepare_leave_plate_title">Leave this plate?</string>
+    <string name="prepare_leave_plate_body">Your changes to the models on the plate (moves, turns, cuts, paint) will be lost. The app can\'t save projects yet.</string>
+    <string name="prepare_leave_go">Leave</string>
+    <string name="prepare_leave_stay">Stay</string>
 </resources>
